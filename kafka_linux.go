@@ -14,7 +14,7 @@ var producer *kafka.Producer
 var consumer *kafka.Consumer
 
 func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
-	handler func(chan KafkaEnvelope, chan KafkaEnvelope)) error {
+	handler func(request chan KafkaEnvelope, reply chan KafkaEnvelope)) error {
 
 	sink = kafkaSink
 	err := kafkaConfiguration(bootstrapServers, kafkaSource)
