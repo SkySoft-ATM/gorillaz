@@ -53,6 +53,13 @@ func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 					}
 				}
 			}(pc)
+
+			go func(pc sarama.PartitionConsumer) {
+				for error := range pc.Errors() {
+					Log.Error("Error while consuming data",
+						zap.Error(error))
+				}
+			}(pc)
 		}
 	}()
 
