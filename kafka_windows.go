@@ -14,6 +14,11 @@ var consumer sarama.Consumer
 func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 	handler func(request chan KafkaEnvelope, reply chan KafkaEnvelope)) error {
 
+	Log.Info("Creation of a new Kafka service",
+		zap.String("server", bootstrapServers),
+		zap.String("source", kafkaSource),
+		zap.String("sink", kafkaSink))
+
 	sink = kafkaSink
 	brokerList := strings.Split(bootstrapServers, ",")
 	kafkaConfiguration(brokerList, kafkaSource)
