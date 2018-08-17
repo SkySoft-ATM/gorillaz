@@ -8,6 +8,8 @@ import (
 )
 
 func ParseConfiguration() {
+	flag.String("conf", "configs", "config file. default: configs")
+	flag.String("log.level", "", "Log level")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
