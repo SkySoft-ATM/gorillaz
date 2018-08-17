@@ -13,7 +13,7 @@ var sink string
 var producer *kafka.Producer
 var consumer *kafka.Consumer
 
-func Configure(bootstrapServers string, kafkaSource string, kafkaSink string,
+func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 	handler func(chan KafkaEnvelope, chan KafkaEnvelope)) error {
 
 	sink = kafkaSink

@@ -11,7 +11,7 @@ var sink string
 var producer sarama.AsyncProducer
 var consumer sarama.Consumer
 
-func Configure(bootstrapServers string, kafkaSource string, kafkaSink string,
+func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 	handler func(chan KafkaEnvelope, chan KafkaEnvelope)) error {
 	sink = kafkaSink
 	brokerList := strings.Split(bootstrapServers, ",")
