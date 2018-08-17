@@ -13,16 +13,8 @@ var sink string
 var producer *kafka.Producer
 var consumer *kafka.Consumer
 
-const Headers = "headers"
-const Span = "span"
-
-type Message struct {
-	Data []byte
-	Ctx  context.Context
-}
-
 func Configure(bootstrapServers string, kafkaSource string, kafkaSink string,
-	handler func(chan Message, chan Message)) error {
+	handler func(chan KafkaEnvelope, chan KafkaEnvelope)) error {
 
 	sink = kafkaSink
 	err := kafkaConfiguration(bootstrapServers, kafkaSource)
@@ -31,8 +23,8 @@ func Configure(bootstrapServers string, kafkaSource string, kafkaSink string,
 	}
 
 	// Trigger goroutines
-	request := make(chan Message)
-	reply := make(chan Message)
+	request := make(chan KafkaEnvelope)
+	reply := make(chan KafkaEnvelope)
 	for i := 0; i < Cores(); i++ {
 		go handler(request, reply)
 	}
@@ -50,7 +42,7 @@ func Configure(bootstrapServers string, kafkaSource string, kafkaSink string,
 
 			ctx := context.WithValue(nil, Headers, message.Headers)
 
-			request <- Message{
+			request <- KafkaEnvelope{
 				Data: message.Value,
 				Ctx:  ctx,
 			}
@@ -70,7 +62,7 @@ func Configure(bootstrapServers string, kafkaSource string, kafkaSink string,
 		uuid, _ := uuid.NewV4()
 		Send(uuid.Bytes(), data, headers)
 
-		Trace(span, log.String("log", "Message sent"))
+		Trace(span, log.String("log", "KafkaEnvelope sent"))
 		StopSpan(span)
 	}
 
