@@ -64,7 +64,7 @@ func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 		}
 
 		headers := inject(span)
-		uuid, _ := uuid.NewV4()
+		uuid := uuid.NewV4()
 		Send(uuid.Bytes(), data, headers)
 
 		Trace(span, log.String("log", "Message sent"))
