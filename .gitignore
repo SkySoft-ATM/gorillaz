@@ -6,3 +6,5 @@ vendor
 Gopkg.lock
 vendor.orig
 gorillaz.iml
+vendor
+Gopkg.lock
