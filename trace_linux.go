@@ -22,7 +22,7 @@ func InitTracing() {
 	collector, err := zipkintracer.NewKafkaCollector([]string{bootstrapServers},
 		zipkintracer.KafkaTopic("tracing"))
 	if err != nil {
-		log.Fatalf("Unable to start Zipkin collector on %s: %s", bootstrapServers, err)
+		log.Fatalf("Unable to start Zipkin collector on server %v: %s", bootstrapServers, err)
 		panic(err)
 	}
 
