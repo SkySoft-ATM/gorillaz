@@ -17,7 +17,7 @@ type kafkaMessageWrapper struct {
 	headers []kafka.Header
 }
 
-func init() {
+func InitTracing() {
 	bootstrapServers := viper.GetString("kafka.bootstrapservers")
 	collector, err := zipkintracer.NewKafkaCollector([]string{bootstrapServers},
 		zipkintracer.KafkaTopic("tracing"))

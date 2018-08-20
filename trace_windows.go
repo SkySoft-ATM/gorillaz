@@ -7,7 +7,7 @@ import (
 
 var tracer opentracing.Tracer
 
-func init() {
+func InitTracing() {
 
 }
 

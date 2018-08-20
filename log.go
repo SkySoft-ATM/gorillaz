@@ -8,7 +8,7 @@ import (
 
 var Log *zap.Logger
 
-func init() {
+func InitLogs() {
 	config := zap.NewProductionConfig()
 
 	logLevel := viper.GetString("log.level")
