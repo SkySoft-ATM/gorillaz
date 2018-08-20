@@ -2,7 +2,7 @@ package gorillaz
 
 import "context"
 
-const Headers = "headers"
+const KafkaHeaders = "headers"
 const Span = "span"
 
 type KafkaEnvelope struct {

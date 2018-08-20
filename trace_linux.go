@@ -13,6 +13,10 @@ import (
 
 var tracer opentracing.Tracer
 
+type kafkaMessageWrapper struct {
+	headers []kafka.Header
+}
+
 func init() {
 	bootstrapServers := viper.GetString("kafka.bootstrapservers")
 	collector, err := zipkintracer.NewKafkaCollector([]string{bootstrapServers},
@@ -28,10 +32,6 @@ func init() {
 		log.Fatalf("Unable to start Zipkin tracer: %s", err)
 		panic(err)
 	}
-}
-
-type kafkaMessageWrapper struct {
-	headers []kafka.Header
 }
 
 func (m *kafkaMessageWrapper) Set(key, val string) {
@@ -51,7 +51,7 @@ func (m *kafkaMessageWrapper) ForeachKey(handler func(key, val string) error) er
 	return nil
 }
 
-func MapHeaders(headers []kafka.Header) opentracing.TextMapReader {
+func mapHeaders(headers []kafka.Header) opentracing.TextMapReader {
 	return &kafkaMessageWrapper{headers}
 }
 
@@ -60,7 +60,10 @@ func StartNewSpan(spanName string) opentracing.Span {
 	return span
 }
 
-func StartSpan(spanName string, reader opentracing.TextMapReader) opentracing.Span {
+func StartSpan(spanName string, env KafkaEnvelope) opentracing.Span {
+	header := env.Ctx.Value(KafkaHeaders).([]kafka.Header)
+	reader := mapHeaders(header)
+
 	ctx, err := tracer.Extract(opentracing.TextMap, reader)
 	if err != nil {
 		Log.Error("Error while extracting span information", zap.Error(err))
@@ -76,7 +79,7 @@ func StartSpan(spanName string, reader opentracing.TextMapReader) opentracing.Sp
 	return span
 }
 
-func Inject(span opentracing.Span) []kafka.Header {
+func inject(span opentracing.Span) []kafka.Header {
 	wrapper := kafkaMessageWrapper{}
 	err := tracer.Inject(span.Context(), opentracing.TextMap, &wrapper)
 	if err != nil {
@@ -89,6 +92,6 @@ func Trace(span opentracing.Span, fields ...zlog.Field) {
 	span.LogFields(fields...)
 }
 
-func StopSpan(span opentracing.Span) {
+func FinishSpan(span opentracing.Span) {
 	span.Finish()
 }

@@ -45,7 +45,7 @@ func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 					zap.Error(err))
 			}
 
-			ctx := context.WithValue(nil, Headers, message.Headers)
+			ctx := context.WithValue(nil, KafkaHeaders, message.Headers)
 
 			request <- KafkaEnvelope{
 				Data: message.Value,
@@ -63,12 +63,11 @@ func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 			continue
 		}
 
-		headers := Inject(span)
+		headers := inject(span)
 		uuid, _ := uuid.NewV4()
 		Send(uuid.Bytes(), data, headers)
 
-		Trace(span, log.String("log", "KafkaEnvelope sent"))
-		StopSpan(span)
+		Trace(span, log.String("log", "Message sent"))
 	}
 
 	return nil
