@@ -69,7 +69,7 @@ func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
 			continue
 		}
 
-		uuid, _ := uuid.NewV4()
+		uuid := uuid.NewV4()
 		Send(uuid.String(), r.Data)
 	}
 
