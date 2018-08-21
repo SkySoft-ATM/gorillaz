@@ -17,7 +17,7 @@ func KafkaService(source string, sink string, groupId string,
 
 	bootstrapServers := viper.GetString("kafka.bootstrapservers")
 
-	Log.Info("Creation of a new Kafka service",
+	Log.Info("Creation of a newx Kafka service",
 		zap.String("server", bootstrapServers),
 		zap.String("source", source),
 		zap.String("sink", sink))
