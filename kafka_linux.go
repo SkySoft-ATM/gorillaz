@@ -8,8 +8,6 @@ import (
 	"github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
 )
 
 func KafkaService(source string, sink string, groupId string,
@@ -26,16 +24,6 @@ func KafkaService(source string, sink string, groupId string,
 	if err != nil {
 		return err
 	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func(){
-		for range c {
-			Log.Info("Closing consumer")
-			consumer.Close()
-			return
-		}
-	}()
 
 	producer, err := kafkaProducer(bootstrapServers)
 	if err != nil {
@@ -55,7 +43,52 @@ func KafkaService(source string, sink string, groupId string,
 	return nil
 }
 
-func consume(consumer *kafka.Consumer, source string, request chan KafkaEnvelope)  {
+func KafkaConsumer(source string, groupId string,
+	handler func(request chan KafkaEnvelope)) error {
+
+	bootstrapServers := viper.GetString("kafka.bootstrapservers")
+
+	Log.Info("Creation of a new Kafka consumer",
+		zap.String("server", bootstrapServers),
+		zap.String("source", source))
+
+	consumer, err := kafkaConsumer(bootstrapServers, source, groupId)
+	if err != nil {
+		return err
+	}
+
+	// Trigger goroutines
+	request := make(chan KafkaEnvelope)
+	for i := 0; i < Cores(); i++ {
+		go handler(request)
+	}
+
+	go consume(consumer, source, request)
+
+	return nil
+}
+
+func KafkaProducer(sink string) (chan KafkaEnvelope, error) {
+	bootstrapServers := viper.GetString("kafka.bootstrapservers")
+
+	Log.Info("Creation of a new Kafka producer",
+		zap.String("server", bootstrapServers),
+		zap.String("sink", sink))
+
+	producer, err := kafkaProducer(bootstrapServers)
+	if err != nil {
+		return nil, err
+	}
+
+	// Trigger goroutines
+	reply := make(chan KafkaEnvelope)
+
+	go produce(producer, sink, reply)
+
+	return reply, nil
+}
+
+func consume(consumer *kafka.Consumer, source string, request chan KafkaEnvelope) {
 	consumer.SubscribeTopics([]string{source}, nil)
 
 	for {
@@ -75,7 +108,7 @@ func consume(consumer *kafka.Consumer, source string, request chan KafkaEnvelope
 	}
 }
 
-func produce(producer *kafka.Producer, sink string, reply chan KafkaEnvelope)  {
+func produce(producer *kafka.Producer, sink string, reply chan KafkaEnvelope) {
 	for r := range reply {
 		data := r.Data
 		span := r.Ctx.Value(Span).(opentracing.Span)
