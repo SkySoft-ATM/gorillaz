@@ -19,6 +19,7 @@ type kafkaMessageWrapper struct {
 
 func InitTracing() {
 	bootstrapServers := viper.GetString("kafka.bootstrapservers")
+	tracingName := viper.GetString("tracing.service.name")
 	collector, err := zipkintracer.NewKafkaCollector([]string{bootstrapServers},
 		zipkintracer.KafkaTopic("tracing"))
 	if err != nil {
@@ -26,7 +27,7 @@ func InitTracing() {
 		panic(err)
 	}
 
-	recorder := zipkintracer.NewRecorder(collector, false, "", "ms-asterix-airmap")
+	recorder := zipkintracer.NewRecorder(collector, false, "", tracingName)
 	tracer, err = zipkintracer.NewTracer(recorder)
 	if err != nil {
 		log.Fatalf("Unable to start Zipkin tracer: %s", err)

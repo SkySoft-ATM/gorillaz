@@ -5,14 +5,17 @@ import (
 	"github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"strings"
+	"github.com/spf13/viper"
 )
 
 var sink string
 var producer sarama.AsyncProducer
 var consumer sarama.Consumer
 
-func KafkaService(bootstrapServers string, kafkaSource string, kafkaSink string,
+func KafkaService(kafkaSource string, kafkaSink string, kafkaGroupId string,
 	handler func(request chan KafkaEnvelope, reply chan KafkaEnvelope)) error {
+
+	bootstrapServers := viper.GetString("kafka.bootstrapservers")
 
 	Log.Info("Creation of a new Kafka service",
 		zap.String("server", bootstrapServers),
