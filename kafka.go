@@ -149,7 +149,7 @@ func produce(producer sarama.AsyncProducer, sink string, reply chan KafkaEnvelop
 			span := r.Ctx.Value(Span).(opentracing.Span)
 			headers := inject(span)
 			uuid := uuid.NewV4()
-			send(producer, sink, uuid.String(), r.Data)
+			send(producer, sink, headers, uuid.String(), r.Data)
 		}
 	}()
 }
