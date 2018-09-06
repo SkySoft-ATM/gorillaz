@@ -146,8 +146,11 @@ func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope
 func produce(producer sarama.AsyncProducer, sink string, reply chan KafkaEnvelope) {
 	go func() {
 		for r := range reply {
-			span := r.Ctx.Value(Span).(opentracing.Span)
-			headers := inject(span)
+			var headers []sarama.RecordHeader
+			if r.Ctx != nil {
+				span := r.Ctx.Value(Span).(opentracing.Span)
+				headers = inject(span)
+			}
 			uuid := uuid.NewV4()
 			send(producer, sink, headers, uuid.String(), r.Data)
 		}
