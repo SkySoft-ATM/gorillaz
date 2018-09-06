@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"context"
 	"github.com/Shopify/sarama"
+	"github.com/opentracing/opentracing-go"
 	"github.com/satori/go.uuid"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -106,15 +107,6 @@ func KafkaConsumer(bootstrapServers string, source string, groupId string,
 	return nil
 }
 
-func produce(producer sarama.AsyncProducer, sink string, reply chan KafkaEnvelope) {
-	go func() {
-		for r := range reply {
-			uuid := uuid.NewV4()
-			send(producer, sink, uuid.String(), r.Data)
-		}
-	}()
-}
-
 func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope) error {
 	partitions, err := consumer.Partitions(source)
 	if err != nil {
@@ -131,8 +123,11 @@ func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope
 		}
 		go func(pc sarama.PartitionConsumer) {
 			for message := range pc.Messages() {
+				ctx := context.WithValue(nil, KafkaHeaders, message.Headers)
+
 				request <- KafkaEnvelope{
 					Data: message.Value,
+					Ctx:  ctx,
 				}
 			}
 		}(pc)
@@ -146,6 +141,17 @@ func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope
 	}
 
 	return nil
+}
+
+func produce(producer sarama.AsyncProducer, sink string, reply chan KafkaEnvelope) {
+	go func() {
+		for r := range reply {
+			span := r.Ctx.Value(Span).(opentracing.Span)
+			headers := inject(span)
+			uuid := uuid.NewV4()
+			send(producer, sink, uuid.String(), r.Data)
+		}
+	}()
 }
 
 func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
@@ -182,15 +188,16 @@ func createKafkaConsumer(brokerList []string) (sarama.Consumer, error) {
 	return c, nil
 }
 
-func send(producer sarama.AsyncProducer, sink string, key string, value []byte) {
+func send(producer sarama.AsyncProducer, sink string, headers []sarama.RecordHeader, key string, value []byte) {
 	Log.Debug("Sending message to Kafka",
 		zap.String("key", key),
 		zap.String("value", string(value)),
 		zap.String("topic", sink))
 
 	producer.Input() <- &sarama.ProducerMessage{
-		Topic: sink,
-		Key:   sarama.StringEncoder(key),
-		Value: sarama.ByteEncoder(value),
+		Topic:   sink,
+		Key:     sarama.StringEncoder(key),
+		Value:   sarama.ByteEncoder(value),
+		Headers: headers,
 	}
 }

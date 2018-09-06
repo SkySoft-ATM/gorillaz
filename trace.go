@@ -1,7 +1,7 @@
 package gorillaz
 
 import (
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/Shopify/sarama"
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
 	"github.com/openzipkin/zipkin-go-opentracing"
@@ -14,12 +14,13 @@ import (
 var tracer opentracing.Tracer
 
 type kafkaMessageWrapper struct {
-	headers []kafka.Header
+	headers []sarama.RecordHeader
 }
 
 func InitTracing() {
 	bootstrapServers := viper.GetString("kafka.bootstrapservers")
 	tracingName := viper.GetString("tracing.service.name")
+
 	collector, err := zipkintracer.NewKafkaCollector([]string{bootstrapServers},
 		zipkintracer.KafkaTopic("tracing"))
 	if err != nil {
@@ -37,22 +38,22 @@ func InitTracing() {
 
 func (m *kafkaMessageWrapper) Set(key, val string) {
 	if m.headers == nil {
-		m.headers = make([]kafka.Header, 0)
+		m.headers = make([]sarama.RecordHeader, 0)
 	}
 
 	m.headers = append(m.headers,
-		kafka.Header{Key: strings.ToLower(key), Value: []byte(val)})
+		sarama.RecordHeader{Key: []byte(strings.ToLower(key)), Value: []byte(val)})
 }
 
 func (m *kafkaMessageWrapper) ForeachKey(handler func(key, val string) error) error {
 	for _, v := range m.headers {
-		handler(strings.ToLower(v.Key), string(v.Value))
+		handler(strings.ToLower(string(v.Key)), string(v.Value))
 	}
 
 	return nil
 }
 
-func mapHeaders(headers []kafka.Header) opentracing.TextMapReader {
+func mapHeaders(headers []sarama.RecordHeader) opentracing.TextMapReader {
 	return &kafkaMessageWrapper{headers}
 }
 
@@ -62,7 +63,7 @@ func StartNewSpan(spanName string) opentracing.Span {
 }
 
 func StartSpan(spanName string, env KafkaEnvelope) opentracing.Span {
-	header := env.Ctx.Value(KafkaHeaders).([]kafka.Header)
+	header := env.Ctx.Value(KafkaHeaders).([]sarama.RecordHeader)
 	reader := mapHeaders(header)
 
 	ctx, err := tracer.Extract(opentracing.TextMap, reader)
@@ -80,7 +81,7 @@ func StartSpan(spanName string, env KafkaEnvelope) opentracing.Span {
 	return span
 }
 
-func inject(span opentracing.Span) []kafka.Header {
+func inject(span opentracing.Span) []sarama.RecordHeader {
 	wrapper := kafkaMessageWrapper{}
 	err := tracer.Inject(span.Context(), opentracing.TextMap, &wrapper)
 	if err != nil {
