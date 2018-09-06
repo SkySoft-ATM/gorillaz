@@ -1,4 +1,6 @@
-## Configuration
+# gorillaz: a Go common library
+
+## Dependency
 
 Add the following elements in the dep file:
 ```toml
