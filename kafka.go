@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/Shopify/sarama"
 	"github.com/opentracing/opentracing-go"
-	"github.com/satori/go.uuid"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"strings"
@@ -14,6 +13,7 @@ const KafkaHeaders = "headers"
 const Span = "span"
 
 type KafkaEnvelope struct {
+	Key  []byte
 	Data []byte
 	Ctx  context.Context
 }
@@ -126,6 +126,7 @@ func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope
 				ctx := context.WithValue(nil, KafkaHeaders, message.Headers)
 
 				request <- KafkaEnvelope{
+					Key:  message.Key,
 					Data: message.Value,
 					Ctx:  ctx,
 				}
@@ -151,8 +152,7 @@ func produce(producer sarama.AsyncProducer, sink string, reply chan KafkaEnvelop
 				span := r.Ctx.Value(Span).(opentracing.Span)
 				headers = inject(span)
 			}
-			uuid := uuid.NewV4()
-			send(producer, sink, headers, uuid.String(), r.Data)
+			send(producer, sink, headers, r.Key, r.Data)
 		}
 	}()
 }
@@ -191,15 +191,15 @@ func createKafkaConsumer(brokerList []string) (sarama.Consumer, error) {
 	return c, nil
 }
 
-func send(producer sarama.AsyncProducer, sink string, headers []sarama.RecordHeader, key string, value []byte) {
+func send(producer sarama.AsyncProducer, sink string, headers []sarama.RecordHeader, key []byte, value []byte) {
 	Log.Debug("Sending message to Kafka",
-		zap.String("key", key),
+		zap.ByteString("key", key),
 		zap.String("value", string(value)),
 		zap.String("topic", sink))
 
 	producer.Input() <- &sarama.ProducerMessage{
 		Topic:   sink,
-		Key:     sarama.StringEncoder(key),
+		Key:     sarama.ByteEncoder(key),
 		Value:   sarama.ByteEncoder(value),
 		Headers: headers,
 	}
