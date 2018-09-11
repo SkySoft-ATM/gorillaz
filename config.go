@@ -37,7 +37,7 @@ func makePropertiesKeysConfigurable(filename string) error {
 	return nil
 }
 
-func parseConfiguration() {
+func parseConfiguration(context map[string]interface{}) {
 	var conf string
 	flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
 	flag.String("log.level", "", "Log level")
@@ -49,6 +49,10 @@ func parseConfiguration() {
 	viper.SetConfigName("application")
 	configFile := viper.GetString("conf")
 	viper.AddConfigPath(configFile)
+
+	for k, v := range context {
+		viper.Set(k, v)
+	}
 
 	err := viper.ReadInConfig()
 

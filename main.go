@@ -2,11 +2,11 @@ package gorillaz
 
 import "github.com/spf13/viper"
 
-func Init() {
-	parseConfiguration()
+func Init(context map[string]interface{}) {
+	parseConfiguration(context)
 	InitLogs()
 
-	tracing := viper.GetBool("tracing")
+	tracing := viper.GetBool("tracing.enabled")
 	if tracing {
 		InitTracing()
 	}
