@@ -3,7 +3,6 @@ package gorillaz
 import (
 	"bufio"
 	"flag"
-	"fmt"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -11,6 +10,8 @@ import (
 	"os"
 	"strings"
 )
+
+var tracing bool
 
 func getPropertiesKeys(scanner bufio.Scanner) map[string]string {
 	m := make(map[string]string)
@@ -32,7 +33,6 @@ func makePropertiesKeysConfigurable(filename string) error {
 	scanner := bufio.NewScanner(f)
 	m := getPropertiesKeys(*scanner)
 	for k, v := range m {
-		fmt.Printf("%v\n", k)
 		flag.String(k, v, "")
 	}
 
@@ -41,10 +41,10 @@ func makePropertiesKeysConfigurable(filename string) error {
 
 func parseConfiguration() {
 	var conf string
-	flag.String("conf", "configs", "config file. default: configs")
 	flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
 	flag.String("log.level", "", "Log level")
-	makePropertiesKeysConfigurable(conf)
+	flag.BoolVar(&tracing, "tracing", true, "enable tracing mode")
+	makePropertiesKeysConfigurable(conf + "/application.properties")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
