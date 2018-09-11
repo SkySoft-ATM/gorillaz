@@ -11,17 +11,13 @@ import (
 type data struct {
 	Package string
 	Name    string
-	Source  string
 	Sink    string
-	Group   string
 }
 
 func main() {
 	var d data
 	flag.StringVar(&d.Name, "name", "", "Name name")
-	flag.StringVar(&d.Source, "source", "kafka.source", "Kafka source configuration")
 	flag.StringVar(&d.Sink, "sink", "kafka.sink", "Kafka sink configuration")
-	flag.StringVar(&d.Group, "group", "groupid", "Kafka group id")
 	flag.Parse()
 
 	t := template.Must(template.New("service").Parse(serviceTemplate))
@@ -44,21 +40,11 @@ var serviceTemplate = `package {{.Package}}
 
 import (
 	gaz "github.com/skysoft-atm/gorillaz"
-	"go.uber.org/zap"
 	"github.com/spf13/viper"
 )
 
-func create{{.Name}}Service()  {
-	go gaz.KafkaService("",
-		viper.GetString("{{.Source}}"),
-		viper.GetString("{{.Sink}}"),
-		"{{.Group}}",
-		handler{{.Name}})
-}
-
-func handler{{.Name}}(request chan gaz.KafkaEnvelope, reply chan gaz.KafkaEnvelope) {
-	for r := range request {
-		gaz.Log.Debug("Handling {{.Name}}: %v", zap.ByteString("data", r.Data))
-	}
+func create{{.Name}}Producer() (chan gaz.KafkaEnvelope, error) {
+	return gaz.KafkaProducer("",
+		viper.GetString("{{.Sink}}"))
 }
 `

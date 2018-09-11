@@ -20,7 +20,6 @@ func main() {
 	var d data
 	flag.StringVar(&d.Name, "name", "", "Name name")
 	flag.StringVar(&d.Source, "source", "kafka.source", "Kafka source configuration")
-	flag.StringVar(&d.Sink, "sink", "kafka.sink", "Kafka sink configuration")
 	flag.StringVar(&d.Group, "group", "groupid", "Kafka group id")
 	flag.Parse()
 
@@ -49,14 +48,13 @@ import (
 )
 
 func create{{.Name}}Service()  {
-	go gaz.KafkaService("",
+	go gaz.KafkaConsumer("",
 		viper.GetString("{{.Source}}"),
-		viper.GetString("{{.Sink}}"),
 		"{{.Group}}",
 		handler{{.Name}})
 }
 
-func handler{{.Name}}(request chan gaz.KafkaEnvelope, reply chan gaz.KafkaEnvelope) {
+func handler{{.Name}}(request chan gaz.KafkaEnvelope) {
 	for r := range request {
 		gaz.Log.Debug("Handling {{.Name}}: %v", zap.ByteString("data", r.Data))
 	}
