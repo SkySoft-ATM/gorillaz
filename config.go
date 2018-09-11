@@ -11,8 +11,6 @@ import (
 	"strings"
 )
 
-var tracing bool
-
 func getPropertiesKeys(scanner bufio.Scanner) map[string]string {
 	m := make(map[string]string)
 
@@ -43,7 +41,6 @@ func parseConfiguration() {
 	var conf string
 	flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
 	flag.String("log.level", "", "Log level")
-	flag.BoolVar(&tracing, "tracing", true, "enable tracing mode")
 	makePropertiesKeysConfigurable(conf + "/application.properties")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
