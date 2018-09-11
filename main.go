@@ -1,13 +1,13 @@
 package gorillaz
 
-import "flag"
+import "github.com/spf13/viper"
 
-func Init() {
-	flag.String("kafka.bootstrapservers", "", "Kafka bootstrap servers")
-	flag.String("kafka.source", "", "Kafka source topic")
-	flag.String("kafka.sink", "", "Kafka sink topic")
-
-	parseConfiguration()
+func Init(context map[string]interface{}) {
+	parseConfiguration(context)
 	InitLogs()
-	InitTracing()
+
+	tracing := viper.GetBool("tracing.enabled")
+	if tracing {
+		InitTracing()
+	}
 }
