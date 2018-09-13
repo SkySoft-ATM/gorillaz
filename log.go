@@ -7,10 +7,10 @@ import (
 )
 
 var Log *zap.Logger
+var Sugar *zap.SugaredLogger
 
 func InitLogs() {
 	config := zap.NewProductionConfig()
-
 	logLevel := viper.GetString("log.level")
 
 	config.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
@@ -31,6 +31,7 @@ func InitLogs() {
 		panic(err)
 	}
 	Log = l
+	Sugar = Log.Sugar()
 }
 
 func NewLogger(level zapcore.Level) {
@@ -53,4 +54,5 @@ func NewLogger(level zapcore.Level) {
 		panic(err)
 	}
 	Log = l
+	Sugar = Log.Sugar()
 }
