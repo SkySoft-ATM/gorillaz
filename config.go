@@ -5,7 +5,6 @@ import (
 	"flag"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 	"log"
 	"os"
 	"strings"
@@ -26,7 +25,8 @@ func getPropertiesKeys(scanner bufio.Scanner) map[string]string {
 func makePropertiesKeysConfigurable(filename string) error {
 	f, err := os.Open(filename)
 	if err != nil {
-		Log.Error("unable to open properties file", zap.String("file", filename))
+		log.Fatalf("Unable to open properties file %v", filename)
+		return err
 	}
 	scanner := bufio.NewScanner(f)
 	m := getPropertiesKeys(*scanner)
@@ -39,7 +39,13 @@ func makePropertiesKeysConfigurable(filename string) error {
 
 func parseConfiguration(context map[string]interface{}) {
 	var conf string
-	flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
+
+	if v, contains := context["conf"]; contains {
+		conf = v.(string)
+	} else {
+		flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
+	}
+
 	flag.String("log.level", "", "Log level")
 	makePropertiesKeysConfigurable(conf + "/application.properties")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -47,14 +53,13 @@ func parseConfiguration(context map[string]interface{}) {
 	viper.BindPFlags(pflag.CommandLine)
 
 	viper.SetConfigName("application")
-	configFile := viper.GetString("conf")
-	viper.AddConfigPath(configFile)
-
-	for k, v := range context {
-		viper.Set(k, v)
-	}
+	viper.AddConfigPath(conf)
 
 	err := viper.ReadInConfig()
+
+	//for k, v := range context {
+	//	viper.Set(k, v)
+	//}
 
 	if err != nil {
 		log.Fatalf("Unable to load configuration: %s", err)
