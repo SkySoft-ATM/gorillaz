@@ -57,9 +57,9 @@ func parseConfiguration(context map[string]interface{}) {
 
 	err := viper.ReadInConfig()
 
-	//for k, v := range context {
-	//	viper.Set(k, v)
-	//}
+	for k, v := range context {
+		viper.Set(k, v)
+	}
 
 	if err != nil {
 		log.Fatalf("Unable to load configuration: %s", err)
