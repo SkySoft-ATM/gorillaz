@@ -38,30 +38,33 @@ func makePropertiesKeysConfigurable(filename string) error {
 }
 
 func parseConfiguration(context map[string]interface{}) {
-	var conf string
+	// If parsing already done
+	if flag.Parsed() {
+		var conf string
 
-	if v, contains := context["conf"]; contains {
-		conf = v.(string)
-	} else {
-		flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
+		if v, contains := context["conf"]; contains {
+			conf = v.(string)
+		} else {
+			flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
+		}
+
+		flag.String("log.level", "", "Log level")
+		makePropertiesKeysConfigurable(conf + "/application.properties")
+		pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+		pflag.Parse()
+		viper.BindPFlags(pflag.CommandLine)
+
+		viper.SetConfigName("application")
+		viper.AddConfigPath(conf)
+
+		err := viper.ReadInConfig()
+
+		if err != nil {
+			log.Fatalf("Unable to load configuration: %s", err)
+		}
 	}
-
-	flag.String("log.level", "", "Log level")
-	makePropertiesKeysConfigurable(conf + "/application.properties")
-	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
-	pflag.Parse()
-	viper.BindPFlags(pflag.CommandLine)
-
-	viper.SetConfigName("application")
-	viper.AddConfigPath(conf)
-
-	err := viper.ReadInConfig()
 
 	for k, v := range context {
 		viper.Set(k, v)
-	}
-
-	if err != nil {
-		log.Fatalf("Unable to load configuration: %s", err)
 	}
 }
