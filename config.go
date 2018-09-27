@@ -39,7 +39,7 @@ func makePropertiesKeysConfigurable(filename string) error {
 
 func parseConfiguration(context map[string]interface{}) {
 	// If parsing already done
-	if flag.Parsed() {
+	if !flag.Parsed() {
 		var conf string
 
 		if v, contains := context["conf"]; contains {
