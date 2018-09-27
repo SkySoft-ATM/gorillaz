@@ -1,8 +1,15 @@
 package gorillaz
 
-import "github.com/spf13/viper"
+import (
+	"github.com/spf13/viper"
+	"os"
+)
 
-func Init(context map[string]interface{}) {
+func Init(root string, context map[string]interface{}) {
+	if root != "." {
+		os.Chdir(root)
+	}
+
 	parseConfiguration(context)
 	InitLogs()
 
