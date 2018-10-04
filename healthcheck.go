@@ -7,16 +7,16 @@ import (
 	"net/http"
 )
 
-var chReady chan bool
-var chLive chan bool
+var isReady = false
+var isLive = false
 
 func InitHealthcheck(serverPort int) (chan bool, chan bool) {
 	r := mux.NewRouter()
 	r.HandleFunc("/ready", ready).Methods("GET")
 	r.HandleFunc("/live", live).Methods("GET")
 
-	chReady = make(chan bool)
-	chLive = make(chan bool)
+	chReady := make(chan bool)
+	chLive := make(chan bool)
 
 	go func() {
 		err := http.ListenAndServe(fmt.Sprintf(":%d", serverPort), r)
@@ -26,15 +26,33 @@ func InitHealthcheck(serverPort int) (chan bool, chan bool) {
 		}
 	}()
 
+	go func() {
+		for b := range chReady {
+			isReady = b
+		}
+	}()
+
+	go func() {
+		for b := range chLive {
+			isLive = b
+		}
+	}()
+
 	return chReady, chLive
 }
 
 func ready(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	//w.WriteHeader(http.StatusServiceUnavailable)
+	if isReady {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 }
 
 func live(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	//w.WriteHeader(http.StatusServiceUnavailable)
+	if isLive {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 }
