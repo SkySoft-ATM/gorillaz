@@ -5,10 +5,17 @@ import (
 	"os"
 )
 
-func Init(root string, context map[string]interface{}) {
+type Context struct {
+	chReady chan bool
+	chLive  chan bool
+}
+
+func Init(root string, context map[string]interface{}) Context {
 	if root != "." {
 		os.Chdir(root)
 	}
+
+	ctx := Context{}
 
 	parseConfiguration(context)
 	InitLogs()
@@ -21,6 +28,10 @@ func Init(root string, context map[string]interface{}) {
 	health := viper.GetBool("healthcheck.enabled")
 	if health {
 		serverPort := viper.GetInt("healthcheck.port")
-		InitHealthcheck(serverPort)
+		chReady, chLive := InitHealthcheck(serverPort)
+		ctx.chReady = chReady
+		ctx.chLive = chLive
 	}
+
+	return ctx
 }
