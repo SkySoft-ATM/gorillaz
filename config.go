@@ -48,6 +48,9 @@ func parseConfiguration(context map[string]interface{}) {
 	}
 
 	flag.String("log.level", "", "Log level")
+	flag.Bool("tracing.enabled", false, "Tracing enabled")
+	flag.Bool("healthcheck.enabled", false, "Healthcheck enabled")
+	flag.Int("healthcheck.port", 8080, "Healthcheck port")
 	makePropertiesKeysConfigurable(conf + "/application.properties")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()

@@ -21,10 +21,6 @@ func Init(root string, context map[string]interface{}) {
 	health := viper.GetBool("healthcheck.enabled")
 	if health {
 		serverPort := viper.GetInt("healthcheck.port")
-		// Default port
-		if serverPort == 0 {
-			serverPort = 8080
-		}
 		InitHealthcheck(serverPort)
 	}
 }
