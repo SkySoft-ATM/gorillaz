@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"strings"
-	"time"
 )
 
 const KafkaHeaders = "headers"
@@ -174,40 +173,41 @@ func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 		for err := range p.Errors() {
 			Log.Error("Error while producing message",
 				zap.Error(err))
-
-			max := viper.GetInt("gorillaz.kafka.reconnection.attempts")
-			delay := viper.GetInt("gorillaz.kafka.reconnection.delay.ms")
-
-			// Default value
-			if max == 0 {
-				max = 10
-			}
-			if delay == 0 {
-				delay = 250
-			}
-
-			reconnections := 0
-			for reconnections < max {
-				reconnections++
-
-				Log.Info("Reconnecting...")
-				p2, err := sarama.NewAsyncProducer(brokerList, producerConfig)
-
-				if err != nil {
-					Log.Error("Connection error",
-						zap.Error(err))
-					time.Sleep(time.Duration(delay) * time.Millisecond)
-					continue
-				}
-
-				p = p2
-				break
-			}
-
-			if reconnections == max {
-				Log.Error("Failed to reconnect to Kafka cluster, panic")
-				panic(err)
-			}
+			panic(err)
+			//
+			//max := viper.GetInt("gorillaz.kafka.reconnection.attempts")
+			//delay := viper.GetInt("gorillaz.kafka.reconnection.delay.ms")
+			//
+			//// Default value
+			//if max == 0 {
+			//	max = 10
+			//}
+			//if delay == 0 {
+			//	delay = 250
+			//}
+			//
+			//reconnections := 0
+			//for reconnections < max {
+			//	reconnections++
+			//
+			//	Log.Info("Reconnecting...")
+			//	p2, err := sarama.NewAsyncProducer(brokerList, producerConfig)
+			//
+			//	if err != nil {
+			//		Log.Error("Connection error",
+			//			zap.Error(err))
+			//		time.Sleep(time.Duration(delay) * time.Millisecond)
+			//		continue
+			//	}
+			//
+			//	p = p2
+			//	break
+			//}
+			//
+			//if reconnections == max {
+			//	Log.Error("Failed to reconnect to Kafka cluster, panic")
+			//	panic(err)
+			//}
 		}
 	}()
 
