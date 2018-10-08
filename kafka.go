@@ -171,6 +171,7 @@ func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 		for err := range p.Errors() {
 			Log.Error("Error while producing message",
 				zap.Error(err))
+			panic(err)
 		}
 	}()
 
