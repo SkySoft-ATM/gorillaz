@@ -117,6 +117,8 @@ func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope
 		return err
 	}
 
+	Sugar.Infof("Consuming topic %v on partitions %v", source, partitions)
+
 	for _, partition := range partitions {
 		pc, err := consumer.ConsumePartition(source, partition, sarama.OffsetNewest)
 		if err != nil {
