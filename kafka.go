@@ -189,7 +189,6 @@ func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 				reconnections++
 
 				Log.Info("Reconnecting...")
-				p.Close()
 				p2, err := sarama.NewAsyncProducer(brokerList, producerConfig)
 
 				if err != nil {
