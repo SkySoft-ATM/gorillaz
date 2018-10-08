@@ -3,8 +3,6 @@ package gorillaz
 import (
 	"bufio"
 	"flag"
-	"fmt"
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"log"
@@ -71,8 +69,8 @@ func parseConfiguration(context map[string]interface{}) {
 		viper.Set(k, v)
 	}
 
-	viper.WatchConfig()
-	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Printf("Something changed: %v\n", e.Name)
-	})
+	//viper.WatchConfig()
+	//viper.OnConfigChange(func(e fsnotify.Event) {
+	//	fmt.Printf("Something changed: %v\n", e.Name)
+	//})
 }
