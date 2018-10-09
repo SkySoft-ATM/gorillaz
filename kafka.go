@@ -136,7 +136,8 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 		select {
 		case msg, ok := <-consumer.Messages():
 			if ok {
-				Sugar.Debugf("Message received: %v %v %v %v, elements=%v",
+				Sugar.Debugf("Message received: %v %v %v %v %v, elements=%v",
+					msg.Headers,
 					msg.Key,
 					msg.Offset,
 					msg.Partition,
