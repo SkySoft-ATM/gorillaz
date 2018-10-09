@@ -135,6 +135,7 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 		select {
 		case msg, ok := <-consumer.Messages():
 			if ok {
+				Log.Debug("Message received")
 				consumer.MarkOffset(msg, "") // mark message as processed
 
 				ctx := context.WithValue(nil, KafkaHeaders, msg.Headers)
@@ -144,6 +145,8 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 					Data: msg.Value,
 					Ctx:  ctx,
 				}
+			} else {
+				Log.Error("Consumer error", zap.Error(err))
 			}
 		case <-signals:
 			continue
