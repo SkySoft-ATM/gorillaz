@@ -136,15 +136,15 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 		select {
 		case msg, ok := <-consumer.Messages():
 			if ok {
-				Sugar.Debugf("Message received: %v %v %v %v",
+				Sugar.Debugf("Message received: %v %v %v %v, elements=%v",
 					msg.Key,
 					msg.Offset,
 					msg.Partition,
-					msg.Timestamp)
+					msg.Timestamp,
+					len(request))
 				consumer.MarkOffset(msg, "") // mark message as processed
 
 				ctx := context.WithValue(nil, KafkaHeaders, msg.Headers)
-
 				request <- KafkaEnvelope{
 					Key:  msg.Key,
 					Data: msg.Value,
