@@ -68,4 +68,9 @@ func parseConfiguration(context map[string]interface{}) {
 	for k, v := range context {
 		viper.Set(k, v)
 	}
+
+	//viper.WatchConfig()
+	//viper.OnConfigChange(func(e fsnotify.Event) {
+	//	fmt.Printf("Something changed: %v\n", e.Name)
+	//})
 }
