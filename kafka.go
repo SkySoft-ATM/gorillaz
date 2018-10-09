@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"context"
-	"fmt"
 	"github.com/Shopify/sarama"
 	"github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
@@ -136,7 +135,6 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 		select {
 		case msg, ok := <-consumer.Messages():
 			if ok {
-				fmt.Fprintf(os.Stdout, "%s/%d/%d\t%s\t%s\n", msg.Topic, msg.Partition, msg.Offset, msg.Key, msg.Value)
 				consumer.MarkOffset(msg, "") // mark message as processed
 
 				ctx := context.WithValue(nil, KafkaHeaders, msg.Headers)
