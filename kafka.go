@@ -2,10 +2,14 @@ package gorillaz
 
 import (
 	"context"
+	"fmt"
 	"github.com/Shopify/sarama"
+	"github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"os"
+	"os/signal"
 	"strings"
 )
 
@@ -32,11 +36,6 @@ func KafkaService(bootstrapServers string, source string, sink string, groupId s
 
 	brokerList := strings.Split(bootstrapServers, ",")
 
-	consumer, err := createKafkaConsumer(brokerList)
-	if err != nil {
-		return err
-	}
-
 	producer, err := createKafkaProducer(brokerList)
 	if err != nil {
 		return err
@@ -49,7 +48,7 @@ func KafkaService(bootstrapServers string, source string, sink string, groupId s
 		go handler(request, reply)
 	}
 
-	consume(consumer, source, request)
+	consume(brokerList, source, groupId, request)
 	produce(producer, sink, reply)
 
 	return nil
@@ -91,56 +90,66 @@ func KafkaConsumer(bootstrapServers string, source string, groupId string,
 
 	brokerList := strings.Split(bootstrapServers, ",")
 
-	consumer, err := createKafkaConsumer(brokerList)
-	if err != nil {
-		return err
-	}
-
 	// Trigger handlers
 	request := make(chan KafkaEnvelope)
 	for i := 0; i < Cores(); i++ {
 		go handler(request)
 	}
 
-	consume(consumer, source, request)
+	consume(brokerList, source, groupId, request)
 
 	return nil
 }
 
-func consume(consumer sarama.Consumer, source string, request chan KafkaEnvelope) error {
-	partitions, err := consumer.Partitions(source)
+func consume(brokerList []string, source string, groupId string, request chan KafkaEnvelope) error {
+	config := cluster.NewConfig()
+	config.Consumer.Return.Errors = true
+	config.Group.Return.Notifications = true
+	topics := []string{source}
+
+	consumer, err := cluster.NewConsumer(brokerList, groupId, topics, config)
 	if err != nil {
-		Log.Error("Error while fetching Kafka partitions",
-			zap.String("topic", source),
-			zap.Error(err))
-		return err
+		panic(err)
 	}
 
-	Sugar.Infof("Consuming topic %v on partitions %v", source, partitions)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
 
-	for _, partition := range partitions {
-		pc, err := consumer.ConsumePartition(source, partition, sarama.OffsetNewest)
-		if err != nil {
-			Log.Error("Error while fetching consuming partition", zap.Error(err))
+	// Errors
+	go func() {
+		for err := range consumer.Errors() {
+			Log.Error("Error while consuming messages",
+				zap.Error(err))
+			panic(err)
 		}
-		go func(pc sarama.PartitionConsumer) {
-			for message := range pc.Messages() {
-				ctx := context.WithValue(nil, KafkaHeaders, message.Headers)
+	}()
+
+	// Notifications
+	go func() {
+		for notif := range consumer.Notifications() {
+			Sugar.Debugf("New notification: %v", notif)
+		}
+	}()
+
+	// Messages
+	for {
+		select {
+		case msg, ok := <-consumer.Messages():
+			if ok {
+				fmt.Fprintf(os.Stdout, "%s/%d/%d\t%s\t%s\n", msg.Topic, msg.Partition, msg.Offset, msg.Key, msg.Value)
+				consumer.MarkOffset(msg, "") // mark message as processed
+
+				ctx := context.WithValue(nil, KafkaHeaders, msg.Headers)
 
 				request <- KafkaEnvelope{
-					Key:  message.Key,
-					Data: message.Value,
+					Key:  msg.Key,
+					Data: msg.Value,
 					Ctx:  ctx,
 				}
 			}
-		}(pc)
-
-		go func(pc sarama.PartitionConsumer) {
-			for error := range pc.Errors() {
-				Log.Error("Error while consuming data",
-					zap.Error(error))
-			}
-		}(pc)
+		case <-signals:
+			continue
+		}
 	}
 
 	return nil
@@ -178,20 +187,6 @@ func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 	}()
 
 	return p, nil
-}
-
-func createKafkaConsumer(brokerList []string) (sarama.Consumer, error) {
-	// Consumer
-	consumerConfig := sarama.NewConfig()
-	c, err := sarama.NewConsumer(brokerList, consumerConfig)
-	if err != nil {
-		Log.Error("Error while creating Kafka consumer",
-			zap.Error(err))
-		return nil, err
-	}
-	Log.Info("Kafka configuration set")
-
-	return c, nil
 }
 
 func send(producer sarama.AsyncProducer, sink string, headers []sarama.RecordHeader, key []byte, value []byte) {
