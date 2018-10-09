@@ -103,6 +103,7 @@ func KafkaConsumer(bootstrapServers string, source string, groupId string,
 func consume(brokerList []string, source string, groupId string, request chan KafkaEnvelope) error {
 	config := cluster.NewConfig()
 	config.Consumer.Return.Errors = true
+	config.ChannelBufferSize = 1024
 	config.Group.Return.Notifications = true
 	topics := []string{source}
 
