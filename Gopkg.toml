@@ -25,3 +25,7 @@
 [[constraint]]
   name = "github.com/bsm/sarama-cluster"
   version = "2.1.15"
+
+[[constraint]]
+  name = "github.com/Shopify/sarama"
+  version = "1.19.0"
