@@ -23,4 +23,10 @@ func Init(root string, context map[string]interface{}) {
 		serverPort := viper.GetInt("healthcheck.port")
 		InitHealthcheck(serverPort)
 	}
+
+	pprof := viper.GetBool("pprof.enabled")
+	if pprof {
+		serverPort := viper.GetInt("pprof.port")
+		InitPprof(serverPort)
+	}
 }
