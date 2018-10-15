@@ -149,6 +149,7 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 					Data: msg.Value,
 					Ctx:  ctx,
 				}
+				Sugar.Debugf("Kafka message treatment ended")
 			} else {
 				Log.Error("Kafka consumer error", zap.Error(err))
 			}
