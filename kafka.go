@@ -22,7 +22,7 @@ type KafkaEnvelope struct {
 }
 
 func KafkaService(bootstrapServers string, source string, sink string, groupId string,
-	handler func(in chan KafkaEnvelope, out chan KafkaEnvelope)) error {
+	handler func(in chan KafkaEnvelope, out chan KafkaEnvelope), parallelism int) error {
 
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
@@ -43,7 +43,12 @@ func KafkaService(bootstrapServers string, source string, sink string, groupId s
 	// Trigger handlers
 	request := make(chan KafkaEnvelope)
 	reply := make(chan KafkaEnvelope)
-	for i := 0; i < Cores(); i++ {
+
+	if parallelism == 0 {
+		parallelism = Cores()
+	}
+
+	for i := 0; i < parallelism; i++ {
 		go handler(request, reply)
 	}
 
@@ -77,7 +82,7 @@ func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, er
 }
 
 func KafkaConsumer(bootstrapServers string, source string, groupId string,
-	handler func(in chan KafkaEnvelope)) error {
+	handler func(in chan KafkaEnvelope), parallelism int) error {
 
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
@@ -91,7 +96,11 @@ func KafkaConsumer(bootstrapServers string, source string, groupId string,
 
 	// Trigger handlers
 	request := make(chan KafkaEnvelope)
-	for i := 0; i < Cores(); i++ {
+	if parallelism == 0 {
+		parallelism = Cores()
+	}
+
+	for i := 0; i < parallelism; i++ {
 		go handler(request)
 	}
 
@@ -118,7 +127,7 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 	// Errors
 	go func() {
 		for err := range consumer.Errors() {
-			Log.Error("Error while consuming kafka messages",
+			Log.Error("Error while consuming messages",
 				zap.Error(err))
 			panic(err)
 		}
@@ -127,7 +136,7 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 	// Notifications
 	go func() {
 		for notif := range consumer.Notifications() {
-			Sugar.Debugf("New kafka notification: %v", notif)
+			Sugar.Debugf("New notification: %v", notif)
 		}
 	}()
 
@@ -136,7 +145,7 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 		select {
 		case msg, ok := <-consumer.Messages():
 			if ok {
-				Sugar.Debugf("Kafka message received: key=%v, offset=%v, partition=%v, headers=%v",
+				Sugar.Debugf("Message received: key=%v, offset=%v, partition=%v, headers=%v",
 					msg.Key,
 					msg.Offset,
 					msg.Partition,
@@ -149,16 +158,13 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 					Data: msg.Value,
 					Ctx:  ctx,
 				}
-				Sugar.Debugf("Kafka message treatment ended")
 			} else {
-				Log.Error("Kafka consumer error", zap.Error(err))
+				Log.Error("Consumer error", zap.Error(err))
 			}
 		case <-signals:
 			continue
 		}
 	}
-
-	Log.Debug("Kafka consumer ended", zap.Error(err))
 
 	return nil
 }
@@ -188,7 +194,7 @@ func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 
 	go func() {
 		for err := range p.Errors() {
-			Log.Error("Error while producing kafka message",
+			Log.Error("Error while producing message",
 				zap.Error(err))
 			panic(err)
 		}
