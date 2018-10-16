@@ -11,7 +11,6 @@ var Sugar *zap.SugaredLogger
 
 func InitLogs() {
 	config := zap.NewProductionConfig()
-	config.EncoderConfig.EncodeTime.UnmarshalText([]byte("iso8601"))
 	logLevel := viper.GetString("log.level")
 
 	config.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
