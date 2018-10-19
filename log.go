@@ -1,8 +1,7 @@
 package gorillaz
 
 import (
-	"fmt"
-	"os"
+	"log"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -21,7 +20,7 @@ func InitLogs() {
 
 	err := config.EncoderConfig.EncodeTime.UnmarshalText([]byte("iso8601"))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error trying to define encoding")
+		log.Fatalf("error trying to define encoding %v", err)
 	}
 	logLevel := viper.GetString("log.level")
 

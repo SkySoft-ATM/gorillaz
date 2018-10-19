@@ -181,7 +181,6 @@ func consume(brokerList []string, source string, groupID string, request chan Ka
 						msg.Headers)
 					consumer.MarkOffset(msg, "") // mark message as processed
 
-					//ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
 					// should not use basic type string as key in context.WithValue
 					ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
 

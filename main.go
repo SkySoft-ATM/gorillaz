@@ -1,7 +1,7 @@
 package gorillaz
 
 import (
-	"fmt"
+	"log"
 	"os"
 
 	"github.com/spf13/viper"
@@ -13,7 +13,7 @@ func Init(root string, context map[string]interface{}) {
 	if root != "." {
 		err := os.Chdir(root)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error trying to define ROOT directory")
+			log.Fatalf("error trying to define root directory %v", err)
 		}
 	}
 
