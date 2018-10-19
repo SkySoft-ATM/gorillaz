@@ -3,11 +3,12 @@ package gorillaz
 import (
 	"bufio"
 	"flag"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 func getPropertiesKeys(scanner bufio.Scanner) map[string]string {
@@ -15,8 +16,11 @@ func getPropertiesKeys(scanner bufio.Scanner) map[string]string {
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		split := strings.Split(line, "=")
-		m[split[0]] = split[1]
+		// Comments
+		if !strings.HasPrefix("#", line) {
+			split := strings.Split(line, "=")
+			m[split[0]] = split[1]
+		}
 	}
 
 	return m
@@ -53,16 +57,23 @@ func parseConfiguration(context map[string]interface{}) {
 	flag.Int("healthcheck.port", 8080, "Healthcheck port")
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
 	flag.Int("pprof.port", 8081, "Pprof port")
-	makePropertiesKeysConfigurable(conf + "/application.properties")
+
+	err := makePropertiesKeysConfigurable(conf + "/application.properties")
+	if err != nil {
+		log.Fatalf("unable to read and extract key/value in %s: %v", conf+"/application.properties", err)
+	}
+
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
-	viper.BindPFlags(pflag.CommandLine)
 
+	err = viper.BindPFlags(pflag.CommandLine)
+	if err != nil {
+		log.Fatalf("unable to bind flags: %v", err)
+	}
 	viper.SetConfigName("application")
 	viper.AddConfigPath(conf)
 
-	err := viper.ReadInConfig()
-
+	err = viper.ReadInConfig()
 	if err != nil {
 		log.Fatalf("Unable to load configuration: %s", err)
 	}
@@ -71,8 +82,4 @@ func parseConfiguration(context map[string]interface{}) {
 		viper.Set(k, v)
 	}
 
-	//viper.WatchConfig()
-	//viper.OnConfigChange(func(e fsnotify.Event) {
-	//	fmt.Printf("Something changed: %v\n", e.Name)
-	//})
 }

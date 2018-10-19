@@ -2,14 +2,16 @@ package gorillaz
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/apex/log"
 	"github.com/gorilla/mux"
-	"net/http"
 )
 
 var isReady = false
 var isLive = false
 
+// InitHealthcheck starts two http endpoints (GET) for liveness and readiness probes in k8s
 func InitHealthcheck(serverPort int) {
 	r := mux.NewRouter()
 	r.HandleFunc("/ready", ready).Methods("GET")
@@ -24,10 +26,12 @@ func InitHealthcheck(serverPort int) {
 	}()
 }
 
+// SetReady returns the actual internal state to precise if the given microservice is ready
 func SetReady(status bool) {
 	isReady = status
 }
 
+// SetLive returns the actual internal state to precise if the given microservice is live
 func SetLive(status bool) {
 	isLive = status
 }

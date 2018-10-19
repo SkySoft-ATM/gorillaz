@@ -2,10 +2,11 @@ package main
 
 import (
 	"flag"
-	"github.com/apex/log"
 	"go/build"
 	"os"
 	"text/template"
+
+	"github.com/apex/log"
 )
 
 type data struct {
@@ -35,7 +36,10 @@ func main() {
 
 	d.Package = pkg.Name
 
-	t.Execute(f, d)
+	err = t.Execute(f, d)
+	if err != nil {
+		log.Warnf("unable to create template")
+	}
 	f.Close()
 }
 

@@ -1,13 +1,20 @@
 package gorillaz
 
 import (
-	"github.com/spf13/viper"
+	"fmt"
 	"os"
+
+	"github.com/spf13/viper"
 )
 
+// Init initializes the different modules (Logger, Tracing, ready and live Probes and Properties)
+// It takes root as a current folder for properties file and a map of properties
 func Init(root string, context map[string]interface{}) {
 	if root != "." {
-		os.Chdir(root)
+		err := os.Chdir(root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error trying to define ROOT directory")
+		}
 	}
 
 	parseConfiguration(context)

@@ -3,12 +3,14 @@ package gorillaz
 import (
 	"fmt"
 	"net/http"
-	_ "net/http"
-	_ "net/http/pprof"
 )
 
+// InitPprof starts an HTTP endpoint on serverPort
 func InitPprof(serverPort int) {
 	go func() {
-		http.ListenAndServe(fmt.Sprintf(":%d", serverPort), nil)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", serverPort), nil)
+		if err != nil {
+			Sugar.Errorf("error trying to setup HTTP endpoint on port %d: %v", serverPort, err)
+		}
 	}()
 }

@@ -2,26 +2,45 @@ package gorillaz
 
 import (
 	"context"
+	"os"
+	"os/signal"
+	"strings"
+
 	"github.com/Shopify/sarama"
 	"github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"os"
-	"os/signal"
-	"strings"
 )
 
-const KafkaHeaders = "headers"
+// KafkaHeaders represents a context key.
+// Here we can be sure that no two context keys can ever collide (even if the underlying names are the same in different packages)
+// which is pretty important when you consider potentially lots of different components could be using the same context for
+// different (or similar) things.
+const KafkaHeaders = contextKey("headers")
+
+// Span is used to manage OpenTracing context
 const Span = "span"
 
+// KafkaEnvelope represents Kafka message
 type KafkaEnvelope struct {
 	Key  []byte
 	Data []byte
 	Ctx  context.Context
 }
 
-func KafkaService(bootstrapServers string, source string, sink string, groupId string,
+type contextKey string
+
+// String() methods in https://tip.golang.org/src/context/context.go reveals a fair amount of information about the context.
+// So adding our own String() method is a nice way to keep track of what’s what, although, it would work without it.
+func (c contextKey) String() string {
+	return "gorillaz" + string(c)
+}
+
+// KafkaService creates the microservice on bootstrapServers for a given TOPIC (source) to consume messages and a given TOPIC (sink)
+// The acual processing is implemented in handler consuming messages in go channel
+// Parallelism allows to specify how many goroutines are instanciated
+func KafkaService(bootstrapServers string, source string, sink string, groupID string,
 	handler func(in chan KafkaEnvelope, out chan KafkaEnvelope), parallelism int) error {
 
 	if bootstrapServers == "" {
@@ -52,12 +71,16 @@ func KafkaService(bootstrapServers string, source string, sink string, groupId s
 		go handler(request, reply)
 	}
 
-	consume(brokerList, source, groupId, request)
+	err = consume(brokerList, source, groupID, request)
+	if err != nil {
+		return err
+	}
 	produce(producer, sink, reply)
 
 	return nil
 }
 
+// KafkaProducer creates Kafka Producer on bootstrapServers on a given TOPIC (sink)
 func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, error) {
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
@@ -81,7 +104,10 @@ func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, er
 	return reply, nil
 }
 
-func KafkaConsumer(bootstrapServers string, source string, groupId string,
+// KafkaConsumer creates a kafka consumer on bootstrapServers on a given TOPIC (source) for a given groupID
+// The acual processing is implemented in handler consuming messages in go channel
+// Parallelism allows to specify how many goroutines are instanciated
+func KafkaConsumer(bootstrapServers string, source string, groupID string,
 	handler func(in chan KafkaEnvelope), parallelism int) error {
 
 	if bootstrapServers == "" {
@@ -104,21 +130,23 @@ func KafkaConsumer(bootstrapServers string, source string, groupId string,
 		go handler(request)
 	}
 
-	consume(brokerList, source, groupId, request)
-
+	err := consume(brokerList, source, groupID, request)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func consume(brokerList []string, source string, groupId string, request chan KafkaEnvelope) error {
+func consume(brokerList []string, source string, groupID string, request chan KafkaEnvelope) error {
 	config := cluster.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.ChannelBufferSize = 1024
 	config.Group.Return.Notifications = true
 	topics := []string{source}
 
-	consumer, err := cluster.NewConsumer(brokerList, groupId, topics, config)
+	consumer, err := cluster.NewConsumer(brokerList, groupID, topics, config)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -141,31 +169,35 @@ func consume(brokerList []string, source string, groupId string, request chan Ka
 	}()
 
 	// Messages
-	for {
-		select {
-		case msg, ok := <-consumer.Messages():
-			if ok {
-				Sugar.Debugf("Message received: key=%v, offset=%v, partition=%v, headers=%v",
-					msg.Key,
-					msg.Offset,
-					msg.Partition,
-					msg.Headers)
-				consumer.MarkOffset(msg, "") // mark message as processed
+	go func() {
+		for {
+			select {
+			case msg, ok := <-consumer.Messages():
+				if ok {
+					Sugar.Debugf("Message received: key=%v, offset=%v, partition=%v, headers=%v",
+						msg.Key,
+						msg.Offset,
+						msg.Partition,
+						msg.Headers)
+					consumer.MarkOffset(msg, "") // mark message as processed
 
-				ctx := context.WithValue(nil, KafkaHeaders, msg.Headers)
-				request <- KafkaEnvelope{
-					Key:  msg.Key,
-					Data: msg.Value,
-					Ctx:  ctx,
+					//ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
+					// should not use basic type string as key in context.WithValue
+					ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
+
+					request <- KafkaEnvelope{
+						Key:  msg.Key,
+						Data: msg.Value,
+						Ctx:  ctx,
+					}
+				} else {
+					Log.Error("Consumer error", zap.Error(err))
 				}
-			} else {
-				Log.Error("Consumer error", zap.Error(err))
+			case <-signals:
+				continue
 			}
-		case <-signals:
-			continue
 		}
-	}
-
+	}()
 	return nil
 }
 

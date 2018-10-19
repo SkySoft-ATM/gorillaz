@@ -1,17 +1,28 @@
 package gorillaz
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
+// Log is the main logger.
 var Log *zap.Logger
+
+// Sugar is
 var Sugar *zap.SugaredLogger
 
+// InitLogs initializes the Sugar (*zap.SugaredLogger) and Log (*zap.Logger) elements
 func InitLogs() {
 	config := zap.NewProductionConfig()
-	config.EncoderConfig.EncodeTime.UnmarshalText([]byte("iso8601"))
+
+	err := config.EncoderConfig.EncodeTime.UnmarshalText([]byte("iso8601"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error trying to define encoding")
+	}
 	logLevel := viper.GetString("log.level")
 
 	config.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
@@ -35,6 +46,7 @@ func InitLogs() {
 	Sugar = Log.Sugar()
 }
 
+// NewLogger initializes and instantiates both Sugar and Log element with the given zapcore.Level
 func NewLogger(level zapcore.Level) {
 	config := zap.NewProductionConfig()
 
