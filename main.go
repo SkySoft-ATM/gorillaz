@@ -7,9 +7,15 @@ import (
 	"github.com/spf13/viper"
 )
 
+var isAlreadyInitialized = false
+
 // Init initializes the different modules (Logger, Tracing, ready and live Probes and Properties)
 // It takes root as a current folder for properties file and a map of properties
 func Init(root string, context map[string]interface{}) {
+	if isAlreadyInitialized {
+		return
+	}
+
 	if root != "." {
 		err := os.Chdir(root)
 		if err != nil {
@@ -36,4 +42,6 @@ func Init(root string, context map[string]interface{}) {
 		serverPort := viper.GetInt("pprof.port")
 		InitPprof(serverPort)
 	}
+
+	isAlreadyInitialized = true
 }
