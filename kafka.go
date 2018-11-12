@@ -149,7 +149,7 @@ func consume(brokerList []string, source string, groupID string, request chan Ka
 	config.Group.Return.Notifications = true
 	if configConsume != nil {
 		if configConsume.ChannelBufferSize != nil {
-			config.ChannelBufferSize = configConsume.ChannelBufferSize
+			config.ChannelBufferSize = *configConsume.ChannelBufferSize
 		}
 	}
 	topics := []string{source}
