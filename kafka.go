@@ -29,6 +29,11 @@ type KafkaEnvelope struct {
 	Ctx  context.Context
 }
 
+// KafkaConfigConsume represents optional config to create a Kafka consumer
+type KafkaConfigConsume struct {
+	ChannelBufferSize *int
+}
+
 type contextKey string
 
 // String() methods in https://tip.golang.org/src/context/context.go reveals a fair amount of information about the context.
@@ -41,7 +46,7 @@ func (c contextKey) String() string {
 // The acual processing is implemented in handler consuming messages in go channel
 // Parallelism allows to specify how many goroutines are instanciated
 func KafkaService(bootstrapServers string, source string, sink string, groupID string,
-	handler func(in chan KafkaEnvelope, out chan KafkaEnvelope), parallelism int) error {
+	handler func(in chan KafkaEnvelope, out chan KafkaEnvelope), parallelism int, configConsume *KafkaConfigConsume) error {
 
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
@@ -71,7 +76,7 @@ func KafkaService(bootstrapServers string, source string, sink string, groupID s
 		go handler(request, reply)
 	}
 
-	err = consume(brokerList, source, groupID, request)
+	err = consume(brokerList, source, groupID, request, configConsume)
 	if err != nil {
 		return err
 	}
@@ -108,7 +113,7 @@ func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, er
 // The acual processing is implemented in handler consuming messages in go channel
 // Parallelism allows to specify how many goroutines are instanciated
 func KafkaConsumer(bootstrapServers string, source string, groupID string,
-	handler func(in chan KafkaEnvelope), parallelism int) error {
+	handler func(in chan KafkaEnvelope), parallelism int, configConsume *KafkaConfigConsume) error {
 
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
@@ -130,18 +135,23 @@ func KafkaConsumer(bootstrapServers string, source string, groupID string,
 		go handler(request)
 	}
 
-	err := consume(brokerList, source, groupID, request)
+	err := consume(brokerList, source, groupID, request, configConsume)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func consume(brokerList []string, source string, groupID string, request chan KafkaEnvelope) error {
+func consume(brokerList []string, source string, groupID string, request chan KafkaEnvelope, configConsume *KafkaConfigConsume) error {
 	config := cluster.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.ChannelBufferSize = 1024
 	config.Group.Return.Notifications = true
+	if configConsume != nil {
+		if configConsume.ChannelBufferSize != nil {
+			config.ChannelBufferSize = configConsume.ChannelBufferSize
+		}
+	}
 	topics := []string{source}
 
 	consumer, err := cluster.NewConsumer(brokerList, groupID, topics, config)
