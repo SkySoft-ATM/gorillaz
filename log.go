@@ -14,6 +14,24 @@ var Log *zap.Logger
 // Sugar is
 var Sugar *zap.SugaredLogger
 
+// find the corresponding zapcore.Level log level from the string levelString ; if unknown, return PanicLevel
+func getLogLevelFromString(levelString string) zapcore.Level {
+
+	if logLevel == "debug" {
+		return zapcore.DebugLevel
+	} else if logLevel == "" || logLevel == "info" {
+		return zapcore.InfoLevel
+	} else if logLevel == "warn" {
+		return zapcore.WarnLevel
+	} else if logLevel == "error" {
+		return zapcore.ErrorLevel
+	} else if logLevel == "panic" {
+		return zapcore.PanicLevel
+	}
+	//default :
+	return zapcore.PanicLevel
+}
+
 // InitLogs initializes the Sugar (*zap.SugaredLogger) and Log (*zap.Logger) elements
 func InitLogs() {
 	config := zap.NewProductionConfig()
@@ -24,18 +42,7 @@ func InitLogs() {
 	}
 	logLevel := viper.GetString("log.level")
 
-	config.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
-	if logLevel == "debug" {
-		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-	} else if logLevel == "" || logLevel == "info" {
-		config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
-	} else if logLevel == "warn" {
-		config.Level = zap.NewAtomicLevelAt(zapcore.WarnLevel)
-	} else if logLevel == "error" {
-		config.Level = zap.NewAtomicLevelAt(zapcore.ErrorLevel)
-	} else if logLevel == "panic" {
-		config.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
-	}
+	config.Level = zap.NewAtomicLevelAt(getLogLevelFromString(logLevel))
 
 	l, err := config.Build()
 	if err != nil {
@@ -67,4 +74,10 @@ func NewLogger(level zapcore.Level) {
 	}
 	Log = l
 	Sugar = Log.Sugar()
+}
+
+// NewLoggerFromString initializes and instantiates both Sugar and Log element with the string corresponding to the zapcore.Level
+func NewLoggerFromString(levelString string) {
+	level := getLogLevelFromString(levelString)
+	NewLogger(level)
 }
