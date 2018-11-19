@@ -17,15 +17,15 @@ var Sugar *zap.SugaredLogger
 // find the corresponding zapcore.Level log level from the string levelString ; if unknown, return PanicLevel
 func getLogLevelFromString(levelString string) zapcore.Level {
 
-	if logLevel == "debug" {
+	if levelString == "debug" {
 		return zapcore.DebugLevel
-	} else if logLevel == "" || logLevel == "info" {
+	} else if levelString == "" || levelString == "info" {
 		return zapcore.InfoLevel
-	} else if logLevel == "warn" {
+	} else if levelString == "warn" {
 		return zapcore.WarnLevel
-	} else if logLevel == "error" {
+	} else if levelString == "error" {
 		return zapcore.ErrorLevel
-	} else if logLevel == "panic" {
+	} else if levelString == "panic" {
 		return zapcore.PanicLevel
 	}
 	//default :
