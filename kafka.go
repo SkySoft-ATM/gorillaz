@@ -11,6 +11,8 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"github.com/reactivex/rxgo"
+	"github.com/reactivex/rxgo/iterable"
 )
 
 // KafkaHeaders represents a context key.
@@ -41,7 +43,7 @@ func (c contextKey) String() string {
 // The acual processing is implemented in handler consuming messages in go channel
 // Parallelism allows to specify how many goroutines are instanciated
 func KafkaService(bootstrapServers string, source string, sink string, groupID string,
-	handler func(in chan KafkaEnvelope, out chan KafkaEnvelope), parallelism int) error {
+	handler func(in chan interface{}, out chan KafkaEnvelope), parallelism int) error {
 
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
@@ -60,7 +62,7 @@ func KafkaService(bootstrapServers string, source string, sink string, groupID s
 	}
 
 	// Trigger handlers
-	request := make(chan KafkaEnvelope)
+	request := make(chan interface{})
 	reply := make(chan KafkaEnvelope)
 
 	if parallelism == 0 {
@@ -108,36 +110,32 @@ func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, er
 // The acual processing is implemented in handler consuming messages in go channel
 // Parallelism allows to specify how many goroutines are instanciated
 func KafkaConsumer(bootstrapServers string, source string, groupID string,
-	handler func(in chan KafkaEnvelope), parallelism int) error {
+	handler func(in chan KafkaEnvelope), parallelism int) rxgo.Observable {
+	request := make(chan interface{})
+	it, _ := iterable.New(request)
+	observable := rxgo.From(it)
 
-	if bootstrapServers == "" {
-		bootstrapServers = viper.GetString("kafka.bootstrapservers")
-	}
+	go func() {
+		if bootstrapServers == "" {
+			bootstrapServers = viper.GetString("kafka.bootstrapservers")
+		}
 
-	Log.Info("Creation of a new Kafka consumer",
-		zap.String("server", bootstrapServers),
-		zap.String("source", source))
+		Log.Info("Creation of a new Kafka consumer",
+			zap.String("server", bootstrapServers),
+			zap.String("source", source))
 
-	brokerList := strings.Split(bootstrapServers, ",")
+		brokerList := strings.Split(bootstrapServers, ",")
 
-	// Trigger handlers
-	request := make(chan KafkaEnvelope)
-	if parallelism == 0 {
-		parallelism = Cores()
-	}
+		err := consume(brokerList, source, groupID, request)
+		if err != nil {
+			request <- err
+		}
+	}()
 
-	for i := 0; i < parallelism; i++ {
-		go handler(request)
-	}
-
-	err := consume(brokerList, source, groupID, request)
-	if err != nil {
-		return err
-	}
-	return nil
+	return observable
 }
 
-func consume(brokerList []string, source string, groupID string, request chan KafkaEnvelope) error {
+func consume(brokerList []string, source string, groupID string, request chan interface{}) error {
 	config := cluster.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.ChannelBufferSize = 1024
