@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"github.com/reactivex/rxgo"
 	"github.com/reactivex/rxgo/iterable"
+	"github.com/reactivex/rxgo/handlers"
 )
 
 // KafkaHeaders represents a context key.
@@ -39,51 +40,20 @@ func (c contextKey) String() string {
 	return "gorillaz" + string(c)
 }
 
-// KafkaService creates the microservice on bootstrapServers for a given TOPIC (source) to consume messages and a given TOPIC (sink)
-// The acual processing is implemented in handler consuming messages in go channel
-// Parallelism allows to specify how many goroutines are instanciated
-func KafkaService(bootstrapServers string, source string, sink string, groupID string,
-	handler func(in chan interface{}, out chan KafkaEnvelope), parallelism int) error {
+// KafkaService returns an observable and an observer of KafkaEnvelope.
+func KafkaService(bootstrapServers string, source string, sink string, groupID string) (rxgo.Observable, rxgo.Observer, error) {
+	observable := KafkaConsumer(bootstrapServers, source, groupID)
+	observer, err := KafkaProducer(bootstrapServers, sink)
 
-	if bootstrapServers == "" {
-		bootstrapServers = viper.GetString("kafka.bootstrapservers")
-	}
-
-	Log.Info("Creation of a new Kafka service",
-		zap.String("server", bootstrapServers),
-		zap.String("source", source),
-		zap.String("sink", sink))
-
-	brokerList := strings.Split(bootstrapServers, ",")
-
-	producer, err := createKafkaProducer(brokerList)
 	if err != nil {
-		return err
+		return nil, nil, err
+	} else {
+		return observable, observer, nil
 	}
-
-	// Trigger handlers
-	request := make(chan interface{})
-	reply := make(chan KafkaEnvelope)
-
-	if parallelism == 0 {
-		parallelism = Cores()
-	}
-
-	for i := 0; i < parallelism; i++ {
-		go handler(request, reply)
-	}
-
-	err = consume(brokerList, source, groupID, request)
-	if err != nil {
-		return err
-	}
-	produce(producer, sink, reply)
-
-	return nil
 }
 
-// KafkaProducer creates Kafka Producer on bootstrapServers on a given TOPIC (sink)
-func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, error) {
+// KafkaProducer returns an observer of KafkaEnvelope.
+func KafkaProducer(bootstrapServers string, sink string) (rxgo.Observer, error) {
 	if bootstrapServers == "" {
 		bootstrapServers = viper.GetString("kafka.bootstrapservers")
 	}
@@ -99,18 +69,16 @@ func KafkaProducer(bootstrapServers string, sink string) (chan KafkaEnvelope, er
 		return nil, err
 	}
 
-	reply := make(chan KafkaEnvelope)
+	observer := rxgo.NewObserver(handlers.NextFunc(func(i interface{}) {
+		env := i.(KafkaEnvelope)
+		produce(producer, sink, env)
+	}))
 
-	produce(producer, sink, reply)
-
-	return reply, nil
+	return observer, nil
 }
 
-// KafkaConsumer creates a kafka consumer on bootstrapServers on a given TOPIC (source) for a given groupID
-// The acual processing is implemented in handler consuming messages in go channel
-// Parallelism allows to specify how many goroutines are instanciated
-func KafkaConsumer(bootstrapServers string, source string, groupID string,
-	handler func(in chan KafkaEnvelope), parallelism int) rxgo.Observable {
+// KafkaConsumer returns an observable of KafkaEnvelope.
+func KafkaConsumer(bootstrapServers string, source string, groupID string) rxgo.Observable {
 	request := make(chan interface{})
 	it, _ := iterable.New(request)
 	observable := rxgo.From(it)
@@ -198,17 +166,13 @@ func consume(brokerList []string, source string, groupID string, request chan in
 	return nil
 }
 
-func produce(producer sarama.AsyncProducer, sink string, reply chan KafkaEnvelope) {
-	go func() {
-		for r := range reply {
-			var headers []sarama.RecordHeader
-			if r.Ctx != nil {
-				span := r.Ctx.Value(Span).(opentracing.Span)
-				headers = inject(span)
-			}
-			send(producer, sink, headers, r.Key, r.Data)
-		}
-	}()
+func produce(producer sarama.AsyncProducer, sink string, env KafkaEnvelope) {
+	var headers []sarama.RecordHeader
+	if env.Ctx != nil {
+		span := env.Ctx.Value(Span).(opentracing.Span)
+		headers = inject(span)
+	}
+	send(producer, sink, headers, env.Key, env.Data)
 }
 
 func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
