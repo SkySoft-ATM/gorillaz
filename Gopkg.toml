@@ -32,4 +32,4 @@
 
 [[constraint]]
   name = "github.com/ReactiveX/RxGo"
-  revision = "d02676cdd3335ae81aa8fc454b09cbdde7e6e160"
+  branch = "v2"
