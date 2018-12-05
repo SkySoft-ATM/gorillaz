@@ -31,5 +31,5 @@
   version = "1.19.0"
 
 [[constraint]]
-  name = "github.com/ReactiveX/RxGo"
+  name = "github.com/reactivex/rxgo"
   branch = "v2"
