@@ -32,4 +32,4 @@
 
 [[constraint]]
   name = "github.com/reactivex/rxgo"
-  revision = "6d7ab5ddb0359eb82292e0d23bf3b57284f3ab64"
+  branch = "new_observables"
