@@ -9,11 +9,10 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
+	"github.com/reactivex/rxgo"
+	"github.com/reactivex/rxgo/handlers"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"github.com/reactivex/rxgo"
-	"github.com/reactivex/rxgo/iterable"
-	"github.com/reactivex/rxgo/handlers"
 )
 
 // KafkaHeaders represents a context key.
@@ -80,8 +79,7 @@ func KafkaProducer(bootstrapServers string, sink string) (rxgo.Observer, error) 
 // KafkaConsumer returns an observable of KafkaEnvelope.
 func KafkaConsumer(bootstrapServers string, source string, groupID string) rxgo.Observable {
 	request := make(chan interface{})
-	it, _ := iterable.New(request)
-	observable := rxgo.From(it)
+	observable := rxgo.FromChannel(request)
 
 	go func() {
 		if bootstrapServers == "" {
