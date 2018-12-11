@@ -32,4 +32,4 @@
 
 [[constraint]]
   name = "github.com/reactivex/rxgo"
-  branch = "new_observables"
+  branch = "delay_each"
