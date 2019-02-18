@@ -176,6 +176,7 @@ func produce(producer sarama.AsyncProducer, sink string, env KafkaEnvelope) {
 func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 	// Producer
 	producerConfig := sarama.NewConfig()
+	producerConfig.Version = sarama.V2_0_0_0
 	p, err := sarama.NewAsyncProducer(brokerList, producerConfig)
 	if err != nil {
 		Log.Error("Error while creating Kafka producer",

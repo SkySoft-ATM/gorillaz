@@ -1,15 +1,14 @@
 package gorillaz
 
 import (
-	"log"
-	"strings"
-
 	"github.com/Shopify/sarama"
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
 	"github.com/openzipkin/zipkin-go-opentracing"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"log"
+	"strings"
 )
 
 var tracer opentracing.Tracer
@@ -82,12 +81,33 @@ func StartSpan(spanName string, env KafkaEnvelope) opentracing.Span {
 
 		return StartNewSpan(spanName)
 	}
+	return createSpanFromContext(spanName, ctx)
+}
 
+func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.Span {
+	if len(traceId) == 0 {
+		return StartNewSpan(spanName)
+	}
+
+	var carrier = opentracing.TextMapCarrier(make(map[string]string))
+	carrier.Set("x-b3-traceid", traceId)
+	carrier.Set("x-b3-spanid", traceId)
+	carrier.Set("x-b3-sampled", "true")
+
+	ctx, err := tracer.Extract(opentracing.TextMap, carrier)
+	if err != nil {
+		Log.Error("Error while creating context from traceId "+traceId, zap.Error(err))
+		return StartNewSpan(spanName)
+	}
+
+	return createSpanFromContext(spanName, ctx)
+}
+
+func createSpanFromContext(spanName string, ctx opentracing.SpanContext) opentracing.Span {
 	span := tracer.StartSpan(spanName, opentracing.SpanReference{
 		Type:              opentracing.FollowsFromRef,
 		ReferencedContext: ctx,
 	})
-
 	return span
 }
 
