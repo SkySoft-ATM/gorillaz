@@ -106,6 +106,7 @@ func consume(brokerList []string, source string, groupID string, request chan in
 	config.Consumer.Return.Errors = true
 	config.ChannelBufferSize = 1024
 	config.Group.Return.Notifications = true
+	config.Version = sarama.V2_0_0_0
 	topics := []string{source}
 
 	consumer, err := cluster.NewConsumer(brokerList, groupID, topics, config)

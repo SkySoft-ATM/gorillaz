@@ -59,8 +59,12 @@ func (m *kafkaMessageWrapper) ForeachKey(handler func(key, val string) error) er
 	return nil
 }
 
-func mapHeaders(headers []sarama.RecordHeader) opentracing.TextMapReader {
-	return &kafkaMessageWrapper{headers}
+func mapHeaders(headers []*sarama.RecordHeader) opentracing.TextMapReader {
+	var h []sarama.RecordHeader
+	for i := 0; i < len(headers); i++ {
+		h = append(h, *headers[i])
+	}
+	return &kafkaMessageWrapper{h}
 }
 
 // StartNewSpan starts a new OpenTracing span with a given spanName
@@ -69,10 +73,17 @@ func StartNewSpan(spanName string) opentracing.Span {
 	return span
 }
 
+func GetTraceId(span opentracing.Span) string {
+	if span != nil && span.Context() != nil {
+		return span.Context().(zipkintracer.SpanContext).TraceID.ToHex()
+	}
+	return ""
+}
+
 // StartSpan extracts info from kafka message headers and retrieve context
 // BUG(teivah) Should be renamed in "Continue Span"
 func StartSpan(spanName string, env KafkaEnvelope) opentracing.Span {
-	header := env.Ctx.Value(KafkaHeaders).([]sarama.RecordHeader)
+	header := env.Ctx.Value(KafkaHeaders).([]*sarama.RecordHeader)
 	reader := mapHeaders(header)
 
 	ctx, err := tracer.Extract(opentracing.TextMap, reader)
