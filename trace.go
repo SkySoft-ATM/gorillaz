@@ -107,8 +107,10 @@ func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.S
 
 	ctx, err := tracer.Extract(opentracing.TextMap, carrier)
 	if err != nil {
-		Log.Error("Error while creating context from traceId "+traceId, zap.Error(err))
-		return StartNewSpan(spanName)
+		Log.Warn("Error while creating context from traceId "+traceId+" we will create a new traceId", zap.Error(err))
+		newSpan := StartNewSpan(spanName)
+		newSpan = newSpan.SetTag("externalTraceId", traceId)
+		return newSpan
 	}
 
 	return createSpanFromContext(spanName, ctx)
