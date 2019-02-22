@@ -43,13 +43,7 @@ func makePropertiesKeysConfigurable(filename string) error {
 
 func parseConfiguration(context map[string]interface{}) {
 	// If parsing already done
-	var conf string
-
-	if v, contains := context["conf"]; contains {
-		conf = v.(string)
-	} else {
-		flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
-	}
+	conf := GetConfigPath(context)
 
 	flag.String("log.level", "", "Log level")
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
@@ -82,4 +76,38 @@ func parseConfiguration(context map[string]interface{}) {
 		viper.Set(k, v)
 	}
 
+}
+
+func GetConfigPath(context map[string]interface{}) string {
+	var conf string
+	if v, contains := context["conf"]; contains {
+		conf = v.(string)
+	} else {
+		if !isFlagDefined("conf") {
+			flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
+		} else {
+			conf = getFlagValue("conf")
+		}
+	}
+	return conf
+}
+
+func isFlagDefined(name string) bool {
+	found := false
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+func getFlagValue(name string) string {
+	result := ""
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == name {
+			result = f.Value.String()
+		}
+	})
+	return result
 }
