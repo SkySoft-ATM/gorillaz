@@ -33,3 +33,7 @@
 [[constraint]]
   name = "github.com/reactivex/rxgo"
   branch = "delay_each"
+
+[[constraint]]
+  name = "github.com/prometheus/client_golang"
+  version = "0.9.2"
