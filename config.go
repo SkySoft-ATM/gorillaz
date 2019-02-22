@@ -35,7 +35,11 @@ func makePropertiesKeysConfigurable(filename string) error {
 	scanner := bufio.NewScanner(f)
 	m := getPropertiesKeys(*scanner)
 	for k, v := range m {
-		flag.String(k, v, "")
+		if isFlagDefined(k) {
+			setFlagValue(k, v)
+		} else {
+			flag.String(k, v, "")
+		}
 	}
 
 	return nil
@@ -51,6 +55,8 @@ func parseConfiguration(context map[string]interface{}) {
 	flag.Int("healthcheck.port", 8080, "Healthcheck port")
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
 	flag.Int("pprof.port", 8081, "Pprof port")
+	flag.String(prometheusEndpoint, "metrics", "Prometheus endpoint")
+	flag.Int("http.port", 9000, "http port")
 
 	err := makePropertiesKeysConfigurable(conf + "/application.properties")
 	if err != nil {
@@ -107,6 +113,19 @@ func getFlagValue(name string) string {
 	flag.VisitAll(func(f *flag.Flag) {
 		if f.Name == name {
 			result = f.Value.String()
+		}
+	})
+	return result
+}
+
+func setFlagValue(name string, value string) string {
+	result := ""
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == name {
+			err := f.Value.Set(value)
+			if err != nil {
+				log.Println("Could not set value for flag %s : %s", name, err)
+			}
 		}
 	})
 	return result
