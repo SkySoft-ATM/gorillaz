@@ -32,6 +32,12 @@ func makePropertiesKeysConfigurable(filename string) error {
 		log.Fatalf("Unable to open properties file %v", filename)
 		return err
 	}
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			log.Printf("unable to close file %s, %+v", filename, err)
+		}
+	}()
 	scanner := bufio.NewScanner(f)
 	m := getPropertiesKeys(*scanner)
 	for k, v := range m {
@@ -99,13 +105,12 @@ func GetConfigPath(context map[string]interface{}) string {
 }
 
 func isFlagDefined(name string) bool {
-	found := false
 	flag.VisitAll(func(f *flag.Flag) {
 		if f.Name == name {
-			found = true
+			return true
 		}
 	})
-	return found
+	return false
 }
 
 func getFlagValue(name string) string {
@@ -124,7 +129,7 @@ func setFlagValue(name string, value string) string {
 		if f.Name == name {
 			err := f.Value.Set(value)
 			if err != nil {
-				log.Println("Could not set value for flag %s : %s", name, err)
+				log.Printf("Could not set value for flag %s : %s\n", name, err)
 			}
 		}
 	})
