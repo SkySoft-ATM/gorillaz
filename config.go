@@ -105,12 +105,13 @@ func GetConfigPath(context map[string]interface{}) string {
 }
 
 func isFlagDefined(name string) bool {
+	found := false
 	flag.VisitAll(func(f *flag.Flag) {
 		if f.Name == name {
-			return true
+			found = true
 		}
 	})
-	return false
+	return found
 }
 
 func getFlagValue(name string) string {
