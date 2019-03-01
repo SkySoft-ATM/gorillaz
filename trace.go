@@ -1,14 +1,14 @@
 package gorillaz
 
 import (
+	"log"
+	"strings"
+
 	"github.com/Shopify/sarama"
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
-	"github.com/openzipkin/zipkin-go-opentracing"
-	"github.com/spf13/viper"
+	zipkintracer "github.com/openzipkin/zipkin-go-opentracing"
 	"go.uber.org/zap"
-	"log"
-	"strings"
 )
 
 var tracer opentracing.Tracer
@@ -17,19 +17,22 @@ type kafkaMessageWrapper struct {
 	headers []sarama.RecordHeader
 }
 
-// InitTracing initializes Kafka connection to feed Zipkin
-func InitTracing() {
-	bootstrapServers := viper.GetString("kafka.bootstrapservers")
-	tracingName := viper.GetString("tracing.service.name")
+type KafkaTracingConfig struct {
+	BootstrapServers []string
+	TracingName      string
+}
 
-	collector, err := zipkintracer.NewKafkaCollector([]string{bootstrapServers},
+// InitTracing initializes Kafka connection to feed Zipkin
+func InitTracing(conf KafkaTracingConfig) {
+
+	collector, err := zipkintracer.NewKafkaCollector(conf.BootstrapServers,
 		zipkintracer.KafkaTopic("tracing"))
 	if err != nil {
-		log.Fatalf("Unable to start Zipkin collector on server %v: %s", bootstrapServers, err)
+		log.Fatalf("Unable to start Zipkin collector on server %v: %s", conf.BootstrapServers, err)
 		panic(err)
 	}
 
-	recorder := zipkintracer.NewRecorder(collector, false, "", tracingName)
+	recorder := zipkintracer.NewRecorder(collector, false, "", conf.TracingName)
 	tracer, err = zipkintracer.NewTracer(recorder)
 	if err != nil {
 		log.Fatalf("Unable to start Zipkin tracer: %s", err)
@@ -37,12 +40,9 @@ func InitTracing() {
 	}
 }
 
-// Set takes a key/value string pair and feel Kafka message headers
+// Set takes a key/value string pair and fills Kafka message headers
 func (m *kafkaMessageWrapper) Set(key, val string) {
-	if m.headers == nil {
-		m.headers = make([]sarama.RecordHeader, 0)
-	}
-
+	// if m.headers is nil, append to nil slice creates a new slice
 	m.headers = append(m.headers,
 		sarama.RecordHeader{Key: []byte(strings.ToLower(key)), Value: []byte(val)})
 }
@@ -100,13 +100,16 @@ func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.S
 		return StartNewSpan(spanName)
 	}
 
-	var carrier = opentracing.TextMapCarrier(make(map[string]string))
-	carrier.Set("x-b3-traceid", traceId)
-	carrier.Set("x-b3-spanid", traceId)
-	carrier.Set("x-b3-sampled", "true")
-
+	// TODO: this code makes me sad. Are we forced to use a SpanContext?
+	var carrier = opentracing.TextMapCarrier(
+		map[string]string{
+			"x-b3-traceid": traceId,
+			"x-b3-spanid":  traceId,
+			"x-b3-sampled": "true",
+		})
 	ctx, err := tracer.Extract(opentracing.TextMap, carrier)
 	if err != nil {
+		//TODO : should we just create another context? how bad is this?
 		Log.Warn("Error while creating context from traceId "+traceId+" we will create a new traceId", zap.Error(err))
 		newSpan := StartNewSpan(spanName)
 		newSpan = newSpan.SetTag("externalTraceId", traceId)

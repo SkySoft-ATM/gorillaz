@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -16,6 +17,7 @@ func Init(root string, context map[string]interface{}) {
 		return
 	}
 
+	//TODO: what's this for? We should be careful with creating folders, especially if this application runs as root user
 	if root != "." {
 		err := os.Chdir(root)
 		if err != nil {
@@ -24,11 +26,14 @@ func Init(root string, context map[string]interface{}) {
 	}
 
 	parseConfiguration(context)
-	InitLogs()
+	InitLogs(viper.GetString("log.level"))
 
-	tracing := viper.GetBool("tracing.enabled")
-	if tracing {
-		InitTracing()
+	if viper.GetBool("tracing.enabled") {
+		InitTracing(
+			KafkaTracingConfig{
+				BootstrapServers: strings.Split(viper.GetString("kafka.bootstrapservers"), ","),
+				TracingName:      viper.GetString("tracing.service.name"),
+			})
 	}
 
 	health := viper.GetBool("healthcheck.enabled")

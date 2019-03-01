@@ -2,56 +2,54 @@ package gorillaz
 
 import (
 	"bytes"
-	"github.com/spf13/viper"
+	"fmt"
 	"io/ioutil"
 	"net/http"
-	"time"
+	"path"
 )
 
-func UploadElasticSearchTemplate() {
-	elasticServers := viper.GetString("elasticsearch.servers")
-	template := viper.GetString("elasticsearch.template.name")
-	path := GetConfigPath(nil)
+// UploadElasticSearchTemplate uploads the template file from configFolder/template to Elasticsearch
+func UploadElasticSearchTemplate(hostname string, client *http.Client, template string) error {
+	//TODO: GetConfigPath of nil probably panic since we try to read a nil map
+	configPath := GetConfigPath(nil)
 
-	templateFile := path + "/" + template
+	templateFile := path.Join(configPath, "/", template)
 
 	fileContent, err := ioutil.ReadFile(templateFile)
 	if err != nil {
-		Sugar.Warnf("Failed to Read the File %v Error: %v", templateFile, err)
-		return
+		Sugar.Errorf("Failed to Read the File %s Error: %+v", templateFile, err)
+		return err
 	}
 
-	Sugar.Infof("Going to upload template file: %v", templateFile)
-	client := &http.Client{}
-	client.Timeout = time.Second * 15
+	Sugar.Infof("Going to upload template file: %s", templateFile)
 
-	uri := elasticServers + "/_template/" + template
-	body := bytes.NewBuffer(fileContent)
+	uri := path.Join(hostname + "/_template/" + template)
+	body := bytes.NewReader(fileContent)
 	req, err := http.NewRequest(http.MethodPut, uri, body)
+
 	if err != nil {
-		Sugar.Warnf("http.NewRequest() failed with %v", err)
-		return
+		Sugar.Errorf("http.NewRequest() failed with %+v", err)
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		Sugar.Warnf("client.Do() failed with %v", err)
-		return
+		Sugar.Errorf("client.Do() failed with %+v", err)
+		return err
 	}
 
 	defer resp.Body.Close()
-	var response []byte
-	response, err = ioutil.ReadAll(resp.Body)
+	response, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		Sugar.Warnf("ioutil.ReadAll() failed with %v", err)
-		return
+		Sugar.Errorf("ioutil.ReadAll() failed with %+v", err)
+		return err
 	}
 
-	Sugar.Infof("Response status code: %v, text:%v", resp.StatusCode, string(response))
+	Sugar.Infof("Response status code: %d, text:%+v", resp.StatusCode, string(response))
 	if resp.StatusCode == 200 {
-		Sugar.Infof("Template has been uploaded to ES: %v", string(fileContent))
-	} else {
-		Sugar.Warn("Template has NOT been uploaded to ES")
+		Sugar.Infof("Template has been uploaded to ES: %s", string(fileContent))
+		return nil
 	}
-
+	Sugar.Errorf("Template has NOT been uploaded to ES")
+	return fmt.Errorf("bad response from elastic search, status: %d, response %s", resp.StatusCode, string(response))
 }

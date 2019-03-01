@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+//TODO: there is a lot of code here. Is all of this really necessary?
+
 func getPropertiesKeys(scanner bufio.Scanner) map[string]string {
 	m := make(map[string]string)
 
@@ -91,16 +93,16 @@ func parseConfiguration(context map[string]interface{}) {
 }
 
 func GetConfigPath(context map[string]interface{}) string {
-	var conf string
 	if v, contains := context["conf"]; contains {
-		conf = v.(string)
-	} else {
-		if !isFlagDefined("conf") {
-			flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
-		} else {
-			conf = getFlagValue("conf")
-		}
+		conf := v.(string)
+		return conf
 	}
+	if isFlagDefined("conf") {
+		return getFlagValue("conf")
+	}
+	var conf string
+	//TODO : where is flag.Parse called?
+	flag.StringVar(&conf, "conf", "configs", "config file. default: configs")
 	return conf
 }
 

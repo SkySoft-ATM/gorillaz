@@ -28,11 +28,13 @@ func InitHealthcheck(serverPort int) {
 
 // SetReady returns the actual internal state to precise if the given microservice is ready
 func SetReady(status bool) {
+	//TODO: there might be some concurrency issues here, but I'm not sure how bad it can behave
 	isReady = status
 }
 
 // SetLive returns the actual internal state to precise if the given microservice is live
 func SetLive(status bool) {
+	//TODO: there might be some concurrency issues here, but I'm not sure how bad it can behave
 	isLive = status
 }
 
