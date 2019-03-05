@@ -1,23 +1,26 @@
 package gorillaz
 
 import (
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/gorilla/mux"
 	"github.com/spf13/viper"
 )
 
-var isAlreadyInitialized = false
+var initalized = false
 
 // Init initializes the different modules (Logger, Tracing, ready and live Probes and Properties)
 // It takes root as a current folder for properties file and a map of properties
 func Init(root string, context map[string]interface{}) {
-	if isAlreadyInitialized {
-		return
+	if initalized {
+		panic("gorillaz is already initialized")
 	}
+	initalized = true
 
-	//TODO: what's this for? We should be careful with creating folders, especially if this application runs as root user
 	if root != "." {
 		err := os.Chdir(root)
 		if err != nil {
@@ -36,17 +39,27 @@ func Init(root string, context map[string]interface{}) {
 			})
 	}
 
-	health := viper.GetBool("healthcheck.enabled")
-	if health {
-		serverPort := viper.GetInt("healthcheck.port")
-		InitHealthcheck(serverPort)
-	}
+	go func() {
+		router := mux.NewRouter()
+		if health := viper.GetBool("healthcheck.enabled"); health {
+			InitHealthcheck(router)
+		}
 
-	pprof := viper.GetBool("pprof.enabled")
-	if pprof {
-		serverPort := viper.GetInt("pprof.port")
-		InitPprof(serverPort)
-	}
+		if prom := viper.GetBool("prometheus.enabled"); prom {
+			promPath := viper.GetString("prometheus.endpoint")
+			InitPrometheus(router, promPath)
+		}
 
-	isAlreadyInitialized = true
+		if pprof := viper.GetBool("pprof.enabled"); pprof {
+			InitPprof(viper.GetInt("pprof.port"))
+		}
+
+		port := viper.GetInt("http.port")
+		Sugar.Infof("Starting http server on port %d", port)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", port), router)
+		if err != nil {
+			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", port, err)
+			panic(err)
+		}
+	}()
 }
