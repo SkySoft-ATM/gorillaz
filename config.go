@@ -25,7 +25,6 @@ func parseProperties(reader io.Reader) map[string]string {
 			m[split[0]] = split[1]
 		}
 	}
-
 	return m
 }
 
