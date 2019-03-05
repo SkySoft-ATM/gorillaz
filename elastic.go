@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"path"
 )
 
 // UploadElasticSearchTemplate uploads the template file from configFolder/template to Elasticsearch
@@ -13,7 +12,7 @@ func UploadElasticSearchTemplate(hostname string, client *http.Client, template 
 	//TODO: GetConfigPath of nil probably panic since we try to read a nil map
 	configPath := GetConfigPath(nil)
 
-	templateFile := path.Join(configPath, "/", template)
+	templateFile := configPath + "/" + template
 
 	fileContent, err := ioutil.ReadFile(templateFile)
 	if err != nil {
@@ -23,7 +22,7 @@ func UploadElasticSearchTemplate(hostname string, client *http.Client, template 
 
 	Sugar.Infof("Going to upload template file: %s", templateFile)
 
-	uri := path.Join(hostname + "/_template/" + template)
+	uri := hostname + "/_template/" + template
 	body := bytes.NewReader(fileContent)
 	req, err := http.NewRequest(http.MethodPut, uri, body)
 
