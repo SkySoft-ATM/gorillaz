@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Shopify/sarama"
-	"github.com/bsm/sarama-cluster"
+	cluster "github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
 	"github.com/reactivex/rxgo"
 	"github.com/reactivex/rxgo/handlers"
@@ -46,9 +46,8 @@ func KafkaService(bootstrapServers string, source string, sink string, groupID s
 
 	if err != nil {
 		return nil, nil, err
-	} else {
-		return observable, observer, nil
 	}
+	return observable, observer, nil
 }
 
 // KafkaProducer returns an observer of KafkaEnvelope.
@@ -82,9 +81,6 @@ func KafkaConsumer(bootstrapServers string, source string, groupID string) rxgo.
 	observable := rxgo.FromChannel(request)
 
 	go func() {
-		if bootstrapServers == "" {
-			bootstrapServers = viper.GetString("kafka.bootstrapservers")
-		}
 
 		Log.Info("Creation of a new Kafka consumer",
 			zap.String("server", bootstrapServers),

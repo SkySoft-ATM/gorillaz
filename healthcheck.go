@@ -1,43 +1,42 @@
 package gorillaz
 
 import (
-	"fmt"
 	"net/http"
+	"sync/atomic"
 
-	"github.com/apex/log"
 	"github.com/gorilla/mux"
 )
 
-var isReady = false
-var isLive = false
+// use int32 because sync.atomic package doesn't support boolean out of the box
+var isReady int32
+var isLive int32
 
-// InitHealthcheck starts two http endpoints (GET) for liveness and readiness probes in k8s
-func InitHealthcheck(serverPort int) {
-	r := mux.NewRouter()
-	r.HandleFunc("/ready", ready).Methods("GET")
-	r.HandleFunc("/live", live).Methods("GET")
-
-	go func() {
-		err := http.ListenAndServe(fmt.Sprintf(":%d", serverPort), r)
-		if err != nil {
-			log.Fatalf("Error while exposing health port: %v", err)
-			panic(err)
-		}
-	}()
+// InitHealthcheck registers /live and /ready (GET) for liveness and readiness probes in k8s
+func InitHealthcheck(router *mux.Router) {
+	router.HandleFunc("/ready", ready).Methods("GET")
+	router.HandleFunc("/live", live).Methods("GET")
 }
 
 // SetReady returns the actual internal state to precise if the given microservice is ready
 func SetReady(status bool) {
-	isReady = status
+	var statusInt int32
+	if status {
+		statusInt = 1
+	}
+	atomic.StoreInt32(&isReady, statusInt)
 }
 
 // SetLive returns the actual internal state to precise if the given microservice is live
 func SetLive(status bool) {
-	isLive = status
+	var statusInt int32
+	if status {
+		statusInt = 1
+	}
+	atomic.StoreInt32(&isLive, statusInt)
 }
 
 func ready(w http.ResponseWriter, _ *http.Request) {
-	if isReady {
+	if atomic.LoadInt32(&isReady) == 1 {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -45,7 +44,7 @@ func ready(w http.ResponseWriter, _ *http.Request) {
 }
 
 func live(w http.ResponseWriter, _ *http.Request) {
-	if isLive {
+	if atomic.LoadInt32(&isLive) == 1 {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)

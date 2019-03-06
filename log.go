@@ -3,7 +3,6 @@ package gorillaz
 import (
 	"log"
 
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -15,14 +14,13 @@ var Log *zap.Logger
 var Sugar *zap.SugaredLogger
 
 // InitLogs initializes the Sugar (*zap.SugaredLogger) and Log (*zap.Logger) elements
-func InitLogs() {
+func InitLogs(logLevel string) {
 	config := zap.NewProductionConfig()
 
 	err := config.EncoderConfig.EncodeTime.UnmarshalText([]byte("iso8601"))
 	if err != nil {
 		log.Fatalf("error trying to define encoding %v", err)
 	}
-	logLevel := viper.GetString("log.level")
 
 	config.Level = zap.NewAtomicLevelAt(zapcore.PanicLevel)
 	if logLevel == "debug" {
