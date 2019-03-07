@@ -1,0 +1,20 @@
+language: go
+sudo: required
+go:
+- 1.10.x
+go_import_path: github.com/skysoft-atm/gorillaz
+
+cache:
+  directories:
+  - "$HOME/google-cloud-sdk/"
+
+before_install:
+- wget -O - https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+- dep ensure
+
+install:
+- go test ./... -race
+- go build ./cmd/example/
+
+notifications:
+  slack: skysoft-it:0fUbWaFgKoEVS9FITjuVkKIh
