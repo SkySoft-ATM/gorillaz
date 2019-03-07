@@ -2,17 +2,14 @@ package gorillaz
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"strings"
-
+	"fmt"
 	"github.com/Shopify/sarama"
-	cluster "github.com/bsm/sarama-cluster"
+	"github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
-	"github.com/reactivex/rxgo"
-	"github.com/reactivex/rxgo/handlers"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"os"
+	"os/signal"
 )
 
 // KafkaHeaders represents a context key.
@@ -33,101 +30,92 @@ type KafkaEnvelope struct {
 
 type contextKey string
 
+// KafkaConsumerOptionFunc is a function that configures the Kafka connection.
+type KafkaConsumerOptionFunc func(*cluster.Config) error
+
+// KafkaProducerOptionFunc is a function that configures the Kafka connection.
+type KafkaProducerOptionFunc func(*sarama.Config) error
+
 // String() methods in https://tip.golang.org/src/context/context.go reveals a fair amount of information about the context.
 // So adding our own String() method is a nice way to keep track of what’s what, although, it would work without it.
 func (c contextKey) String() string {
 	return "gorillaz" + string(c)
 }
 
+// Returns the Kafka bootstrap server configuration of panic if not found
+func BootsrapServerConfig() []string {
+	bootstrapServers := viper.GetStringSlice("kafka.bootstrapservers")
+	if bootstrapServers == nil || len(bootstrapServers) == 0 {
+		panic(fmt.Errorf("Please provide a 'kafka.bootstrapservers' configuration"))
+	}
+	return bootstrapServers
+}
+
 // KafkaService returns an observable and an observer of KafkaEnvelope.
-func KafkaService(bootstrapServers string, source string, sink string, groupID string) (rxgo.Observable, rxgo.Observer, error) {
-	observable := KafkaConsumer(bootstrapServers, source, groupID)
-	observer, err := KafkaProducer(bootstrapServers, sink)
+func KafkaService(bootstrapServers []string, source string, sink string, groupID string) (<-chan *KafkaEnvelope, <-chan *cluster.Notification, <-chan error, chan<- *KafkaEnvelope, error) {
+	messages, notifications, errors, err := KafkaConsumer(bootstrapServers, source, groupID)
+	messageSink, err := KafkaProducer(bootstrapServers, sink)
 
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return observable, observer, nil
+	return messages, notifications, errors, messageSink, nil
 }
 
 // KafkaProducer returns an observer of KafkaEnvelope.
-func KafkaProducer(bootstrapServers string, sink string) (rxgo.Observer, error) {
-	if bootstrapServers == "" {
-		bootstrapServers = viper.GetString("kafka.bootstrapservers")
-	}
-
+func KafkaProducer(bootstrapServers []string, sink string, options ...KafkaProducerOptionFunc) (chan<- *KafkaEnvelope, error) {
 	Log.Info("Creation of a new Kafka producer",
-		zap.String("server", bootstrapServers),
+		zap.Strings("server", bootstrapServers),
 		zap.String("sink", sink))
 
-	brokerList := strings.Split(bootstrapServers, ",")
-
-	producer, err := createKafkaProducer(brokerList)
+	producer, err := createKafkaProducer(bootstrapServers, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	observer := rxgo.NewObserver(handlers.NextFunc(func(i interface{}) {
-		env := i.(KafkaEnvelope)
-		produce(producer, sink, env)
-	}))
+	msgProducer := make(chan *KafkaEnvelope)
+	produce(producer, sink, msgProducer)
 
-	return observer, nil
+	return msgProducer, nil
 }
 
-// KafkaConsumer returns an observable of KafkaEnvelope.
-func KafkaConsumer(bootstrapServers string, source string, groupID string) rxgo.Observable {
-	request := make(chan interface{})
-	observable := rxgo.FromChannel(request)
+// KafkaConsumer returns:
+// - a channel to consume Kafka messages
+// - a channel to consume Kafka notifications
+// - a channel to consume errors
+// - an error if the consumer could not be created
+func KafkaConsumer(bootstrapServers []string, source string, groupID string, options ...KafkaConsumerOptionFunc) (<-chan *KafkaEnvelope, <-chan *cluster.Notification, <-chan error, error) {
+	Log.Info("Creation of a new Kafka consumer",
+		zap.Strings("server", bootstrapServers),
+		zap.String("source", source))
 
-	go func() {
-
-		Log.Info("Creation of a new Kafka consumer",
-			zap.String("server", bootstrapServers),
-			zap.String("source", source))
-
-		brokerList := strings.Split(bootstrapServers, ",")
-
-		err := consume(brokerList, source, groupID, request)
-		if err != nil {
-			request <- err
-		}
-	}()
-
-	return observable
+	return consume(bootstrapServers, source, groupID, options...)
 }
 
-func consume(brokerList []string, source string, groupID string, request chan interface{}) error {
+func consume(brokerList []string, source string, groupID string, options ...KafkaConsumerOptionFunc) (<-chan *KafkaEnvelope, <-chan *cluster.Notification, <-chan error, error) {
 	config := cluster.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.ChannelBufferSize = 1024
 	config.Group.Return.Notifications = true
 	config.Version = sarama.V2_0_0_0
+
+	for _, option := range options {
+		if err := option(config); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
 	topics := []string{source}
 
 	consumer, err := cluster.NewConsumer(brokerList, groupID, topics, config)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
+
+	messages := make(chan *KafkaEnvelope)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
-
-	// Errors
-	go func() {
-		for err := range consumer.Errors() {
-			Log.Error("Error while consuming messages",
-				zap.Error(err))
-			panic(err)
-		}
-	}()
-
-	// Notifications
-	go func() {
-		for notif := range consumer.Notifications() {
-			Sugar.Debugf("New notification: %v", notif)
-		}
-	}()
 
 	// Messages
 	go func() {
@@ -145,35 +133,48 @@ func consume(brokerList []string, source string, groupID string, request chan in
 					// should not use basic type string as key in context.WithValue
 					ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
 
-					request <- KafkaEnvelope{
+					messages <- &KafkaEnvelope{
 						Key:  msg.Key,
 						Data: msg.Value,
 						Ctx:  ctx,
 					}
 				} else {
-					Log.Error("Consumer error", zap.Error(err))
+					errMsg := "kafka consumer message channel is closed"
+					Log.Error(errMsg)
+					panic(fmt.Errorf(errMsg))
 				}
 			case <-signals:
-				continue
+				Log.Info("Kafka consumer stopped by Interrupt signal")
+				break
 			}
 		}
 	}()
-	return nil
+	return messages, consumer.Notifications(), consumer.Errors(), nil
 }
 
-func produce(producer sarama.AsyncProducer, sink string, env KafkaEnvelope) {
-	var headers []sarama.RecordHeader
-	if env.Ctx != nil {
-		span := env.Ctx.Value(Span).(opentracing.Span)
-		headers = inject(span)
-	}
-	send(producer, sink, headers, env.Key, env.Data)
+func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaEnvelope) {
+	go func() {
+		for env := range messages {
+			var headers []sarama.RecordHeader
+			if env.Ctx != nil {
+				span := env.Ctx.Value(Span).(opentracing.Span)
+				headers = inject(span)
+			}
+			send(producer, sink, headers, env.Key, env.Data)
+		}
+	}()
 }
 
-func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
+func createKafkaProducer(brokerList []string, options ...KafkaProducerOptionFunc) (sarama.AsyncProducer, error) {
 	// Producer
 	producerConfig := sarama.NewConfig()
 	producerConfig.Version = sarama.V2_0_0_0
+	for _, option := range options {
+		if err := option(producerConfig); err != nil {
+			return nil, err
+		}
+	}
+
 	p, err := sarama.NewAsyncProducer(brokerList, producerConfig)
 	if err != nil {
 		Log.Error("Error while creating Kafka producer",
@@ -182,10 +183,14 @@ func createKafkaProducer(brokerList []string) (sarama.AsyncProducer, error) {
 	}
 
 	go func() {
-		for err := range p.Errors() {
-			Log.Error("Error while producing message",
-				zap.Error(err))
-			panic(err)
+		for {
+			select {
+			case err := <-p.Errors():
+				Log.Error("Error while producing message", zap.Error(err))
+				panic(err)
+			case success := <-p.Successes():
+				Log.Debug("success producing message", zap.Int64("Offset", success.Offset))
+			}
 		}
 	}()
 

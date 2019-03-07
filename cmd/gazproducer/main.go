@@ -2,11 +2,10 @@ package main
 
 import (
 	"flag"
+	"github.com/skysoft-atm/gorillaz"
 	"go/build"
 	"os"
 	"text/template"
-
-	"github.com/apex/log"
 )
 
 type data struct {
@@ -25,7 +24,7 @@ func main() {
 	path := d.Name + ".go"
 	f, err := os.Create(path)
 	if err != nil {
-		log.Errorf("unable to create file %v", path)
+		gorillaz.Sugar.Errorf("unable to create file %v", path)
 		return
 	}
 
@@ -35,7 +34,7 @@ func main() {
 
 	err = t.Execute(f, d)
 	if err != nil {
-		log.Warnf("unable to create template")
+		gorillaz.Sugar.Warnf("unable to create template")
 	}
 
 	f.Close()

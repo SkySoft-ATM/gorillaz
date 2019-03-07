@@ -1,6 +1,8 @@
 package gorillaz
 
 import (
+	"fmt"
+	"github.com/spf13/viper"
 	"log"
 	"strings"
 
@@ -20,6 +22,23 @@ type kafkaMessageWrapper struct {
 type KafkaTracingConfig struct {
 	BootstrapServers []string
 	TracingName      string
+}
+
+// InitTracing initializes Kafka connection to feed Zipkin
+// You should have provided the following configurations, either in the config file or with flags:
+// kafka.bootstrapservers
+// tracing.service.name
+func InitTracingFromConfig() {
+	bootstrapServers := viper.GetStringSlice("kafka.bootstrapservers")
+	tracingName := strings.TrimSpace(viper.GetString("tracing.service.name"))
+	if len(bootstrapServers) == 0 {
+		panic(fmt.Errorf("Configuration 'kafka.bootstrapservers' not provided"))
+	}
+	if len(tracingName) == 0 {
+		panic(fmt.Errorf("Configuration 'tracing.service.name' not provided"))
+	}
+	InitTracing(KafkaTracingConfig{bootstrapServers, tracingName})
+
 }
 
 // InitTracing initializes Kafka connection to feed Zipkin
