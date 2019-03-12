@@ -63,6 +63,7 @@ func parseConfiguration(context map[string]interface{}) {
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
 	flag.Int("pprof.port", 8081, "pprof port")
 	flag.String("prometheus.endpoint", "/metrics", "Prometheus endpoint")
+	flag.Bool("prometheus.enabled", true, "Prometheus enabled")
 	flag.Int("http.port", 9000, "http port")
 
 	err := parsePropertyFileAndSetFlags(path.Join(conf, "application.properties"))
