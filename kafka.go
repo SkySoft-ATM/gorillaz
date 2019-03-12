@@ -6,6 +6,8 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"os"
@@ -20,6 +22,33 @@ const KafkaHeaders = contextKey("headers")
 
 // Span is used to manage OpenTracing context
 const Span = "span"
+
+var (
+	kafkaSendCount = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_send_total",
+		Help: "The total number of messages sent to Kafka",
+	})
+
+	kafkaSendSuccessCount = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_send_success_total",
+		Help: "The total number of messages sent to Kafka with success",
+	})
+
+	kafkaSendErrorCount = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_send_error_total",
+		Help: "The total number of error while sending to Kafka ",
+	})
+
+	kafkaReceiveCount = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_receive_total",
+		Help: "The total number of messages received from Kafka",
+	})
+
+	kafkaReceiveErrorCount = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_receive_errors",
+		Help: "The total number of errors while receiving from Kafka",
+	})
+)
 
 // KafkaEnvelope represents Kafka message
 type KafkaEnvelope struct {
@@ -132,6 +161,7 @@ func consume(brokerList []string, source string, groupID string, options ...Kafk
 	messages := make(chan *KafkaEnvelope)
 
 	signals := make(chan os.Signal, 1)
+	errors := make(chan error)
 	signal.Notify(signals, os.Interrupt)
 
 	// Messages
@@ -155,6 +185,7 @@ func consume(brokerList []string, source string, groupID string, options ...Kafk
 						Data: msg.Value,
 						Ctx:  ctx,
 					}
+					kafkaReceiveCount.Inc()
 				} else {
 					errMsg := "kafka consumer message channel is closed"
 					Log.Error(errMsg)
@@ -163,10 +194,13 @@ func consume(brokerList []string, source string, groupID string, options ...Kafk
 			case <-signals:
 				Log.Info("Kafka consumer stopped by Interrupt signal")
 				break
+			case err := <-consumer.Errors():
+				kafkaReceiveErrorCount.Inc()
+				errors <- err
 			}
 		}
 	}()
-	return &KafkaConsumer{messages, consumer.Notifications(), consumer.Errors()}, nil
+	return &KafkaConsumer{messages, consumer.Notifications(), errors}, nil
 }
 
 func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaEnvelope) <-chan *sarama.ProducerError {
@@ -181,21 +215,15 @@ func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaE
 					headers = inject(span)
 				}
 				send(producer, sink, headers, env.Key, env.Data)
+				kafkaSendCount.Inc()
 			case success := <-producer.Successes():
+				kafkaSendSuccessCount.Inc()
 				Sugar.Debugf("Message successfully pushed to Kafka topic: %s Partition: %d Offset: %d", success.Topic, success.Partition, success.Offset)
 			case err := <-producer.Errors():
+				kafkaSendErrorCount.Inc()
 				Sugar.Debugf("Message could not be pushed to Kafka %v", err.Msg, err.Err)
 				errorChan <- err
 			}
-		}
-
-		for env := range messages {
-			var headers []sarama.RecordHeader
-			if env.Ctx != nil {
-				span := env.Ctx.Value(Span).(opentracing.Span)
-				headers = inject(span)
-			}
-			send(producer, sink, headers, env.Key, env.Data)
 		}
 	}()
 	return errorChan
