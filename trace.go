@@ -46,6 +46,7 @@ func InitTracing(conf KafkaTracingConfig) {
 
 	collector, err := zipkintracer.NewKafkaCollector(conf.BootstrapServers,
 		zipkintracer.KafkaTopic("tracing"))
+	Sugar.Infof("Initializing tracing with kafka bootstrap servers '%v' and tracing name '%s'", conf.BootstrapServers, conf.TracingName)
 	if err != nil {
 		log.Fatalf("Unable to start Zipkin collector on server %v: %s", conf.BootstrapServers, err)
 		panic(err)
