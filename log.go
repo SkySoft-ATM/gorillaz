@@ -54,9 +54,3 @@ func zapLogLevel(logLevel string) zapcore.Level {
 		panic("unknown log level " + logLevel)
 	}
 }
-
-// NewLogger initializes and instantiates both Sugar and Log element with the given zapcore.Level
-// deprecated, use InitLogs instead
-func NewLogger(level zapcore.Level) {
-	atomLevel.SetLevel(level)
-}
