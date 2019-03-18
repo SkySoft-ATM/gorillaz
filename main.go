@@ -11,7 +11,7 @@ import (
 
 var initalized = false
 
-// Init initializes the different modules (Logger, Tracing, Netrics, ready and live Probes and Properties)
+// Init initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
 func Init(context map[string]interface{}) {
 	if initalized {
