@@ -2,9 +2,7 @@ package gorillaz
 
 import (
 	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -13,20 +11,13 @@ import (
 
 var initalized = false
 
-// Init initializes the different modules (Logger, Tracing, ready and live Probes and Properties)
-// It takes root as a current folder for properties file and a map of properties
-func Init(root string, context map[string]interface{}) {
+// Init initializes the different modules (Logger, Tracing, Netrics, ready and live Probes and Properties)
+// It takes root at the current folder for properties file and a map of properties
+func Init(context map[string]interface{}) {
 	if initalized {
 		panic("gorillaz is already initialized")
 	}
 	initalized = true
-
-	if root != "." {
-		err := os.Chdir(root)
-		if err != nil {
-			log.Fatalf("error trying to define root directory %v", err)
-		}
-	}
 
 	parseConfiguration(context)
 	InitLogs(viper.GetString("log.level"))
