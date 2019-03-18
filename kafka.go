@@ -3,15 +3,14 @@ package gorillaz
 import (
 	"context"
 	"fmt"
+
 	"github.com/Shopify/sarama"
-	"github.com/bsm/sarama-cluster"
+	cluster "github.com/bsm/sarama-cluster"
 	"github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"os"
-	"os/signal"
 )
 
 // KafkaHeaders represents a context key.
@@ -43,11 +42,6 @@ var (
 		Name: "kafka_receive_total",
 		Help: "The total number of messages received from Kafka",
 	})
-
-	kafkaReceiveErrorCount = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "kafka_receive_errors",
-		Help: "The total number of errors while receiving from Kafka",
-	})
 )
 
 // KafkaEnvelope represents Kafka message
@@ -71,7 +65,7 @@ func (c contextKey) String() string {
 	return "gorillaz" + string(c)
 }
 
-// Returns the Kafka bootstrap server configuration of panic if not found
+// BootsrapServerConfig returns the Kafka bootstrap server configuration or panic if not found
 func BootsrapServerConfig() []string {
 	bootstrapServers := viper.GetStringSlice("kafka.bootstrapservers")
 	if bootstrapServers == nil || len(bootstrapServers) == 0 {
@@ -80,69 +74,59 @@ func BootsrapServerConfig() []string {
 	return bootstrapServers
 }
 
-type KafkaService struct {
-	Consumer *KafkaConsumer
-	Producer *KafkaProducer
-}
-
-type KafkaConsumer struct {
-	Messages      <-chan *KafkaEnvelope
-	Notifications <-chan *cluster.Notification
-	Errors        <-chan error
-}
-
 type KafkaProducer struct {
 	Sink   chan<- *KafkaEnvelope
 	Errors <-chan *sarama.ProducerError
 }
 
-// KafkaService returns an observable and an observer of KafkaEnvelope.
-func NewKafkaService(bootstrapServers []string, source string, sink string, groupID string) (*KafkaService, error) {
-	consumer, err := NewKafkaConsumer(bootstrapServers, source, groupID)
-	producer, err := NewKafkaProducer(bootstrapServers, sink)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &KafkaService{consumer, producer}, nil
-}
-
-// KafkaProducer returns an observer of KafkaEnvelope.
+// NewKafkaProducer returns a new KafkaProducer forwarding
 func NewKafkaProducer(bootstrapServers []string, sink string, options ...KafkaProducerOptionFunc) (*KafkaProducer, error) {
 	Log.Info("Creation of a new Kafka producer",
 		zap.Strings("server", bootstrapServers),
 		zap.String("sink", sink))
 
-	producer, err := createKafkaProducer(bootstrapServers, options...)
-	if err != nil {
-		return nil, err
+	var p sarama.AsyncProducer
+	{
+		// Setup Sarama Kafka AsyncProducer
+		producerConfig := sarama.NewConfig()
+		producerConfig.Version = sarama.V2_0_0_0
+		for _, option := range options {
+			if err := option(producerConfig); err != nil {
+				return nil, err
+			}
+		}
+		var err error
+		p, err = sarama.NewAsyncProducer(bootstrapServers, producerConfig)
+		if err != nil {
+			Log.Error("Error while creating Kafka producer",
+				zap.Error(err))
+			return nil, err
+		}
 	}
 
 	msgProducer := make(chan *KafkaEnvelope)
-	errChan := produce(producer, sink, msgProducer)
+	errChan := produce(p, sink, msgProducer)
 
 	return &KafkaProducer{msgProducer, errChan}, nil
 }
 
-// KafkaConsumer returns:
+// NewKafkaConsumer returns:
 // - a channel to consume Kafka messages
 // - a channel to consume Kafka notifications
 // - a channel to consume errors
 // - an error if the consumer could not be created
-func NewKafkaConsumer(bootstrapServers []string, source string, groupID string, options ...KafkaConsumerOptionFunc) (*KafkaConsumer, error) {
+func NewKafkaConsumer(bootstrapServers []string, topic string, groupID string, options ...KafkaConsumerOptionFunc) (<-chan *KafkaEnvelope, error) {
 	Log.Info("Creation of a new Kafka consumer",
 		zap.Strings("server", bootstrapServers),
-		zap.String("source", source))
+		zap.String("topic", topic))
 
-	return consume(bootstrapServers, source, groupID, options...)
-}
-
-func consume(brokerList []string, source string, groupID string, options ...KafkaConsumerOptionFunc) (*KafkaConsumer, error) {
 	config := cluster.NewConfig()
-	config.Consumer.Return.Errors = true
+	// we're not interested in offset management errors
+	config.Consumer.Return.Errors = false
+	// we're not interested in consumer group membership notifications
+	config.Group.Return.Notifications = false
+
 	config.ChannelBufferSize = 1024
-	config.Group.Return.Notifications = true
 	config.Version = sarama.V2_0_0_0
 
 	for _, option := range options {
@@ -151,114 +135,82 @@ func consume(brokerList []string, source string, groupID string, options ...Kafk
 		}
 	}
 
-	topics := []string{source}
-
-	consumer, err := cluster.NewConsumer(brokerList, groupID, topics, config)
+	consumer, err := cluster.NewConsumer(bootstrapServers, groupID, []string{topic}, config)
 	if err != nil {
 		return nil, err
 	}
 
-	messages := make(chan *KafkaEnvelope)
-
-	signals := make(chan os.Signal, 1)
-	errors := make(chan error)
-	signal.Notify(signals, os.Interrupt)
+	messages := make(chan *KafkaEnvelope, 3)
 
 	// Messages
 	go func() {
 		for {
 			select {
-			case msg, ok := <-consumer.Messages():
-				if ok {
-					Sugar.Debugf("Message received: key=%v, offset=%v, partition=%v, headers=%v",
-						msg.Key,
-						msg.Offset,
-						msg.Partition,
-						msg.Headers)
-					consumer.MarkOffset(msg, "") // mark message as processed
+			case msg := <-consumer.Messages():
+				Log.Debug("Message received",
+					zap.String("topic", msg.Topic),
+					zap.Int32("partition", msg.Partition),
+					zap.Int64("offset", msg.Offset),
+					zap.String("key", string(msg.Key)),
+					zap.String("headers", fmt.Sprintf("%+v", msg.Headers)))
+				consumer.MarkOffset(msg, "") // mark message as processed
 
-					// should not use basic type string as key in context.WithValue
-					ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
+				// should not use basic type string as key in context.WithValue
+				ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
 
-					messages <- &KafkaEnvelope{
-						Key:  msg.Key,
-						Data: msg.Value,
-						Ctx:  ctx,
-					}
-					kafkaReceiveCount.Inc()
-				} else {
-					errMsg := "kafka consumer message channel is closed"
-					Log.Error(errMsg)
-					panic(fmt.Errorf(errMsg))
+				messages <- &KafkaEnvelope{
+					Key:  msg.Key,
+					Data: msg.Value,
+					Ctx:  ctx,
 				}
-			case <-signals:
-				Log.Info("Kafka consumer stopped by Interrupt signal")
-				break
-			case err := <-consumer.Errors():
-				kafkaReceiveErrorCount.Inc()
-				errors <- err
+				kafkaReceiveCount.Inc()
 			}
 		}
 	}()
-	return &KafkaConsumer{messages, consumer.Notifications(), errors}, nil
+	return messages, nil
 }
 
 func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaEnvelope) <-chan *sarama.ProducerError {
-	errorChan := make(chan *sarama.ProducerError)
+	errorChan := make(chan *sarama.ProducerError, 3)
+
+	// send loop goroutine
+	go func() {
+		for {
+			env := <-messages
+			var headers []sarama.RecordHeader
+			if env.Ctx != nil {
+				span := env.Ctx.Value(Span).(opentracing.Span)
+				headers = inject(span)
+			}
+			send(producer, sink, headers, env.Key, env.Data)
+			kafkaSendCount.Inc()
+		}
+	}()
+
+	// success & errors handling goroutine
 	go func() {
 		for {
 			select {
-			case env := <-messages:
-				var headers []sarama.RecordHeader
-				if env.Ctx != nil {
-					span := env.Ctx.Value(Span).(opentracing.Span)
-					headers = inject(span)
-				}
-				send(producer, sink, headers, env.Key, env.Data)
-				kafkaSendCount.Inc()
 			case success := <-producer.Successes():
 				kafkaSendSuccessCount.Inc()
-				Sugar.Debugf("Message successfully pushed to Kafka topic: %s Partition: %d Offset: %d", success.Topic, success.Partition, success.Offset)
+				Log.Debug("Message successfully pushed to Kafka topic",
+					zap.String("topic", success.Topic),
+					zap.Int32("partition", success.Partition),
+					zap.Time("timestamp", success.Timestamp),
+					zap.Int64("offset", success.Offset))
 			case err := <-producer.Errors():
 				kafkaSendErrorCount.Inc()
-				Sugar.Debugf("Message could not be pushed to Kafka %v", err.Msg, err.Err)
+				Log.Error("Message could not be pushed to Kafka",
+					zap.String("topic", err.Msg.Topic),
+					zap.Int32("partition", err.Msg.Partition),
+					zap.Time("timestamp", err.Msg.Timestamp),
+					zap.Error(err.Err))
 				errorChan <- err
 			}
 		}
 	}()
+
 	return errorChan
-}
-
-func createKafkaProducer(brokerList []string, options ...KafkaProducerOptionFunc) (sarama.AsyncProducer, error) {
-	// Producer
-	producerConfig := sarama.NewConfig()
-	producerConfig.Version = sarama.V2_0_0_0
-	for _, option := range options {
-		if err := option(producerConfig); err != nil {
-			return nil, err
-		}
-	}
-
-	p, err := sarama.NewAsyncProducer(brokerList, producerConfig)
-	if err != nil {
-		Log.Error("Error while creating Kafka producer",
-			zap.Error(err))
-		return nil, err
-	}
-
-	go func() {
-		for {
-			select {
-			case err := <-p.Errors():
-				Log.Error("Error while producing message", zap.Error(err))
-				panic(err)
-			case success := <-p.Successes():
-				Log.Debug("success producing message", zap.Int64("Offset", success.Offset))
-			}
-		}
-	}()
-
-	return p, nil
 }
 
 func send(producer sarama.AsyncProducer, sink string, headers []sarama.RecordHeader, key []byte, value []byte) {
