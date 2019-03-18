@@ -20,7 +20,10 @@ func Init(context map[string]interface{}) {
 	initalized = true
 
 	parseConfiguration(context)
-	InitLogs(viper.GetString("log.level"))
+	err := InitLogs(viper.GetString("log.level"))
+	if err != nil {
+		panic(err)
+	}
 
 	if viper.GetBool("tracing.enabled") {
 		InitTracing(
