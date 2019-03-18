@@ -5,7 +5,7 @@ import (
 )
 
 func main() {
-	gaz.Init(".", nil)
+	gaz.Init(nil)
 
 	// write your application code here
 
