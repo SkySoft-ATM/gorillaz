@@ -169,7 +169,9 @@ func NewKafkaConsumer(bootstrapServers []string, topic string, groupID string, o
 				consumer.MarkOffset(msg, "") // mark message as processed
 
 				// monitor the delay of arrival
-				kafkaReceiveDelaySummary.Observe(time.Now().Sub(msg.Timestamp).Seconds() * 1000)
+				if msg.Timestamp.UnixNano() > 0 {
+					kafkaReceiveDelaySummary.Observe(time.Now().Sub(msg.Timestamp).Seconds() * 1000)
+				}
 
 				// should not use basic type string as key in context.WithValue
 				ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
