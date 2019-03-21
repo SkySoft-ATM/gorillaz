@@ -20,10 +20,15 @@ func parseProperties(reader io.Reader) map[string]string {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		// Comments
-		if !strings.HasPrefix(line, "#") {
-			split := strings.Split(line, "=")
-			m[split[0]] = split[1]
+		if strings.HasPrefix(line, "#") {
+			continue
 		}
+		split := strings.Split(line, "=")
+		if len(split) < 2 {
+			log.Printf("WARN: cannot parse config line %s\n", line)
+			continue
+		}
+		m[split[0]] = split[1]
 	}
 	return m
 }

@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -28,6 +29,12 @@ var (
 		Help: "The total number of messages sent to Kafka",
 	})
 
+	kafkaSendDelaySummary = promauto.NewSummary(prometheus.SummaryOpts{
+		Name:       "kafka_send_delay_ms",
+		Help:       "The distribution of delay between when messages are sent to Sarama and when Kafka acknowledge them in milliseconds",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	})
+
 	kafkaSendSuccessCount = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "kafka_send_success_total",
 		Help: "The total number of messages sent to Kafka with success",
@@ -41,6 +48,12 @@ var (
 	kafkaReceiveCount = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "kafka_receive_total",
 		Help: "The total number of messages received from Kafka",
+	})
+
+	kafkaReceiveDelaySummary = promauto.NewSummary(prometheus.SummaryOpts{
+		Name:       "kafka_receive_delay_ms",
+		Help:       "The distribution of delay between when messages are sent to Sarama and when the message is consumed",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	})
 )
 
@@ -155,6 +168,11 @@ func NewKafkaConsumer(bootstrapServers []string, topic string, groupID string, o
 					zap.String("headers", fmt.Sprintf("%+v", msg.Headers)))
 				consumer.MarkOffset(msg, "") // mark message as processed
 
+				// monitor the delay of arrival
+				if msg.Timestamp.UnixNano() > 0 {
+					kafkaReceiveDelaySummary.Observe(time.Now().Sub(msg.Timestamp).Seconds() * 1000)
+				}
+
 				// should not use basic type string as key in context.WithValue
 				ctx := context.WithValue(context.TODO(), KafkaHeaders, msg.Headers)
 
@@ -182,7 +200,20 @@ func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaE
 				span := env.Ctx.Value(Span).(opentracing.Span)
 				headers = inject(span)
 			}
-			send(producer, sink, headers, env.Key, env.Data)
+			Log.Debug("Sending message to Kafka",
+				zap.ByteString("key", env.Key),
+				zap.Binary("value", env.Data),
+				zap.String("topic", sink))
+
+			producer.Input() <- &sarama.ProducerMessage{
+				Topic:   sink,
+				Key:     sarama.ByteEncoder(env.Key),
+				Value:   sarama.ByteEncoder(env.Data),
+				Headers: headers,
+				// we put as timestamp when this message is sent to Sarama AsyncProducer,
+				// so we can measure how long it takes to Kafka to ack it and how long it takes for the receiver to get it
+				Timestamp: time.Now(),
+			}
 			kafkaSendCount.Inc()
 		}
 	}()
@@ -193,6 +224,10 @@ func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaE
 			select {
 			case success := <-producer.Successes():
 				kafkaSendSuccessCount.Inc()
+
+				// monitor the delay of ack from Kafka
+				kafkaSendDelaySummary.Observe(time.Now().Sub(success.Timestamp).Seconds() * 1000)
+
 				Log.Debug("Message successfully pushed to Kafka topic",
 					zap.String("topic", success.Topic),
 					zap.Int32("partition", success.Partition),
@@ -211,18 +246,4 @@ func produce(producer sarama.AsyncProducer, sink string, messages <-chan *KafkaE
 	}()
 
 	return errorChan
-}
-
-func send(producer sarama.AsyncProducer, sink string, headers []sarama.RecordHeader, key []byte, value []byte) {
-	Log.Debug("Sending message to Kafka",
-		zap.ByteString("key", key),
-		zap.String("value", string(value)),
-		zap.String("topic", sink))
-
-	producer.Input() <- &sarama.ProducerMessage{
-		Topic:   sink,
-		Key:     sarama.ByteEncoder(key),
-		Value:   sarama.ByteEncoder(value),
-		Headers: headers,
-	}
 }
