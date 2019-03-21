@@ -24,8 +24,8 @@ func parseProperties(reader io.Reader) map[string]string {
 			continue
 		}
 		split := strings.Split(line, "=")
-		if len(split) != 2 {
-			log.Printf("WARN: cannot parse config line %s\n", split)
+		if len(split) < 2 {
+			log.Printf("WARN: cannot parse config line %s\n", line)
 			continue
 		}
 		m[split[0]] = split[1]
