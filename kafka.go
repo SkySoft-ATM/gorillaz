@@ -103,6 +103,7 @@ func NewKafkaProducer(bootstrapServers []string, sink string, options ...KafkaPr
 		// Setup Sarama Kafka AsyncProducer
 		producerConfig := sarama.NewConfig()
 		producerConfig.Version = sarama.V2_0_0_0
+		producerConfig.Producer.Return.Successes = true
 		for _, option := range options {
 			if err := option(producerConfig); err != nil {
 				return nil, err
