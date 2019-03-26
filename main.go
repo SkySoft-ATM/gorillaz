@@ -9,15 +9,19 @@ import (
 	"github.com/spf13/viper"
 )
 
-var initalized = false
+var initialized = false
+
+type GorillazContext struct {
+	router *mux.Router
+}
 
 // Init initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
-func Init(context map[string]interface{}) {
-	if initalized {
+func Init(context map[string]interface{}) GorillazContext {
+	if initialized {
 		panic("gorillaz is already initialized")
 	}
-	initalized = true
+	initialized = true
 
 	parseConfiguration(context)
 	err := InitLogs(viper.GetString("log.level"))
@@ -33,8 +37,9 @@ func Init(context map[string]interface{}) {
 			})
 	}
 
+	router := mux.NewRouter()
+
 	go func() {
-		router := mux.NewRouter()
 		if health := viper.GetBool("healthcheck.enabled"); health {
 			InitHealthcheck(router)
 		}
@@ -56,4 +61,6 @@ func Init(context map[string]interface{}) {
 			panic(err)
 		}
 	}()
+
+	return GorillazContext{router: router}
 }
