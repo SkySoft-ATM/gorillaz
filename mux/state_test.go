@@ -7,16 +7,6 @@ import (
 	"time"
 )
 
-const numberOfStateMessagesSent = 20
-
-var onBackPressureState = func(consumerName string, value interface{}) {
-	fmt.Println("on back pressure " + consumerName)
-	blockingStateClientChan <- consumerName
-}
-
-var blockingStateClientChan = make(chan string, numberOfStateMessagesSent+1)
-var finishedState = make(chan bool, 1)
-
 const blockingConsumerName = "blocking"
 
 // this function will consume the given amount of messages and block
@@ -30,14 +20,14 @@ func consumeAndBlockState(amountToConsume int, channel <-chan interface{}) {
 	}(channel)
 }
 
-func consumeState(channel <-chan interface{}, numberOfMessages int) {
+func consumeState(channel <-chan interface{}, numberOfMessages int, finished chan<- bool) {
 	go func(c <-chan interface{}) {
 		i := 0
 		for {
 			<-c
 			i++
 			if i == numberOfMessages {
-				finishedState <- true
+				finished <- true
 			}
 		}
 	}(channel)
@@ -48,28 +38,36 @@ var keyExtractor = func(f interface{}) interface{} {
 }
 
 func TestBackpressureOnStateBroadcaster(t *testing.T) {
+	const numberOfStateMessagesSent = 20
+	var blockingClientChan = make(chan string, numberOfStateMessagesSent+1)
+	var finished = make(chan bool, 1)
+	var onBackPressureState = func(consumerName string, value interface{}) {
+		fmt.Println("on back pressure " + consumerName)
+		blockingClientChan <- consumerName
+	}
+
 	b := NewNonBlockingStateBroadcaster(50, 0, onBackPressureState)
 
 	blockingChan := make(chan interface{}, 10)
 	consumeAndBlockState(5, blockingChan)
 
-	normalChan := make(chan interface{}, numberOfStateMessagesSent+1)
-	consumeState(normalChan, numberOfStateMessagesSent)
+	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent+1)
+	consumeState(nonBlockingChan, numberOfStateMessagesSent, finished)
 
 	b.Register(blockingConsumerName, blockingChan)
-	b.Register("non-blocking", normalChan)
+	b.Register("non-blocking", nonBlockingChan)
 	fmt.Println("submitting messages")
 	for i := 0; i < numberOfStateMessagesSent; i++ {
 		b.Submit("key", fmt.Sprintf("value %d", i))
 	}
 	fmt.Println("wait until the non blocking consumer consumes everything ")
-	<-finishedState
-	close(blockingStateClientChan)
+	<-finished
+	close(blockingClientChan)
 
 	fmt.Println("counting the number of times backpressure was invoked ")
 
 	backpressureCount := 0
-	for bc := range blockingStateClientChan {
+	for bc := range blockingClientChan {
 		assert.Equal(t, blockingConsumerName, bc)
 		backpressureCount++
 	}
@@ -78,6 +76,9 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 }
 
 func TestFullStateSentToSubscriber(t *testing.T) {
+	var onBackPressureState = func(consumerName string, value interface{}) {
+		fmt.Println("on back pressure " + consumerName)
+	}
 	b := NewNonBlockingStateBroadcaster(50, 0, onBackPressureState)
 
 	chan1 := make(chan interface{}, 20)
@@ -133,6 +134,9 @@ loop:
 }
 
 func TestTtl(t *testing.T) {
+	var onBackPressureState = func(consumerName string, value interface{}) {
+		fmt.Println("on back pressure " + consumerName)
+	}
 	b := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond, onBackPressureState)
 
 	chan1 := make(chan interface{}, 20)

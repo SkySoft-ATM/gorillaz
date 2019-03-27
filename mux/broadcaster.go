@@ -40,11 +40,24 @@ func (b *Broadcaster) Close() error {
 	return nil
 }
 
-// Submit a new object to all subscribers
+// Submit a new object to all subscribers, this call can block if the input channel is full
 func (b *Broadcaster) Submit(i interface{}) error {
 	if b != nil && i != nil {
 		b.input <- i
 		return nil
+	}
+	return fmt.Errorf("nil value")
+}
+
+// Submit a new object to all subscribers, this call will drop the message if the input channel is full
+func (b *Broadcaster) SubmitNonBlocking(i interface{}) error {
+	if b != nil && i != nil {
+		select {
+		case b.input <- i:
+			return nil
+		default:
+			return fmt.Errorf("value dropped")
+		}
 	}
 	return fmt.Errorf("nil value")
 }
@@ -65,30 +78,45 @@ func (b *Broadcaster) broadcast(m interface{}, onBackPressure func(consumerName 
 
 // onBackPressureState can be nil
 func (b *Broadcaster) run(onBackPressure func(consumerName string, value interface{})) {
+	subscriberCount := 0
 	for {
-		select {
-		case r, ok := <-b.reg:
-			if ok {
-				b.outputs[r.consumer.channel] = r.consumer.name
-				r.done <- true
-			} else {
-				return
-			}
-		case u := <-b.unreg:
-			delete(b.outputs, u.channel)
-			u.done <- true
-		case m := <-b.input:
-			b.broadcast(m, onBackPressure)
+		r, ok := <-b.reg
+		if ok {
+			subscriberCount = b.addSubscriber(r, subscriberCount)
+		} else {
+			return
+		}
+		for subscriberCount != 0 {
+			select {
+			case r, ok := <-b.reg:
+				if ok {
+					subscriberCount = b.addSubscriber(r, subscriberCount)
+				} else {
+					return
+				}
+			case u := <-b.unreg:
+				delete(b.outputs, u.channel)
+				subscriberCount--
+				u.done <- true
+			case m := <-b.input:
+				b.broadcast(m, onBackPressure)
 
+			}
 		}
 	}
 }
 
+func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
+	b.outputs[r.consumer.channel] = r.consumer.name
+	r.done <- true
+	return subscriberCount + 1
+}
+
 // NewBroadcaster creates a new Broadcaster with the given input channel buffer length.
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
-func NewNonBlockingBroadcaster(buflen int, onBackPressure func(consumerName string, value interface{})) *Broadcaster {
+func NewNonBlockingBroadcaster(bufLen int, onBackPressure func(consumerName string, value interface{})) *Broadcaster {
 	b := &Broadcaster{
-		input:   make(chan interface{}, buflen),
+		input:   make(chan interface{}, bufLen),
 		reg:     make(chan registration),
 		unreg:   make(chan unregistration),
 		outputs: make(map[chan<- interface{}]string),

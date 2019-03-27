@@ -133,9 +133,9 @@ func (b *StateBroadcaster) run(ttl time.Duration, onBackPressure func(consumerNa
 
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
-func NewNonBlockingStateBroadcaster(buflen int, ttl time.Duration, onBackPressure func(consumerName string, value interface{})) *StateBroadcaster {
+func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, onBackPressure func(consumerName string, value interface{})) *StateBroadcaster {
 	b := &StateBroadcaster{
-		input:   make(chan keyValue, buflen),
+		input:   make(chan keyValue, bufLen),
 		reg:     make(chan registration),
 		unreg:   make(chan unregistration),
 		outputs: make(map[chan<- interface{}]string),

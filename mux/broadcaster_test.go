@@ -7,16 +7,6 @@ import (
 	"time"
 )
 
-const numberOfMessagesSent = 20
-
-var onBackPressure = func(consumerName string, value interface{}) {
-	fmt.Println("on back pressure " + consumerName)
-	blockingClientChan <- consumerName
-}
-
-var blockingClientChan = make(chan string, numberOfMessagesSent+1)
-var finished = make(chan bool, 1)
-
 // this function will consume the given amount of messages and block
 func consumeAndBlock(amountToConsume int, channel <-chan interface{}) {
 	go func(c <-chan interface{}) {
@@ -28,7 +18,7 @@ func consumeAndBlock(amountToConsume int, channel <-chan interface{}) {
 	}(channel)
 }
 
-func consume(channel <-chan interface{}, numberOfMessages int) {
+func consume(channel <-chan interface{}, numberOfMessages int, finished chan<- bool) {
 	go func(c <-chan interface{}) {
 		i := 0
 		for {
@@ -43,16 +33,25 @@ func consume(channel <-chan interface{}, numberOfMessages int) {
 
 func TestBackpressureOnBroadcaster(t *testing.T) {
 
+	const numberOfMessagesSent = 20
+	var blockingClientChan = make(chan string, numberOfMessagesSent+1)
+	var finished = make(chan bool, 1)
+
+	var onBackPressure = func(consumerName string, value interface{}) {
+		fmt.Println("on back pressure " + consumerName)
+		blockingClientChan <- consumerName
+	}
+
 	b := NewNonBlockingBroadcaster(50, onBackPressure)
 
 	blockingChan := make(chan interface{}, 10)
 	consumeAndBlock(5, blockingChan)
 
-	normalChan := make(chan interface{}, numberOfMessagesSent+1)
-	consume(normalChan, numberOfMessagesSent)
+	nonBlockingChan := make(chan interface{}, numberOfMessagesSent+1)
+	consume(nonBlockingChan, numberOfMessagesSent, finished)
 
 	b.Register(blockingConsumerName, blockingChan)
-	b.Register("non-blocking", normalChan)
+	b.Register("non-blocking", nonBlockingChan)
 	fmt.Println("submitting messages")
 	for i := 0; i < numberOfMessagesSent; i++ {
 		b.Submit(fmt.Sprintf("value %d", i))
