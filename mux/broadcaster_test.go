@@ -42,7 +42,16 @@ func TestBackpressureOnBroadcaster(t *testing.T) {
 		blockingClientChan <- consumerName
 	}
 
-	b := NewNonBlockingBroadcaster(50, onBackPressure)
+	onBackPressureOption := func(config BroadcasterConfig) error {
+		config.OnBackpressure(onBackPressure)
+		return nil
+	}
+
+	b, err := NewNonBlockingBroadcaster(50, onBackPressureOption)
+
+	if err != nil {
+		t.Fail()
+	}
 
 	blockingChan := make(chan interface{}, 10)
 	consumeAndBlock(5, blockingChan)
