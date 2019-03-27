@@ -9,7 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
-	zipkintracer "github.com/openzipkin/zipkin-go-opentracing"
+	"github.com/openzipkin/zipkin-go-opentracing"
 	"go.uber.org/zap"
 )
 

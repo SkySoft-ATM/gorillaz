@@ -1,7 +1,6 @@
 module github.com/skysoft-atm/gorillaz
 
 require (
-	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/DataDog/zstd v1.3.5 // indirect
 	github.com/Shopify/sarama v1.20.1
 	github.com/Shopify/toxiproxy v2.1.4+incompatible // indirect
@@ -12,6 +11,7 @@ require (
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/go-logfmt/logfmt v0.4.0 // indirect
 	github.com/gogo/protobuf v1.2.1 // indirect
+	github.com/golang/protobuf v1.3.1
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/gorilla/mux v1.7.0
 	github.com/onsi/ginkgo v1.8.0 // indirect
@@ -30,4 +30,5 @@ require (
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.9.1
 	golang.org/x/net v0.0.0-20190213061140-3a22650c66bd // indirect
+	google.golang.org/grpc v1.19.1
 )
