@@ -46,7 +46,7 @@ func (b *Broadcaster) Submit(i interface{}) error {
 		b.input <- i
 		return nil
 	}
-	return fmt.Errorf("nil key")
+	return fmt.Errorf("nil value")
 }
 
 func (b *Broadcaster) broadcast(m interface{}, onBackPressure func(consumerName string, value interface{})) {
