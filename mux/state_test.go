@@ -41,12 +41,21 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	const numberOfStateMessagesSent = 20
 	var blockingClientChan = make(chan string, numberOfStateMessagesSent+1)
 	var finished = make(chan bool, 1)
-	var onBackPressureState = func(consumerName string, value interface{}) {
+	var onBackPressure = func(consumerName string, value interface{}) {
 		fmt.Println("on back pressure " + consumerName)
 		blockingClientChan <- consumerName
 	}
 
-	b := NewNonBlockingStateBroadcaster(50, 0, onBackPressureState)
+	onBackPressureOption := func(config *BroadcasterConfig) error {
+		config.OnBackpressure(onBackPressure)
+		return nil
+	}
+
+	b, err := NewNonBlockingStateBroadcaster(50, 0, onBackPressureOption)
+
+	if err != nil {
+		t.Fail()
+	}
 
 	blockingChan := make(chan interface{}, 10)
 	consumeAndBlockState(5, blockingChan)
@@ -76,10 +85,8 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 }
 
 func TestFullStateSentToSubscriber(t *testing.T) {
-	var onBackPressureState = func(consumerName string, value interface{}) {
-		fmt.Println("on back pressure " + consumerName)
-	}
-	b := NewNonBlockingStateBroadcaster(50, 0, onBackPressureState)
+
+	b, _ := NewNonBlockingStateBroadcaster(50, 0)
 
 	chan1 := make(chan interface{}, 20)
 	chan2 := make(chan interface{}, 20)
@@ -134,10 +141,7 @@ loop:
 }
 
 func TestTtl(t *testing.T) {
-	var onBackPressureState = func(consumerName string, value interface{}) {
-		fmt.Println("on back pressure " + consumerName)
-	}
-	b := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond, onBackPressureState)
+	b, _ := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond)
 
 	chan1 := make(chan interface{}, 20)
 	chan2 := make(chan interface{}, 20)

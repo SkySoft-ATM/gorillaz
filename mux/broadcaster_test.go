@@ -42,7 +42,7 @@ func TestBackpressureOnBroadcaster(t *testing.T) {
 		blockingClientChan <- consumerName
 	}
 
-	onBackPressureOption := func(config BroadcasterConfig) error {
+	onBackPressureOption := func(config *BroadcasterConfig) error {
 		config.OnBackpressure(onBackPressure)
 		return nil
 	}

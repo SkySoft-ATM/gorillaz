@@ -31,6 +31,7 @@ type StateBroadcaster struct {
 	unreg   chan unregistration
 	outputs map[chan<- interface{}]string
 	state   map[interface{}]ttlValue
+	*BroadcasterConfig
 }
 
 // Register a new channel to receive broadcasts
@@ -69,22 +70,22 @@ func (b *StateBroadcaster) Delete(k interface{}) {
 	}
 }
 
-func (b *StateBroadcaster) broadcast(m interface{}, onBackPressure func(consumerName string, value interface{})) {
+func (b *StateBroadcaster) broadcast(m interface{}) {
 	for ch := range b.outputs {
 		select {
 		case ch <- m:
 			//message sent
 		default:
 			//consumer is not ready to receive a message, drop it and execute provided action on backpressure
-			if onBackPressure != nil {
-				onBackPressure(b.outputs[ch], m)
+			if b.onBackpressure != nil {
+				b.onBackpressure(b.outputs[ch], m)
 			}
 		}
 	}
 }
 
 // onBackPressureState can be nil
-func (b *StateBroadcaster) run(ttl time.Duration, onBackPressure func(consumerName string, value interface{})) {
+func (b *StateBroadcaster) run(ttl time.Duration) {
 	var ticker time.Ticker
 	if ttl > 0 {
 		ticker = *time.NewTicker(ttl / 2)
@@ -107,7 +108,7 @@ func (b *StateBroadcaster) run(ttl time.Duration, onBackPressure func(consumerNa
 					case r.consumer.channel <- v.value:
 					//sent
 					default:
-						onBackPressure(r.consumer.name, v.value)
+						b.onBackpressure(r.consumer.name, v.value)
 					}
 
 				}
@@ -125,7 +126,7 @@ func (b *StateBroadcaster) run(ttl time.Duration, onBackPressure func(consumerNa
 				expiresAt = time.Now().Add(ttl)
 			}
 			b.state[key] = ttlValue{expiresAt: expiresAt, value: m.value}
-			b.broadcast(m.value, onBackPressure)
+			b.broadcast(m.value)
 
 		}
 	}
@@ -133,14 +134,21 @@ func (b *StateBroadcaster) run(ttl time.Duration, onBackPressure func(consumerNa
 
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
-func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, onBackPressure func(consumerName string, value interface{})) *StateBroadcaster {
+func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) (*StateBroadcaster, error) {
 	b := &StateBroadcaster{
-		input:   make(chan keyValue, bufLen),
-		reg:     make(chan registration),
-		unreg:   make(chan unregistration),
-		outputs: make(map[chan<- interface{}]string),
-		state:   make(map[interface{}]ttlValue),
+		input:             make(chan keyValue, bufLen),
+		reg:               make(chan registration),
+		unreg:             make(chan unregistration),
+		outputs:           make(map[chan<- interface{}]string),
+		state:             make(map[interface{}]ttlValue),
+		BroadcasterConfig: &BroadcasterConfig{},
 	}
-	go b.run(ttl, onBackPressure)
-	return b
+	for _, option := range options {
+		if err := option(b.BroadcasterConfig); err != nil {
+			return nil, err
+		}
+	}
+
+	go b.run(ttl)
+	return b, nil
 }

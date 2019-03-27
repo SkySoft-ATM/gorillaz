@@ -14,27 +14,11 @@ import (
 )
 
 type Broadcaster struct {
-	input          chan interface{}
-	reg            chan registration
-	unreg          chan unregistration
-	outputs        map[chan<- interface{}]string
-	onBackpressure func(consumerName string, value interface{})
-	postBroadcast  func(interface{})
-}
-
-type BroadcasterConfig interface {
-	OnBackpressure(func(consumerName string, value interface{}))
-	PostBroadcast(func(interface{}))
-}
-
-type BroadcasterOptionFunc func(BroadcasterConfig) error
-
-func (b *Broadcaster) OnBackpressure(onBackpressure func(consumerName string, value interface{})) {
-	b.onBackpressure = onBackpressure
-}
-
-func (b *Broadcaster) PostBroadcast(postBroadcast func(interface{})) {
-	b.postBroadcast = postBroadcast
+	input   chan interface{}
+	reg     chan registration
+	unreg   chan unregistration
+	outputs map[chan<- interface{}]string
+	*BroadcasterConfig
 }
 
 // Register a new channel to receive broadcasts
@@ -136,14 +120,15 @@ func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
 func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*Broadcaster, error) {
 	b := &Broadcaster{
-		input:   make(chan interface{}, bufLen),
-		reg:     make(chan registration),
-		unreg:   make(chan unregistration),
-		outputs: make(map[chan<- interface{}]string),
+		input:             make(chan interface{}, bufLen),
+		reg:               make(chan registration),
+		unreg:             make(chan unregistration),
+		outputs:           make(map[chan<- interface{}]string),
+		BroadcasterConfig: &BroadcasterConfig{},
 	}
 
 	for _, option := range options {
-		if err := option(b); err != nil {
+		if err := option(b.BroadcasterConfig); err != nil {
 			return nil, err
 		}
 	}
