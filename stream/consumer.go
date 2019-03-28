@@ -30,7 +30,8 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 	if err != nil {
 		return nil, err
 	}
-	ch := make(chan *Event)
+	ch := make(chan *Event, 256)
+
 	go func() {
 		for {
 			streamEvt, err := stream.Recv()

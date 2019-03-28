@@ -39,76 +39,100 @@ type subscriptionManager struct {
 }
 
 type subscription struct {
-	sync.RWMutex
-	inCh     chan *Event
-	outChans map[chan *StreamEvent]struct{}
+	unsubChan chan registration
+	subChan   chan registration
+	inCh      chan *Event
+	outChans  map[chan *StreamEvent]struct{}
 }
 
+type registration struct {
+	out  chan *StreamEvent
+	done chan bool
+}
 
-func RegisterProvider(name string, eventChan chan *Event){
-	sub:= &subscription{
-		inCh:     eventChan,
-		outChans: make(map[chan *StreamEvent]struct{}),
+func RegisterProvider(name string, eventChan chan *Event) {
+	sub := &subscription{
+		subChan:   make(chan registration),
+		unsubChan: make(chan registration),
+		inCh:      eventChan,
+		outChans:  make(map[chan *StreamEvent]struct{}),
 	}
 	manager.Lock()
 	manager.subscriptions[name] = sub
 	manager.Unlock()
 
-	go func(sub *subscription){
-		for evt := range eventChan{
-			streamEvt := &StreamEvent{
-				Key:evt.Key,
-				Value: evt.Value,
-			}
-			sub.RLock()
-			for out := range sub.outChans {
-				select {
+	go func(sub *subscription) {
+		for {
+			select {
+			case reg := <-sub.subChan:
+				sub.outChans[reg.out] = struct{}{}
+				reg.done <- true
+
+			case unreg := <-sub.unsubChan:
+				delete(sub.outChans, unreg.out)
+				unreg.done <- true
+
+			case evt, ok := <-eventChan:
+				if !ok {
+					// eventChan is closed, cleanup
+					// disconnect consumers
+					for c := range sub.outChans {
+						close(c)
+					}
+					manager.Lock()
+					delete(manager.subscriptions, name)
+					manager.Unlock()
+					return
+				}
+				if len(sub.outChans) == 0 {
+					break
+				}
+				streamEvt := &StreamEvent{
+					Key:   evt.Key,
+					Value: evt.Value,
+				}
+
+				for out := range sub.outChans {
+					select {
 					case out <- streamEvt:
-					//ok
+						//ok
 					default:
-					log.Println("backpressure for stream "+name)
+						log.Println("backpressure for stream " + name)
+					}
 				}
 			}
-			sub.RUnlock()
 		}
-		// if eventChan is closed, then close all subscriptions
-		manager.Lock()
-		sub.Lock()
-		// disconnect consumers
-		for c := range sub.outChans{
-			close(c)
-		}
-		sub.Unlock()
-		delete(manager.subscriptions, name)
-		manager.Unlock()
 	}(sub)
 }
-
-
 
 func (h *subscriptionManager) Stream(req *StreamRequest, stream Stream_StreamServer) error {
 	streamName := req.Name
 	manager.RLock()
-	sub,ok := h.subscriptions[streamName]
+	sub, ok := h.subscriptions[streamName]
 	manager.RUnlock()
-	if !ok{
+	if !ok {
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
-	out := make(chan *StreamEvent, 20)
-	sub.Lock()
-	sub.outChans[out] = struct{}{}
-	sub.Unlock()
+	out := make(chan *StreamEvent, 256)
+	registred := make(chan bool)
+	sub.subChan <- registration{
+		out:  out,
+		done: registred,
+	}
+	<-registred
 
 	for evt := range out {
 		err := stream.Send(evt)
 		if err != nil {
-			// TODO: log error
-			sub.Lock()
-			delete(sub.outChans, out)
-			sub.Unlock()
+			unregistred := make(chan bool)
+			sub.unsubChan <- registration{
+				out:  out,
+				done: unregistred,
+			}
+			<-unregistred
 			return err
 		}
 	}
-	log.Println("producer channel closed for stream "+streamName)
+	log.Println("producer channel closed for stream " + streamName)
 	return nil
 }
