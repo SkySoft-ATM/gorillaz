@@ -13,7 +13,7 @@ type unregistration struct {
 }
 
 type consumer struct {
-	name    string
+	config  ConsumerConfig
 	channel chan<- interface{}
 }
 
@@ -23,14 +23,19 @@ type ttlValue struct {
 }
 
 type BroadcasterConfig struct {
-	onBackpressure func(consumerName string, value interface{})
-	postBroadcast  func(interface{})
+	postBroadcast func(interface{})
+}
+
+type ConsumerConfig struct {
+	onBackpressure func(value interface{})
 }
 
 type BroadcasterOptionFunc func(*BroadcasterConfig) error
 
-func (b *BroadcasterConfig) OnBackpressure(onBackpressure func(consumerName string, value interface{})) {
-	b.onBackpressure = onBackpressure
+type ConsumerOptionFunc func(*ConsumerConfig) error
+
+func (s *ConsumerConfig) OnBackpressure(onBackpressure func(value interface{})) {
+	s.onBackpressure = onBackpressure
 }
 
 func (b *BroadcasterConfig) PostBroadcast(postBroadcast func(interface{})) {

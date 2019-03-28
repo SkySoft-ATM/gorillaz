@@ -40,18 +40,10 @@ var keyExtractor = func(f interface{}) interface{} {
 func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	const numberOfStateMessagesSent = 20
 	var blockingClientChan = make(chan string, numberOfStateMessagesSent+1)
+	var nonBlockingClientChan = make(chan string, numberOfStateMessagesSent+1)
 	var finished = make(chan bool, 1)
-	var onBackPressure = func(consumerName string, value interface{}) {
-		fmt.Println("on back pressure " + consumerName)
-		blockingClientChan <- consumerName
-	}
 
-	onBackPressureOption := func(config *BroadcasterConfig) error {
-		config.OnBackpressure(onBackPressure)
-		return nil
-	}
-
-	b, err := NewNonBlockingStateBroadcaster(50, 0, onBackPressureOption)
+	b, err := NewNonBlockingStateBroadcaster(50, 0)
 
 	if err != nil {
 		t.Fail()
@@ -63,8 +55,8 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent+1)
 	consumeState(nonBlockingChan, numberOfStateMessagesSent, finished)
 
-	b.Register(blockingConsumerName, blockingChan)
-	b.Register("non-blocking", nonBlockingChan)
+	b.Register(blockingChan, backpressureOptionForConsumer(blockingConsumerName, blockingClientChan))
+	b.Register(nonBlockingChan, backpressureOptionForConsumer("non-blocking", nonBlockingClientChan))
 	fmt.Println("submitting messages")
 	for i := 0; i < numberOfStateMessagesSent; i++ {
 		b.Submit("key", fmt.Sprintf("value %d", i))
@@ -99,7 +91,7 @@ func TestFullStateSentToSubscriber(t *testing.T) {
 	b.Submit("B", "B2")
 	time.Sleep(500 * time.Millisecond)
 
-	b.Register("consumer A", chan1)
+	b.Register(chan1)
 
 	result := consumeAvailableMessages(chan1)
 
@@ -111,7 +103,7 @@ func TestFullStateSentToSubscriber(t *testing.T) {
 	b.Submit("C", "C2")
 	assert.Equal(t, "C2", <-chan1)
 
-	b.Register("consumer B", chan2)
+	b.Register(chan2)
 
 	result2 := consumeAvailableMessages(chan2)
 
@@ -146,7 +138,7 @@ func TestTtl(t *testing.T) {
 	chan1 := make(chan interface{}, 20)
 	chan2 := make(chan interface{}, 20)
 
-	b.Register("consumer A", chan1)
+	b.Register(chan1)
 
 	b.Submit("A", "A1")
 	b.Submit("A", "A2")
@@ -161,7 +153,7 @@ func TestTtl(t *testing.T) {
 	assert.Contains(t, result, "A2")
 	assert.Contains(t, result, "B1")
 
-	b.Register("consumer B", chan2)
+	b.Register(chan2)
 
 	result2 := consumeAvailableMessages(chan2)
 

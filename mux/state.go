@@ -29,16 +29,23 @@ type StateBroadcaster struct {
 	delete  chan interface{}
 	reg     chan registration
 	unreg   chan unregistration
-	outputs map[chan<- interface{}]string
+	outputs map[chan<- interface{}]ConsumerConfig
 	state   map[interface{}]ttlValue
 	*BroadcasterConfig
 }
 
 // Register a new channel to receive broadcasts
-func (b *StateBroadcaster) Register(consumerName string, newch chan<- interface{}) {
+func (b *StateBroadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) error {
 	done := make(chan bool)
-	b.reg <- registration{consumer{consumerName, newch}, done}
+	config := &ConsumerConfig{}
+	for _, option := range options {
+		if err := option(config); err != nil {
+			return err
+		}
+	}
+	b.reg <- registration{consumer{*config, newch}, done}
 	<-done
+	return nil
 }
 
 // Unregister a channel so that it no longer receives broadcasts.
@@ -77,8 +84,9 @@ func (b *StateBroadcaster) broadcast(m interface{}) {
 			//message sent
 		default:
 			//consumer is not ready to receive a message, drop it and execute provided action on backpressure
-			if b.onBackpressure != nil {
-				b.onBackpressure(b.outputs[ch], m)
+			config := b.outputs[ch]
+			if config.onBackpressure != nil {
+				config.onBackpressure(m)
 			}
 		}
 	}
@@ -102,13 +110,15 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 			delete(b.state, k)
 		case r, ok := <-b.reg:
 			if ok {
-				b.outputs[r.consumer.channel] = r.consumer.name
+				b.outputs[r.consumer.channel] = r.consumer.config
 				for _, v := range b.state {
 					select {
 					case r.consumer.channel <- v.value:
 					//sent
 					default:
-						b.onBackpressure(r.consumer.name, v.value)
+						if r.consumer.config.onBackpressure != nil {
+							r.consumer.config.onBackpressure(v.value)
+						}
 					}
 
 				}
@@ -139,7 +149,7 @@ func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...Br
 		input:             make(chan keyValue, bufLen),
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),
-		outputs:           make(map[chan<- interface{}]string),
+		outputs:           make(map[chan<- interface{}]ConsumerConfig),
 		state:             make(map[interface{}]ttlValue),
 		BroadcasterConfig: &BroadcasterConfig{},
 	}

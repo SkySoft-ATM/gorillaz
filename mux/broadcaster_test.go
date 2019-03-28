@@ -31,23 +31,28 @@ func consume(channel <-chan interface{}, numberOfMessages int, finished chan<- b
 	}(channel)
 }
 
+func backpressureForConsumer(consumerName string, backpressureConsumer chan string) func(value interface{}) {
+	return func(value interface{}) {
+		fmt.Println("on back pressure " + consumerName)
+		backpressureConsumer <- consumerName
+	}
+}
+
+func backpressureOptionForConsumer(consumerName string, backpressureConsumer chan string) func(config *ConsumerConfig) error {
+	return func(config *ConsumerConfig) error {
+		config.OnBackpressure(backpressureForConsumer(consumerName, backpressureConsumer))
+		return nil
+	}
+}
+
 func TestBackpressureOnBroadcaster(t *testing.T) {
 
 	const numberOfMessagesSent = 20
 	var blockingClientChan = make(chan string, numberOfMessagesSent+1)
+	var nonBlockingClientChan = make(chan string, numberOfMessagesSent+1)
 	var finished = make(chan bool, 1)
 
-	var onBackPressure = func(consumerName string, value interface{}) {
-		fmt.Println("on back pressure " + consumerName)
-		blockingClientChan <- consumerName
-	}
-
-	onBackPressureOption := func(config *BroadcasterConfig) error {
-		config.OnBackpressure(onBackPressure)
-		return nil
-	}
-
-	b, err := NewNonBlockingBroadcaster(50, onBackPressureOption)
+	b, err := NewNonBlockingBroadcaster(50)
 
 	if err != nil {
 		t.Fail()
@@ -59,8 +64,14 @@ func TestBackpressureOnBroadcaster(t *testing.T) {
 	nonBlockingChan := make(chan interface{}, numberOfMessagesSent+1)
 	consume(nonBlockingChan, numberOfMessagesSent, finished)
 
-	b.Register(blockingConsumerName, blockingChan)
-	b.Register("non-blocking", nonBlockingChan)
+	err = b.Register(blockingChan, backpressureOptionForConsumer(blockingConsumerName, blockingClientChan))
+	if err != nil {
+		t.Fail()
+	}
+	b.Register(nonBlockingChan, backpressureOptionForConsumer("non-blocking", nonBlockingClientChan))
+	if err != nil {
+		t.Fail()
+	}
 	fmt.Println("submitting messages")
 	for i := 0; i < numberOfMessagesSent; i++ {
 		b.Submit(fmt.Sprintf("value %d", i))

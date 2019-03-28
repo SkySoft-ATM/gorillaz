@@ -17,15 +17,22 @@ type Broadcaster struct {
 	input   chan interface{}
 	reg     chan registration
 	unreg   chan unregistration
-	outputs map[chan<- interface{}]string
+	outputs map[chan<- interface{}]ConsumerConfig
 	*BroadcasterConfig
 }
 
 // Register a new channel to receive broadcasts
-func (b *Broadcaster) Register(consumerName string, newch chan<- interface{}) {
+func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) error {
 	done := make(chan bool)
-	b.reg <- registration{consumer{consumerName, newch}, done}
+	config := &ConsumerConfig{}
+	for _, option := range options {
+		if err := option(config); err != nil {
+			return err
+		}
+	}
+	b.reg <- registration{consumer{*config, newch}, done}
 	<-done
+	return nil
 }
 
 // Unregister a channel so that it no longer receives broadcasts.
@@ -70,8 +77,9 @@ func (b *Broadcaster) broadcast(m interface{}) {
 			//message sent
 		default:
 			//consumer is not ready to receive a message, drop it and execute provided action on backpressure
-			if b.onBackpressure != nil {
-				b.onBackpressure(b.outputs[ch], m)
+			subConfig := b.outputs[ch]
+			if subConfig.onBackpressure != nil {
+				subConfig.onBackpressure(m)
 			}
 		}
 	}
@@ -111,7 +119,7 @@ func (b *Broadcaster) run() {
 }
 
 func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
-	b.outputs[r.consumer.channel] = r.consumer.name
+	b.outputs[r.consumer.channel] = r.consumer.config
 	r.done <- true
 	return subscriberCount + 1
 }
@@ -123,7 +131,7 @@ func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*B
 		input:             make(chan interface{}, bufLen),
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),
-		outputs:           make(map[chan<- interface{}]string),
+		outputs:           make(map[chan<- interface{}]ConsumerConfig),
 		BroadcasterConfig: &BroadcasterConfig{},
 	}
 
