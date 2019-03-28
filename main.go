@@ -48,6 +48,9 @@ func Init(context map[string]interface{}) {
 			InitPprof(viper.GetInt("pprof.port"))
 		}
 
+		// register /version to return the build version
+		router.HandleFunc("/version", VersionHTML).Methods("GET")
+
 		port := viper.GetInt("http.port")
 		Sugar.Infof("Starting http server on port %d", port)
 		err := http.ListenAndServe(fmt.Sprintf(":%d", port), router)
