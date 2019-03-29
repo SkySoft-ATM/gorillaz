@@ -5,11 +5,12 @@ import (
 )
 
 func main() {
-	gaz.New(nil)
+	g := gaz.New(nil)
+	g.Run()
 
 	// write your application code here
 
-	gaz.SetReady(true)
-	gaz.SetLive(true)
+	g.SetReady(true)
+	g.SetLive(true)
 	select {}
 }
