@@ -3,8 +3,6 @@ package gorillaz
 import (
 	"net/http"
 	"sync/atomic"
-
-	"github.com/gorilla/mux"
 )
 
 // use int32 because sync.atomic package doesn't support boolean out of the box
@@ -12,13 +10,13 @@ var isReady int32
 var isLive int32
 
 // InitHealthcheck registers /live and /ready (GET) for liveness and readiness probes in k8s
-func InitHealthcheck(router *mux.Router) {
-	router.HandleFunc("/ready", ready).Methods("GET")
-	router.HandleFunc("/live", live).Methods("GET")
+func (g *Gaz) InitHealthcheck() {
+	g.router.HandleFunc("/ready", ready).Methods("GET")
+	g.router.HandleFunc("/live", live).Methods("GET")
 }
 
 // SetReady returns the actual internal state to precise if the given microservice is ready
-func SetReady(status bool) {
+func (*Gaz) SetReady(status bool) {
 	var statusInt int32
 	if status {
 		statusInt = 1
@@ -27,7 +25,7 @@ func SetReady(status bool) {
 }
 
 // SetLive returns the actual internal state to precise if the given microservice is live
-func SetLive(status bool) {
+func (*Gaz) SetLive(status bool) {
 	var statusInt int32
 	if status {
 		statusInt = 1

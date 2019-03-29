@@ -35,7 +35,7 @@ func init() {
 
 // InitLogs initializes the Sugar (*zap.SugaredLogger) and Log (*zap.Logger) elements
 // returns an error if logLevel can't be mapped to a zapcore.LogLevel, otherwise returns nil
-func InitLogs(logLevel string) error {
+func (*Gaz) InitLogs(logLevel string) error {
 	level, err := zapLogLevel(logLevel)
 	if err != nil {
 		return err
@@ -45,7 +45,7 @@ func InitLogs(logLevel string) error {
 }
 
 // LogLevel returns the current log level
-func LogLevel() zapcore.Level {
+func (*Gaz) LogLevel() zapcore.Level {
 	return atomLevel.Level()
 }
 
