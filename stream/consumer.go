@@ -29,19 +29,7 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 	}
 	r.InitialAddrs(addresses)
 
-	mu.RLock()
-	conn, err := grpc.Dial(r.Scheme()+":///fake", grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name))
-	mu.RUnlock()
-	if err != nil {
-		return nil, err
-	}
-	c := NewStreamClient(conn)
-	req := &StreamRequest{Name:streamName}
-	stream, err := c.Stream(context.TODO(), req)
-	if err != nil {
-		return nil, err
-	}
-	ch := make(chan *Event, 256)
+	target := r.Scheme()+":///fake"
 
 	receivedCounter := promauto.NewCounter(prometheus.CounterOpts{
 		Name: "received_events",
@@ -62,14 +50,45 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 		},
 	})
 
+
+	ch := make(chan *Event, 256)
+	err := doConnect(streamName, target, ch, receivedCounter, delaySummary)
+	// TODO: make configurable
+	for i:=0;i<360;i++ {
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+		//TODO: log
+		err = doConnect(streamName, target, ch, receivedCounter, delaySummary)
+	}
+	return ch, nil
+}
+
+// TODO: ugly interface
+func doConnect(streamName string, target string, ch chan *Event, receivedCounter prometheus.Counter, delaySummary prometheus.Summary) error {
+
+	mu.RLock()
+	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name))
+	mu.RUnlock()
+	if err != nil {
+		return err
+	}
+	c := NewStreamClient(conn)
+	req := &StreamRequest{Name:streamName}
+	stream, err := c.Stream(context.TODO(), req)
+	if err != nil {
+		return err
+	}
+
 	go func() {
 		for {
 			streamEvt, err := stream.Recv()
 			if err != nil {
 				log.Printf("ERROR: stream %s is unavailable, %v\n", streamName, err)
-				close(ch)
-				conn.Close()
-				return
+				time.Sleep(time.Second)
+				// TODO: exponential backoff for retry
+				go doConnect(streamName, target, ch, receivedCounter, delaySummary)
 			}
 			receivedCounter.Inc()
 			receptTime := time.Now()
@@ -81,5 +100,5 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 			}
 		}
 	}()
-	return ch, nil
+	return nil
 }
