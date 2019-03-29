@@ -26,6 +26,7 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a // indirect
 	github.com/spf13/pflag v1.0.3
 	github.com/spf13/viper v1.3.1
+	github.com/stretchr/testify v1.2.2
 	go.uber.org/atomic v1.3.2 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.9.1
