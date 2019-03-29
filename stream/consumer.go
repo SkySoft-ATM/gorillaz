@@ -89,6 +89,7 @@ func doConnect(streamName string, target string, ch chan *Event, receivedCounter
 				time.Sleep(time.Second)
 				// TODO: exponential backoff for retry
 				go doConnect(streamName, target, ch, receivedCounter, delaySummary)
+				return
 			}
 			receivedCounter.Inc()
 			receptTime := time.Now()
