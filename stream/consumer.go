@@ -9,7 +9,9 @@ import (
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"log"
+	"math"
 	"sync"
+	"time"
 )
 
 var mu sync.RWMutex
@@ -48,6 +50,12 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 		},
 	})
 
+	delaySummary := promauto.NewSummary(prometheus.SummaryOpts{
+		Name:       "streaming_delay_ms",
+		Help:       "The distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	})
+
 	go func() {
 		for {
 			streamEvt, err := stream.Recv()
@@ -58,6 +66,8 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 				return
 			}
 			receivedCounter.Inc()
+			receptTime := time.Now()
+			delaySummary.Observe(math.Max(0,float64(receptTime.UnixNano())/1000000.0-float64(streamEvt.Stream_Timestamp_Ns)/1000000.0))
 			ch <- &Event{
 				Key: streamEvt.Key,
 				Value: streamEvt.Value,
