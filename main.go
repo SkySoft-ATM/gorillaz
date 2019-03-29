@@ -59,7 +59,7 @@ func (c Gaz) Run() {
 		}
 
 		// register /version to return the build version
-		router.HandleFunc("/version", VersionHTML).Methods("GET")
+		c.router.HandleFunc("/version", VersionHTML).Methods("GET")
 
 		port := viper.GetInt("http.port")
 		Sugar.Infof("Starting http server on port %d", port)
