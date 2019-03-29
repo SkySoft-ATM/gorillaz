@@ -2,6 +2,8 @@ package stream
 
 import (
 	"context"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/resolver"
@@ -38,6 +40,14 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 	}
 	ch := make(chan *Event, 256)
 
+	receivedCounter := promauto.NewCounter(prometheus.CounterOpts{
+		Name: "received_events",
+		Help: "The total number of events received",
+		ConstLabels:prometheus.Labels{
+			"stream": streamName,
+		},
+	})
+
 	go func() {
 		for {
 			streamEvt, err := stream.Recv()
@@ -47,6 +57,7 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 				conn.Close()
 				return
 			}
+			receivedCounter.Inc()
 			ch <- &Event{
 				Key: streamEvt.Key,
 				Value: streamEvt.Value,

@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"net/http"
+	_ "net/http/pprof"
 	"strconv"
 	"time"
-	_ "net/http/pprof"
 )
 import "github.com/skysoft-atm/gorillaz/stream"
 

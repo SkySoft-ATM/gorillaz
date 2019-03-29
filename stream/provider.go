@@ -2,6 +2,8 @@ package stream
 
 import (
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"google.golang.org/grpc"
 	"log"
@@ -11,6 +13,7 @@ import (
 )
 
 var manager *subscriptionManager
+
 
 type Event struct {
 	Key,Value []byte
@@ -42,8 +45,12 @@ type subscriptionManager struct {
 }
 
 type Provider struct {
-	name string
-	broadcaster *mux.Broadcaster
+	name                string
+	broadcaster         *mux.Broadcaster
+	sentCounter         prometheus.Counter
+	backPressureCounter prometheus.Counter
+	clientCounter       prometheus.Gauge
+	lastEventTimestamp  prometheus.Gauge
 }
 
 func (p *Provider) Submit(evt *Event){
@@ -52,6 +59,8 @@ func (p *Provider) Submit(evt *Event){
 		Value: evt.Value,
 		Stream_Timestamp_Ns: uint64(time.Now().UnixNano()),
 	}
+	p.sentCounter.Inc()
+	p.lastEventTimestamp.SetToCurrentTime()
 	p.broadcaster.SubmitBlocking(streamEvent)
 }
 
@@ -76,8 +85,43 @@ func NewProvider(name string) (*Provider, error) {
 	manager.providers[name] = p
 	manager.Unlock()
 
+	p.sentCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "stream_sent",
+		Help: "The total number of messages sent",
+		ConstLabels:prometheus.Labels{
+			"stream": name,
+		},
+	})
+
+	p.backPressureCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "backpressure_dropped",
+		Help: "The total number of messages dropped due to backpressure",
+		ConstLabels:prometheus.Labels{
+			"stream": name,
+		},
+	})
+
+	p.clientCounter = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "clients",
+		Help: "The total number of clients connected",
+		ConstLabels:prometheus.Labels{
+			"stream": name,
+		},
+	})
+
+	p.lastEventTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "last_evt_timestamp",
+		Help: "Timestamp of the last event produced",
+		ConstLabels:prometheus.Labels{
+			"stream": name,
+		},
+	})
+
+
 	return p, nil
 }
+
+
 
 func (manager *subscriptionManager) Stream(req *StreamRequest, stream Stream_StreamServer) error {
 	streamName := req.Name
@@ -87,11 +131,12 @@ func (manager *subscriptionManager) Stream(req *StreamRequest, stream Stream_Str
 	if !ok {
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
+	provider.clientCounter.Inc()
 	broadcaster := provider.broadcaster
 	streamCh:= make(chan interface{}, 256)
 	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
 		config.OnBackpressure(func (interface{}){
-			//TODO: prometheus
+			provider.backPressureCounter.Inc()
 		})
 		return nil
 	})
@@ -104,6 +149,7 @@ func (manager *subscriptionManager) Stream(req *StreamRequest, stream Stream_Str
 			return err
 		}
 	}
+	provider.clientCounter.Dec()
 	log.Println("producer channel closed for stream " + streamName)
 	return nil
 }
