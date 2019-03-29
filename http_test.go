@@ -9,7 +9,8 @@ import (
 
 // mandatory
 func SetupLogger() {
-	InitLogs("info")
+	gaz := &Gaz{Router: mux.NewRouter()}
+	gaz.InitLogs("info")
 }
 
 // setupServerHttp creates a HTTP server on a random free TCP port
