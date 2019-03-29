@@ -24,46 +24,45 @@ func New(context map[string]interface{}) Gaz {
 	initialized = true
 
 	parseConfiguration(context)
-	err := InitLogs(viper.GetString("log.level"))
+	gaz := Gaz{router: mux.NewRouter()}
+	err := gaz.InitLogs(viper.GetString("log.level"))
 	if err != nil {
 		panic(err)
 	}
 
 	if viper.GetBool("tracing.enabled") {
-		InitTracing(
+		gaz.InitTracing(
 			KafkaTracingConfig{
 				BootstrapServers: strings.Split(viper.GetString("kafka.bootstrapservers"), ","),
 				TracingName:      viper.GetString("tracing.service.name"),
 			})
 	}
 
-	router := mux.NewRouter()
-
-	return Gaz{router: router}
+	return gaz
 }
 
 // Starts the router, once Run is launched, you should no longer add new handlers on the router
-func (c Gaz) Run() {
+func (g Gaz) Run() {
 	go func() {
 		if health := viper.GetBool("healthcheck.enabled"); health {
-			InitHealthcheck(c.router)
+			g.InitHealthcheck()
 		}
 
 		if prom := viper.GetBool("prometheus.enabled"); prom {
 			promPath := viper.GetString("prometheus.endpoint")
-			InitPrometheus(c.router, promPath)
+			g.InitPrometheus(promPath)
 		}
 
 		if pprof := viper.GetBool("pprof.enabled"); pprof {
-			InitPprof(viper.GetInt("pprof.port"))
+			g.InitPprof(viper.GetInt("pprof.port"))
 		}
 
 		// register /version to return the build version
-		c.router.HandleFunc("/version", VersionHTML).Methods("GET")
+		g.router.HandleFunc("/version", VersionHTML).Methods("GET")
 
 		port := viper.GetInt("http.port")
 		Sugar.Infof("Starting http server on port %d", port)
-		err := http.ListenAndServe(fmt.Sprintf(":%d", port), c.router)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", port), g.router)
 		if err != nil {
 			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", port, err)
 			panic(err)

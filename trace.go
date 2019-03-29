@@ -28,7 +28,7 @@ type KafkaTracingConfig struct {
 // You should have provided the following configurations, either in the config file or with flags:
 // kafka.bootstrapservers
 // tracing.service.name
-func InitTracingFromConfig() {
+func (g *Gaz) InitTracingFromConfig() {
 	bootstrapServers := viper.GetStringSlice("kafka.bootstrapservers")
 	tracingName := strings.TrimSpace(viper.GetString("tracing.service.name"))
 	if len(bootstrapServers) == 0 {
@@ -37,12 +37,12 @@ func InitTracingFromConfig() {
 	if len(tracingName) == 0 {
 		panic(fmt.Errorf("Configuration 'tracing.service.name' not provided"))
 	}
-	InitTracing(KafkaTracingConfig{bootstrapServers, tracingName})
+	g.InitTracing(KafkaTracingConfig{bootstrapServers, tracingName})
 
 }
 
 // InitTracing initializes Kafka connection to feed Zipkin
-func InitTracing(conf KafkaTracingConfig) {
+func (g *Gaz) InitTracing(conf KafkaTracingConfig) {
 
 	collector, err := zipkintracer.NewKafkaCollector(conf.BootstrapServers,
 		zipkintracer.KafkaTopic("tracing"))
