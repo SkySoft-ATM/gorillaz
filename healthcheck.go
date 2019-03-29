@@ -8,7 +8,7 @@ import (
 // InitHealthcheck registers /live and /ready (GET) for liveness and readiness probes in k8s
 func (g *Gaz) InitHealthcheck() {
 	ready := func (w http.ResponseWriter, _ *http.Request) {
-		if atomic.LoadInt32(&g.isReady) == 1 {
+		if atomic.LoadInt32(g.isReady) == 1 {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -16,7 +16,7 @@ func (g *Gaz) InitHealthcheck() {
 	}
 
 	live := func (w http.ResponseWriter, _ *http.Request) {
-		if atomic.LoadInt32(&g.isLive) == 1 {
+		if atomic.LoadInt32(g.isLive) == 1 {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -33,7 +33,7 @@ func (g *Gaz) SetReady(status bool) {
 	if status {
 		statusInt = 1
 	}
-	atomic.StoreInt32(&g.isReady, statusInt)
+	atomic.StoreInt32(g.isReady, statusInt)
 }
 
 // SetLive returns the actual internal state to precise if the given microservice is live
@@ -42,7 +42,7 @@ func (g *Gaz) SetLive(status bool) {
 	if status {
 		statusInt = 1
 	}
-	atomic.StoreInt32(&g.isLive, statusInt)
+	atomic.StoreInt32(g.isLive, statusInt)
 }
 
 

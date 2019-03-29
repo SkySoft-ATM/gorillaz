@@ -11,7 +11,7 @@ import (
 //TestHealth tests the creation of a prometheus endpoint and the given path
 func TestHealth(t *testing.T) {
 	SetupLogger()
-	gaz := &Gaz{Router: mux.NewRouter()}
+	gaz := &Gaz{Router: mux.NewRouter(), isReady:new(int32), isLive:new(int32)}
 	gaz.InitHealthcheck()
 
 	port, shutdown := setupServerHTTP(gaz.Router)
