@@ -92,7 +92,7 @@ func failIfError(err error, t *testing.T) {
 }
 
 func TestBackpressureOnProducer(t *testing.T) {
-	b, err := NewNonBlockingBroadcaster(0)
+	b, err := NewNonBlockingBroadcaster(0, LazyBroadcast)
 	failIfError(err, t)
 	var sent = make(chan bool, 1)
 	go func() {
@@ -113,7 +113,7 @@ func TestBackpressureOnProducer(t *testing.T) {
 }
 
 func TestProducerDropsMessageOnBackpressure(t *testing.T) {
-	b, err := NewNonBlockingBroadcaster(0)
+	b, err := NewNonBlockingBroadcaster(0, LazyBroadcast)
 	failIfError(err, t)
 	var sent = make(chan bool, 1)
 	go func() {
@@ -135,5 +135,27 @@ func TestProducerDropsMessageOnBackpressure(t *testing.T) {
 		t.Log("Call correctly dropped value")
 	case <-timeout:
 		t.Error("Call did not block")
+	}
+}
+
+func TestNoBackpressureOnProducerWithEagerBroadcast(t *testing.T) {
+	b, err := NewNonBlockingBroadcaster(0)
+	failIfError(err, t)
+	var sent = make(chan bool, 1)
+	go func() {
+		err = b.SubmitBlocking("someValue")
+		failIfError(err, t)
+		sent <- true
+	}()
+	timeout := make(chan bool, 1)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		timeout <- true
+	}()
+	select {
+	case <-sent:
+		t.Log("Correct, no backpressure")
+	case <-timeout:
+		t.Error("Error, backpressure with eager broadcast")
 	}
 }

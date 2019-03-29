@@ -92,13 +92,16 @@ func (b *Broadcaster) broadcast(m interface{}) {
 func (b *Broadcaster) run() {
 	subscriberCount := 0
 	for {
-		r, ok := <-b.reg
-		if ok {
-			subscriberCount = b.addSubscriber(r, subscriberCount)
-		} else {
-			return
+		if b.eagerBroadcast == false {
+			// wait for first consumer
+			r, ok := <-b.reg
+			if ok {
+				subscriberCount = b.addSubscriber(r, subscriberCount)
+			} else {
+				return
+			}
 		}
-		for subscriberCount != 0 {
+		for b.eagerBroadcast == true || subscriberCount != 0 {
 			select {
 			case r, ok := <-b.reg:
 				if ok {
@@ -132,7 +135,7 @@ func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*B
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),
 		outputs:           make(map[chan<- interface{}]ConsumerConfig),
-		BroadcasterConfig: &BroadcasterConfig{},
+		BroadcasterConfig: &BroadcasterConfig{eagerBroadcast: true},
 	}
 
 	for _, option := range options {
