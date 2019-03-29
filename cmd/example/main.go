@@ -1,11 +1,11 @@
 package main
 
 import (
-	gaz "github.com/skysoft-atm/gorillaz"
+	"github.com/skysoft-atm/gorillaz"
 )
 
 func main() {
-	gaz.New(nil)
+	gaz := gorillaz.New(nil)
 
 	// write your application code here
 
