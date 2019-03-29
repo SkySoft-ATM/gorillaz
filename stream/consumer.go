@@ -6,13 +6,17 @@ import (
 	"google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
-
 	"log"
+	"sync"
 )
+
+var mu sync.RWMutex
 
 func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 	// TODO: hacky hack to create a resolver to use with round robin
+	mu.Lock()
 	r,_ := manual.GenerateAndRegisterManualResolver()
+	mu.Unlock()
 
 	addresses := make([]resolver.Address, len(endpoints))
 	for i:=0;i<len(endpoints);i++{
@@ -20,7 +24,9 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 	}
 	r.InitialAddrs(addresses)
 
+	mu.RLock()
 	conn, err := grpc.Dial(r.Scheme()+":///fake", grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name))
+	mu.RUnlock()
 	if err != nil {
 		return nil, err
 	}
@@ -44,6 +50,7 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 			ch <- &Event{
 				Key: streamEvt.Key,
 				Value: streamEvt.Value,
+				StreamTimestamp: streamEvt.Stream_Timestamp_Ns,
 			}
 		}
 	}()

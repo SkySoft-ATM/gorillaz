@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+
 service Stream {
     rpc Stream(StreamRequest) returns (stream StreamEvent);
 }
@@ -11,4 +12,5 @@ message StreamRequest {
 message StreamEvent {
     bytes Key    = 1; // Event key
     bytes Value  = 2; // Event value
+    uint64 Stream_Timestamp_Ns = 3;
 }

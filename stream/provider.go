@@ -2,22 +2,25 @@ package stream
 
 import (
 	"fmt"
+	"github.com/skysoft-atm/gorillaz/mux"
 	"google.golang.org/grpc"
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 var manager *subscriptionManager
 
 type Event struct {
-	Key, Value []byte
+	Key,Value []byte
+	StreamTimestamp uint64
 }
 
 func init() {
 	server := grpc.NewServer()
 	manager = &subscriptionManager{
-		subscriptions: make(map[string]*subscription),
+		providers: make(map[string]*Provider),
 		server:        server,
 	}
 	RegisterStreamServer(server, manager)
@@ -34,102 +37,70 @@ func Run(port int) error {
 
 type subscriptionManager struct {
 	sync.RWMutex
-	subscriptions map[string]*subscription
-	server        *grpc.Server
+	providers  map[string]*Provider
+	server     *grpc.Server
 }
 
-type subscription struct {
-	unsubChan chan registration
-	subChan   chan registration
-	inCh      chan *Event
-	outChans  map[chan *StreamEvent]struct{}
+type Provider struct {
+	name string
+	broadcaster *mux.Broadcaster
 }
 
-type registration struct {
-	out  chan *StreamEvent
-	done chan bool
+func (p *Provider) Submit(evt *Event){
+	streamEvent := &StreamEvent{
+		Key: evt.Key,
+		Value: evt.Value,
+		Stream_Timestamp_Ns: uint64(time.Now().UnixNano()),
+	}
+	p.broadcaster.SubmitBlocking(streamEvent)
 }
 
-func RegisterProvider(name string, eventChan chan *Event) {
-	sub := &subscription{
-		subChan:   make(chan registration),
-		unsubChan: make(chan registration),
-		inCh:      eventChan,
-		outChans:  make(map[chan *StreamEvent]struct{}),
+func (p *Provider) Close(){
+	p.broadcaster.Close()
+	manager.Lock()
+	delete(manager.providers, p.name)
+	manager.Unlock()
+}
+
+
+func NewProvider(name string) (*Provider, error) {
+	broadcaster, err := mux.NewNonBlockingBroadcaster(1024)
+	if err != nil {
+		return nil, err
+	}
+	p := &Provider{
+		name: name,
+		broadcaster: broadcaster,
 	}
 	manager.Lock()
-	manager.subscriptions[name] = sub
+	manager.providers[name] = p
 	manager.Unlock()
 
-	go func(sub *subscription) {
-		for {
-			select {
-			case reg := <-sub.subChan:
-				sub.outChans[reg.out] = struct{}{}
-				reg.done <- true
-
-			case unreg := <-sub.unsubChan:
-				delete(sub.outChans, unreg.out)
-				unreg.done <- true
-
-			case evt, ok := <-eventChan:
-				if !ok {
-					// eventChan is closed, cleanup
-					// disconnect consumers
-					for c := range sub.outChans {
-						close(c)
-					}
-					manager.Lock()
-					delete(manager.subscriptions, name)
-					manager.Unlock()
-					return
-				}
-				if len(sub.outChans) == 0 {
-					break
-				}
-				streamEvt := &StreamEvent{
-					Key:   evt.Key,
-					Value: evt.Value,
-				}
-
-				for out := range sub.outChans {
-					select {
-					case out <- streamEvt:
-						//ok
-					default:
-						log.Println("backpressure for stream " + name)
-					}
-				}
-			}
-		}
-	}(sub)
+	return p, nil
 }
 
-func (h *subscriptionManager) Stream(req *StreamRequest, stream Stream_StreamServer) error {
+func (manager *subscriptionManager) Stream(req *StreamRequest, stream Stream_StreamServer) error {
 	streamName := req.Name
 	manager.RLock()
-	sub, ok := h.subscriptions[streamName]
+	provider, ok := manager.providers[req.Name]
 	manager.RUnlock()
 	if !ok {
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
-	out := make(chan *StreamEvent, 256)
-	registred := make(chan bool)
-	sub.subChan <- registration{
-		out:  out,
-		done: registred,
-	}
-	<-registred
+	broadcaster := provider.broadcaster
+	streamCh:= make(chan interface{}, 256)
+	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
+		config.OnBackpressure(func (interface{}){
+			//TODO: prometheus
+		})
+		return nil
+	})
 
-	for evt := range out {
+	for val := range streamCh {
+		evt := val.(*StreamEvent)
 		err := stream.Send(evt)
 		if err != nil {
-			unregistred := make(chan bool)
-			sub.unsubChan <- registration{
-				out:  out,
-				done: unregistred,
-			}
-			<-unregistred
+			broadcaster.Unregister(streamCh)
 			return err
 		}
 	}
