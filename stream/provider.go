@@ -6,7 +6,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"google.golang.org/grpc"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -94,7 +93,7 @@ func NewProvider(name string) (*Provider, error) {
 	})
 
 	p.backPressureCounter = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "backpressure_dropped",
+		Name: "stream_backpressure_dropped",
 		Help: "The total number of messages dropped due to backpressure",
 		ConstLabels:prometheus.Labels{
 			"stream": name,
@@ -102,7 +101,7 @@ func NewProvider(name string) (*Provider, error) {
 	})
 
 	p.clientCounter = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "clients",
+		Name: "stream_clients",
 		Help: "The total number of clients connected",
 		ConstLabels:prometheus.Labels{
 			"stream": name,
@@ -110,7 +109,7 @@ func NewProvider(name string) (*Provider, error) {
 	})
 
 	p.lastEventTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "last_evt_timestamp",
+		Name: "stream_last_evt_timestamp",
 		Help: "Timestamp of the last event produced",
 		ConstLabels:prometheus.Labels{
 			"stream": name,
@@ -146,10 +145,9 @@ func (manager *subscriptionManager) Stream(req *StreamRequest, stream Stream_Str
 		err := stream.Send(evt)
 		if err != nil {
 			broadcaster.Unregister(streamCh)
-			return err
+			break
 		}
 	}
 	provider.clientCounter.Dec()
-	log.Println("producer channel closed for stream " + streamName)
 	return nil
 }

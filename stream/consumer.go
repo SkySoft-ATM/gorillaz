@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/resolver/manual"
 	"log"
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,6 +48,7 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 		Help: "The total number of events received",
 		ConstLabels:prometheus.Labels{
 			"stream": streamName,
+			"endpoints": strings.Join(endpoints,","),
 		},
 	})
 
@@ -54,6 +56,10 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error){
 		Name:       "streaming_delay_ms",
 		Help:       "The distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		ConstLabels:prometheus.Labels{
+			"stream":streamName,
+			"endpoints": strings.Join(endpoints,","),
+		},
 	})
 
 	go func() {
