@@ -45,7 +45,7 @@ func backpressureOptionForConsumer(consumerName string, backpressureConsumer cha
 	}
 }
 
-func TestBackpressureOnBroadcaster(t *testing.T) {
+func TestBackpressureOnConsumer(t *testing.T) {
 
 	const numberOfMessagesSent = 20
 	var blockingClientChan = make(chan string, numberOfMessagesSent+1)
@@ -54,9 +54,7 @@ func TestBackpressureOnBroadcaster(t *testing.T) {
 
 	b, err := NewNonBlockingBroadcaster(50)
 
-	if err != nil {
-		t.Fail()
-	}
+	failIfError(err, t)
 
 	blockingChan := make(chan interface{}, 10)
 	consumeAndBlock(5, blockingChan)
@@ -65,16 +63,12 @@ func TestBackpressureOnBroadcaster(t *testing.T) {
 	consume(nonBlockingChan, numberOfMessagesSent, finished)
 
 	err = b.Register(blockingChan, backpressureOptionForConsumer(blockingConsumerName, blockingClientChan))
-	if err != nil {
-		t.Fail()
-	}
+	failIfError(err, t)
 	b.Register(nonBlockingChan, backpressureOptionForConsumer("non-blocking", nonBlockingClientChan))
-	if err != nil {
-		t.Fail()
-	}
+	failIfError(err, t)
 	fmt.Println("submitting messages")
 	for i := 0; i < numberOfMessagesSent; i++ {
-		b.Submit(fmt.Sprintf("value %d", i))
+		b.SubmitBlocking(fmt.Sprintf("value %d", i))
 	}
 	fmt.Println("wait until the non blocking consumer consumes everything ")
 	<-finished
@@ -89,4 +83,57 @@ func TestBackpressureOnBroadcaster(t *testing.T) {
 	}
 	assert.True(t, backpressureCount >= 5) // since it has a small buffer, the blocking consumer might be blocking even before it starts to sleep
 	t.Log(fmt.Sprintf("backpressure count = %d", backpressureCount))
+}
+
+func failIfError(err error, t *testing.T) {
+	if err != nil {
+		t.Fail()
+	}
+}
+
+func TestBackpressureOnProducer(t *testing.T) {
+	b, err := NewNonBlockingBroadcaster(0)
+	failIfError(err, t)
+	var sent = make(chan bool, 1)
+	go func() {
+		_ = b.SubmitBlocking("someValue")
+		sent <- true
+	}()
+	timeout := make(chan bool, 1)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		timeout <- true
+	}()
+	select {
+	case <-sent:
+		t.Error("Call did not block")
+	case <-timeout:
+		t.Log("Call correctly blocked")
+	}
+}
+
+func TestProducerDropsMessageOnBackpressure(t *testing.T) {
+	b, err := NewNonBlockingBroadcaster(0)
+	failIfError(err, t)
+	var sent = make(chan bool, 1)
+	go func() {
+		err := b.SubmitNonBlocking("someValue")
+		if err == nil {
+			t.Error("We should have received an error")
+			return
+		}
+		assert.Contains(t, err.Error(), "value dropped")
+		sent <- true
+	}()
+	timeout := make(chan bool, 1)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		timeout <- true
+	}()
+	select {
+	case <-sent:
+		t.Log("Call correctly dropped value")
+	case <-timeout:
+		t.Error("Call did not block")
+	}
 }

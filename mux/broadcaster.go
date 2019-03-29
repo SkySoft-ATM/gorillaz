@@ -49,7 +49,7 @@ func (b *Broadcaster) Close() error {
 }
 
 // Submit a new object to all subscribers, this call can block if the input channel is full
-func (b *Broadcaster) Submit(i interface{}) error {
+func (b *Broadcaster) SubmitBlocking(i interface{}) error {
 	if b != nil && i != nil {
 		b.input <- i
 		return nil
