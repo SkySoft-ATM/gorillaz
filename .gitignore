@@ -8,3 +8,4 @@ vendor.orig
 gorillaz.iml
 vendor
 Gopkg.lock
+*.iml
