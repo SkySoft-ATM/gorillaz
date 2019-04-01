@@ -3,6 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/opentracing/opentracing-go"
+	zipkin "github.com/openzipkin-contrib/zipkin-go-opentracing"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +22,29 @@ func main() {
 	flag.StringVar(&endpoints, "endpoints", "", "endpoint to connect to")
 	flag.Parse()
 
+	collector, err := zipkin.NewHTTPCollector("http://fakeurl.skysoft-atm.com")
+	if err != nil {
+		fmt.Printf("unable to create Zipkin HTTP collector: %+v\n", err)
+		os.Exit(-1)
+	}
+
+	// create recorder.
+	recorder := zipkin.NewRecorder(collector, true, "127.0.0.1:61001", "testConsumer")
+
+	// create tracer.
+	tracer, err := zipkin.NewTracer(
+		recorder,
+		zipkin.ClientServerSameSpan(true),
+		zipkin.TraceID128Bit(true),
+	)
+	if err != nil {
+		fmt.Printf("unable to create Zipkin tracer: %+v\n", err)
+		os.Exit(-1)
+	}
+
+	// explicitly set our tracer to be the default tracer.
+	opentracing.InitGlobalTracer(tracer)
+
 	var wg sync.WaitGroup
 	wg.Add(clients)
 
@@ -26,7 +52,6 @@ func main() {
 	var totalLatency int64
 
 	var ch chan *stream.Event
-	var err error
 	for {
 		ch, err = stream.NewConsumer(streamName, strings.Split(endpoints, ",")...)
 		if err == nil {
@@ -40,7 +65,7 @@ func main() {
 	var i int64
 
 	start := time.Now()
-	for i = 0; i < 10000; i++ {
+	for i = 0; i < 100000; i++ {
 		evt := <-ch
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
 		if latency > worstLatency {
