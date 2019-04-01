@@ -36,9 +36,9 @@ func main() {
 	tick := time.Tick(time.Nanosecond * 5)
 	for {
 		<-tick
-		sp := opentracing.StartSpan("sending message")
+		ctx := context.Background()
+		sp, ctx := opentracing.StartSpanFromContext(ctx, "sending_message")
 		sp.SetTag("super", "tag")
-		ctx := opentracing.ContextWithSpan(context.Background(), sp)
 
 		v := []byte("something wonderful")
 		event := &stream.Event{
