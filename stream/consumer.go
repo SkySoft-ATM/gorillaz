@@ -40,7 +40,7 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error) {
 
 func run(streamName string, target string, endpoints []string, ch chan *Event) {
 	receivedCounter := promauto.NewCounter(prometheus.CounterOpts{
-		Name: "received_events",
+		Name: "stream_consumer_received_events",
 		Help: "The total number of events received",
 		ConstLabels: prometheus.Labels{
 			"stream":    streamName,
@@ -49,7 +49,7 @@ func run(streamName string, target string, endpoints []string, ch chan *Event) {
 	})
 
 	conCounter := promauto.NewCounter(prometheus.CounterOpts{
-		Name: "connection_attempts",
+		Name: "stream_consumer_connection_attempts",
 		Help: "The total number of connections to the stream",
 		ConstLabels: prometheus.Labels{
 			"stream":    streamName,
@@ -57,8 +57,18 @@ func run(streamName string, target string, endpoints []string, ch chan *Event) {
 		},
 	})
 
+
+	conGauge := promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "stream_consumer_connected",
+		Help: "Set to 1 if connected, otherwise 0",
+		ConstLabels: prometheus.Labels{
+			"stream":    streamName,
+			"endpoints": strings.Join(endpoints, ","),
+		},
+	})
+
 	delaySummary := promauto.NewSummary(prometheus.SummaryOpts{
-		Name:       "streaming_delay_ms",
+		Name:       "stream_consumer_delay_ms",
 		Help:       "The distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		ConstLabels: prometheus.Labels{
@@ -70,11 +80,13 @@ func run(streamName string, target string, endpoints []string, ch chan *Event) {
 	var streamClient Stream_StreamClient
 	var err error
 connect:
+	conGauge.Set(0)
 	for {
 		conCounter.Inc()
 		gaz.Log.Info("connection attempt to stream", zap.String("stream", streamName))
 		streamClient, err = initConn(target, streamName)
 		if err == nil {
+			conGauge.Set(1)
 			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", streamName))
 			break
 		} else {
@@ -85,6 +97,7 @@ connect:
 	for {
 		streamEvt, err := streamClient.Recv()
 		if err != nil {
+			conGauge.Set(0)
 			gaz.Log.Error("stream is unavailable, retry connection in 1s", zap.String("stream", streamName), zap.Error(err))
 			time.Sleep(time.Second)
 			goto connect
