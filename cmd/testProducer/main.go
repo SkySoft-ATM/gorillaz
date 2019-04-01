@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/log"
 	"net/http"
 	_ "net/http/pprof"
 	"time"
@@ -33,12 +34,13 @@ func main() {
 		panic(err)
 	}
 
+	var message int64
 	tick := time.Tick(time.Nanosecond * 5)
 	for {
 		<-tick
 		ctx := context.Background()
 		sp, ctx := opentracing.StartSpanFromContext(ctx, "sending_message")
-		sp.SetTag("super", "tag")
+		sp.LogFields(log.Int64("message", message))
 
 		v := []byte("something wonderful")
 		event := &stream.Event{
@@ -47,6 +49,7 @@ func main() {
 		}
 		sp.Finish()
 		p.Submit(event)
+		message++
 	}
 
 	p.Close()
