@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"github.com/opentracing/opentracing-go"
 	"net/http"
 	_ "net/http/pprof"
-	"strconv"
 	"time"
 )
 import "github.com/skysoft-atm/gorillaz/stream"
@@ -32,13 +33,19 @@ func main() {
 		panic(err)
 	}
 
-	tick := time.Tick(time.Microsecond * 5)
-	for i := 0; i < 10000000; i++ {
+	tick := time.Tick(time.Nanosecond * 5)
+	for {
 		<-tick
-		v := []byte(strconv.Itoa(i))
+		sp := opentracing.StartSpan("sending message")
+		sp.SetTag("super", "tag")
+		ctx := opentracing.ContextWithSpan(context.Background(), sp)
+
+		v := []byte("something wonderful")
 		event := &stream.Event{
 			Value: v,
+			Ctx:   ctx,
 		}
+		sp.Finish()
 		p.Submit(event)
 	}
 

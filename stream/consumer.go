@@ -57,7 +57,6 @@ func run(streamName string, target string, endpoints []string, ch chan *Event) {
 		},
 	})
 
-
 	conGauge := promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "stream_consumer_connected",
 		Help: "Set to 1 if connected, otherwise 0",
@@ -104,13 +103,18 @@ connect:
 		}
 		gaz.Log.Debug("event received", zap.String("stream", streamName))
 		receivedCounter.Inc()
-		receptTime := time.Now()
-		delaySummary.Observe(math.Max(0, float64(receptTime.UnixNano())/1000000.0-float64(streamEvt.Stream_Timestamp_Ns)/1000000.0))
-		ch <- &Event{
-			Key:             streamEvt.Key,
-			Value:           streamEvt.Value,
-			StreamTimestamp: streamEvt.Stream_Timestamp_Ns,
+		evt := &Event{
+			Key:   streamEvt.Key,
+			Value: streamEvt.Value,
+			Ctx:   ctx(streamEvt.Metadata),
 		}
+		streamTimestamp := StreamTimestamp(evt)
+		if streamTimestamp > 0 {
+			receptTime := time.Now()
+			// convert in ms
+			delaySummary.Observe(math.Max(0, float64(receptTime.UnixNano())/1000000.0-float64(streamTimestamp)/1000000.0))
+		}
+		ch <- evt
 	}
 }
 

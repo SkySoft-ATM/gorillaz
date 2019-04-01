@@ -10,15 +10,9 @@ import (
 	"google.golang.org/grpc"
 	"net"
 	"sync"
-	"time"
 )
 
 var manager *subscriptionManager
-
-type Event struct {
-	Key, Value      []byte
-	StreamTimestamp uint64
-}
 
 func init() {
 	server := grpc.NewServer()
@@ -56,9 +50,9 @@ type Provider struct {
 
 func (p *Provider) Submit(evt *Event) {
 	streamEvent := &StreamEvent{
-		Key:                 evt.Key,
-		Value:               evt.Value,
-		Stream_Timestamp_Ns: uint64(time.Now().UnixNano()),
+		Key:      evt.Key,
+		Value:    evt.Value,
+		Metadata: metadata(evt),
 	}
 	p.sentCounter.Inc()
 	p.lastEventTimestamp.SetToCurrentTime()
