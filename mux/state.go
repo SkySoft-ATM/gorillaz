@@ -125,7 +125,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				r.done <- true
 			} else {
 				// close all registered output channel to notify them that the StateBroadcaster is closed
-				for output := range b.outputs{
+				for output := range b.outputs {
 					close(output)
 				}
 			}

@@ -9,7 +9,7 @@ import (
 )
 import "github.com/skysoft-atm/gorillaz/stream"
 
-func main(){
+func main() {
 	var streamName string
 
 	var port int
@@ -18,7 +18,7 @@ func main(){
 	flag.IntVar(&port, "port", 0, "tcp port to listen to")
 	flag.Parse()
 
-	go func(){
+	go func() {
 		http.ListenAndServe(":6060", nil)
 	}()
 
@@ -27,15 +27,14 @@ func main(){
 		panic(err)
 	}
 
-
 	err = stream.Run(port)
-	if err != nil{
+	if err != nil {
 		panic(err)
 	}
 
-	tick := time.Tick(time.Microsecond*5)
-	for i:=0;i<10000000;i++ {
-		<- tick
+	tick := time.Tick(time.Microsecond * 5)
+	for i := 0; i < 10000000; i++ {
+		<-tick
 		v := []byte(strconv.Itoa(i))
 		event := &stream.Event{
 			Value: v,
@@ -45,5 +44,5 @@ func main(){
 
 	p.Close()
 
-	time.Sleep(time.Second*5)
+	time.Sleep(time.Second * 5)
 }

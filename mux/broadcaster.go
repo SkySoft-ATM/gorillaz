@@ -99,7 +99,7 @@ func (b *Broadcaster) run() {
 				subscriberCount = b.addSubscriber(r, subscriberCount)
 			} else {
 				// close all output channel to notify them that the broadcaster is closed
-				for output := range b.outputs{
+				for output := range b.outputs {
 					close(output)
 				}
 			}
