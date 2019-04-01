@@ -7,7 +7,7 @@ import (
 
 // InitHealthcheck registers /live and /ready (GET) for liveness and readiness probes in k8s
 func (g *Gaz) InitHealthcheck() {
-	ready := func (w http.ResponseWriter, _ *http.Request) {
+	ready := func(w http.ResponseWriter, _ *http.Request) {
 		if atomic.LoadInt32(g.isReady) == 1 {
 			w.WriteHeader(http.StatusOK)
 		} else {
@@ -15,7 +15,7 @@ func (g *Gaz) InitHealthcheck() {
 		}
 	}
 
-	live := func (w http.ResponseWriter, _ *http.Request) {
+	live := func(w http.ResponseWriter, _ *http.Request) {
 		if atomic.LoadInt32(g.isLive) == 1 {
 			w.WriteHeader(http.StatusOK)
 		} else {
@@ -44,7 +44,3 @@ func (g *Gaz) SetLive(status bool) {
 	}
 	atomic.StoreInt32(g.isLive, statusInt)
 }
-
-
-
-

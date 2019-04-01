@@ -15,7 +15,7 @@ type Gaz struct {
 	Router *mux.Router
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady *int32
-	isLive *int32
+	isLive  *int32
 }
 
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
@@ -27,7 +27,7 @@ func New(context map[string]interface{}) *Gaz {
 	initialized = true
 
 	parseConfiguration(context)
-	gaz := Gaz{Router: mux.NewRouter(), isReady:new(int32), isLive:new(int32)}
+	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32)}
 	err := gaz.InitLogs(viper.GetString("log.level"))
 	if err != nil {
 		panic(err)
