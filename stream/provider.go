@@ -52,7 +52,7 @@ func (p *Provider) Submit(evt *Event) {
 	streamEvent := &StreamEvent{
 		Key:      evt.Key,
 		Value:    evt.Value,
-		Metadata: metadata(evt),
+		Metadata: contextToMetadata(evt.Ctx),
 	}
 	p.sentCounter.Inc()
 	p.lastEventTimestamp.SetToCurrentTime()

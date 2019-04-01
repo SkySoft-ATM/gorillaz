@@ -27,7 +27,7 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 	return nil
 }
 
-func ctx(metadata *Metadata) context.Context {
+func metadataToContext(metadata *Metadata) context.Context {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, timestampKey, metadata.StreamTimestamp)
 	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
@@ -42,15 +42,15 @@ func ctx(metadata *Metadata) context.Context {
 	return ctx
 }
 
-// metadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
-func metadata(evt *Event) *Metadata {
+// contextToMetadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
+func contextToMetadata(ctx context.Context) *Metadata {
 	metadata := &Metadata{
 		StreamTimestamp: time.Now().UnixNano(),
 		KeyValue:        make(map[string]string),
 	}
 
-	if evt.Ctx != nil {
-		sp := opentracing.SpanFromContext(evt.Ctx)
+	if ctx != nil {
+		sp := opentracing.SpanFromContext(ctx)
 		if sp != nil {
 			err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
 			if err != nil {

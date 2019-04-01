@@ -106,7 +106,7 @@ connect:
 		evt := &Event{
 			Key:   streamEvt.Key,
 			Value: streamEvt.Value,
-			Ctx:   ctx(streamEvt.Metadata),
+			Ctx:   metadataToContext(streamEvt.Metadata),
 		}
 		streamTimestamp := StreamTimestamp(evt)
 		if streamTimestamp > 0 {

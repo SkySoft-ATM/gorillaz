@@ -23,4 +23,5 @@ func StreamTimestamp(e *Event) int64 {
 		}
 	}
 	return 0
+
 }
