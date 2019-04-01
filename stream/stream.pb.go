@@ -64,7 +64,7 @@ func (m *StreamRequest) GetName() string {
 type StreamEvent struct {
 	Key                  []byte    `protobuf:"bytes,1,opt,name=Key,json=key,proto3" json:"Key,omitempty"`
 	Value                []byte    `protobuf:"bytes,2,opt,name=Value,json=value,proto3" json:"Value,omitempty"`
-	Metadata             *Metadata `protobuf:"bytes,3,opt,name=contextToMetadata,proto3" json:"contextToMetadata,omitempty"`
+	Metadata             *Metadata `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}  `json:"-"`
 	XXX_unrecognized     []byte    `json:"-"`
 	XXX_sizecache        int32     `json:"-"`
@@ -202,7 +202,7 @@ const _ = grpc.SupportPackageIsVersion4
 
 // StreamClient is the client API for Stream service.
 //
-// For semantics around metadataToContext use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type StreamClient interface {
 	Stream(ctx context.Context, in *StreamRequest, opts ...grpc.CallOption) (Stream_StreamClient, error)
 }
