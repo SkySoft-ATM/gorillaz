@@ -11,11 +11,11 @@ import (
 //TestPrometheusInit tests the creation of a prometheus endpoint and the given path
 func TestPrometheusInit(t *testing.T) {
 	SetupLogger()
-	router := mux.NewRouter()
 	path := "/somemetric"
-	InitPrometheus(router, path)
+	gaz := &Gaz{Router: mux.NewRouter()}
+	gaz.InitPrometheus(path)
 
-	port, shutdown := setupServerHTTP(router)
+	port, shutdown := setupServerHTTP(gaz.Router)
 	defer shutdown()
 
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d%s", port, path))

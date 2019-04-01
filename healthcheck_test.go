@@ -11,10 +11,10 @@ import (
 //TestHealth tests the creation of a prometheus endpoint and the given path
 func TestHealth(t *testing.T) {
 	SetupLogger()
-	router := mux.NewRouter()
-	InitHealthcheck(router)
+	gaz := &Gaz{Router: mux.NewRouter(), isReady:new(int32), isLive:new(int32)}
+	gaz.InitHealthcheck()
 
-	port, shutdown := setupServerHTTP(router)
+	port, shutdown := setupServerHTTP(gaz.Router)
 	defer shutdown()
 
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
@@ -25,19 +25,19 @@ func TestHealth(t *testing.T) {
 	check(t, "ready and live are unset", baseURL+"/ready", koStatus)
 	check(t, "ready and live are unset", baseURL+"/live", koStatus)
 
-	SetReady(true)
+	gaz.SetReady(true)
 	check(t, "ready is set", baseURL+"/ready", okStatus)
 	check(t, "ready is set", baseURL+"/live", koStatus)
 
-	SetLive(true)
+	gaz.SetLive(true)
 	check(t, "ready and live are set", baseURL+"/ready", okStatus)
 	check(t, "ready and live are set", baseURL+"/live", okStatus)
 
-	SetReady(false)
+	gaz.SetReady(false)
 	check(t, "ready is set to false", baseURL+"/ready", koStatus)
 	check(t, "ready is set to false", baseURL+"/live", okStatus)
 
-	SetLive(false)
+	gaz.SetLive(false)
 	check(t, "ready and live are set to false", baseURL+"/ready", koStatus)
 	check(t, "ready and live are set to false", baseURL+"/live", koStatus)
 }

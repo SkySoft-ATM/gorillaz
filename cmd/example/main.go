@@ -1,16 +1,16 @@
 package main
 
 import (
-	gaz "github.com/skysoft-atm/gorillaz"
+	"github.com/skysoft-atm/gorillaz"
 )
 
 func main() {
-	g := gaz.New(nil)
-	g.Run()
+	gaz := gorillaz.New(nil)
+	gaz.Run()
 
 	// write your application code here
 
-	g.SetReady(true)
-	g.SetLive(true)
+	gaz.SetReady(true)
+	gaz.SetLive(true)
 	select {}
 }

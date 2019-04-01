@@ -12,5 +12,5 @@ func (g *Gaz) InitPrometheus(path string) {
 		path = "/" + path
 	}
 	Sugar.Infof("Setup Prometheus handler at %s", path)
-	g.router.Handle(path, promhttp.Handler()).Methods("GET")
+	g.Router.Handle(path, promhttp.Handler()).Methods("GET")
 }
