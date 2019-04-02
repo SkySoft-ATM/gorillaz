@@ -18,13 +18,35 @@ import (
 
 var mu sync.RWMutex
 
-type ConsumerConfig struct{
-	BufferLen int // BufferLen is the size of the channel of the consumer
+type ConsumerConfig struct {
+	BufferLen           int                                     // BufferLen is the size of the channel of the consumer
+	OnConnectionAttempt func(streamName string, attempt uint64) // OnConnectionAttempt is called before trying to connect to a stream provider
 }
 
 func defaultConsumerConfig() *ConsumerConfig {
 	return &ConsumerConfig{
 		BufferLen: 256,
+		OnConnectionAttempt: func(streamName string, attempt uint64) {
+			wait := time.Second * 0
+			switch attempt {
+			case 0:
+				// just try to connect directly on the first attempt
+				break
+			case 1:
+				wait = time.Second
+			case 2:
+				wait = time.Second * 2
+			case 3:
+				wait = time.Second * 3
+			default:
+				wait = time.Second * 5
+			}
+			if wait > 0 {
+				gaz.Log.Info("waiting before making another connection attempt", zap.String("streamName", streamName), zap.Int("wait_sec", int(wait.Seconds())))
+				time.Sleep(wait)
+			}
+			gaz.Log.Info("connection attempt to stream", zap.String("stream", streamName))
+		},
 	}
 }
 
@@ -44,18 +66,18 @@ func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOp
 	target := r.Scheme() + ":///fake"
 
 	config := defaultConsumerConfig()
-	for _, opt := range opts{
+	for _, opt := range opts {
 		opt(config)
 	}
 
 	ch := make(chan *Event, config.BufferLen)
 	go func() {
-		run(streamName, target, endpoints, ch)
+		run(streamName, target, endpoints, ch, config)
 	}()
 	return ch, nil
 }
 
-func run(streamName string, target string, endpoints []string, ch chan *Event) {
+func run(streamName string, target string, endpoints []string, ch chan *Event, config *ConsumerConfig) {
 	receivedCounter := promauto.NewCounter(prometheus.CounterOpts{
 		Name: "stream_consumer_received_events",
 		Help: "The total number of events received",
@@ -95,27 +117,29 @@ func run(streamName string, target string, endpoints []string, ch chan *Event) {
 
 	var streamClient Stream_StreamClient
 	var err error
+	var connAttempt uint64
 connect:
 	conGauge.Set(0)
 	for {
 		conCounter.Inc()
-		gaz.Log.Info("connection attempt to stream", zap.String("stream", streamName))
+		config.OnConnectionAttempt(streamName, connAttempt)
+
 		streamClient, err = initConn(target, streamName)
 		if err == nil {
+			connAttempt = 0
 			conGauge.Set(1)
 			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", streamName))
 			break
 		} else {
-			gaz.Log.Error("connection attempt to stream failed, retry in 1 s", zap.String("stream", streamName), zap.Error(err))
-			time.Sleep(time.Duration(time.Second))
+			connAttempt++
+			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", streamName), zap.Error(err))
 		}
 	}
 	for {
 		streamEvt, err := streamClient.Recv()
 		if err != nil {
 			conGauge.Set(0)
-			gaz.Log.Error("stream is unavailable, retry connection in 1s", zap.String("stream", streamName), zap.Error(err))
-			time.Sleep(time.Second)
+			gaz.Log.Error("stream is unavailable", zap.String("stream", streamName), zap.Error(err))
 			goto connect
 		}
 		gaz.Log.Debug("event received", zap.String("stream", streamName))
@@ -128,7 +152,7 @@ connect:
 		streamTimestamp := StreamTimestamp(evt)
 		if streamTimestamp > 0 {
 			receptTime := time.Now()
-			// convert in ms
+			// convert from ns to ms
 			delaySummary.Observe(math.Max(0, float64(receptTime.UnixNano())/1000000.0-float64(streamTimestamp)/1000000.0))
 		}
 		ch <- evt

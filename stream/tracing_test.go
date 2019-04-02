@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-
 func TestTimestamp(t *testing.T) {
 	ts := int64(1234567890)
 
@@ -24,7 +23,7 @@ func TestTimestamp(t *testing.T) {
 	}
 }
 
-func TestTracingSerialization(t *testing.T){
+func TestTracingSerialization(t *testing.T) {
 	tracer := mocktracer.New()
 	opentracing.SetGlobalTracer(tracer)
 
@@ -42,7 +41,7 @@ func TestTracingSerialization(t *testing.T){
 	}
 }
 
-func TestNoTracing(t *testing.T){
+func TestNoTracing(t *testing.T) {
 	tracer := mocktracer.New()
 	opentracing.SetGlobalTracer(tracer)
 

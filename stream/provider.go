@@ -37,7 +37,7 @@ func Run(port int) error {
 
 type Provider struct {
 	streamName          string
-	config *ProviderConfig
+	config              *ProviderConfig
 	broadcaster         *mux.Broadcaster
 	sentCounter         prometheus.Counter
 	backPressureCounter prometheus.Counter
@@ -47,14 +47,14 @@ type Provider struct {
 
 // ProviderConfig is the configuration that will be applied for the stream Provider
 type ProviderConfig struct {
-	InputBufferLen int // InputBufferLen is the size of the input channel (default: 256)
-	SubscriberInputBufferLen int // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
-	OnBackPressure func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
+	InputBufferLen           int                     // InputBufferLen is the size of the input channel (default: 256)
+	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
+	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 }
 
-func defaultProviderConfig() *ProviderConfig{
+func defaultProviderConfig() *ProviderConfig {
 	return &ProviderConfig{
-		InputBufferLen: 256,
+		InputBufferLen:           256,
 		SubscriberInputBufferLen: 256,
 		OnBackPressure: func(streamName string) {
 			gaz.Log.Warn("backpressure applied, an event won't be delivered because it can't consume fast enough", zap.String("stream", streamName))
@@ -65,14 +65,13 @@ func defaultProviderConfig() *ProviderConfig{
 // ProviderConfigOpt is a ProviderConfig option function to modify the ProviderConfig used by the stream Provider
 type ProviderConfigOpt func(p *ProviderConfig)
 
-
 // NewProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
 func NewProvider(stremaName string, opts ...ProviderConfigOpt) (*Provider, error) {
 	gaz.Log.Info("creating stream", zap.String("stream", stremaName))
 
 	config := defaultProviderConfig()
-	for _, opt := range opts{
+	for _, opt := range opts {
 		opt(config)
 	}
 
@@ -83,7 +82,7 @@ func NewProvider(stremaName string, opts ...ProviderConfigOpt) (*Provider, error
 	}
 	p := &Provider{
 		streamName:  stremaName,
-		config: config,
+		config:      config,
 		broadcaster: broadcaster,
 	}
 	manager.Lock()
@@ -146,7 +145,6 @@ func (p *Provider) Close() {
 	delete(manager.providers, p.streamName)
 	manager.Unlock()
 }
-
 
 // Stream implements streaming.proto Stream.
 // should not be called by the client

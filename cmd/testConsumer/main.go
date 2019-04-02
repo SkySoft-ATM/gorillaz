@@ -51,13 +51,9 @@ func main() {
 	var worstLatency int64
 	var totalLatency int64
 
-	var ch chan *stream.Event
-	for {
-		ch, err = stream.NewConsumer(streamName, strings.Split(endpoints, ","))
-		if err == nil {
-			break
-		}
-		time.Sleep(time.Millisecond * 200)
+	ch, err := stream.NewConsumer(streamName, strings.Split(endpoints, ","))
+	if err != nil {
+		panic(err)
 	}
 
 	fmt.Println("client created")
