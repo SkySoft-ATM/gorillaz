@@ -75,7 +75,7 @@ func NewProvider(stremaName string, opts ...ProviderConfigOpt) (*Provider, error
 		opt(config)
 	}
 
-	broadcaster, err := mux.NewNonBlockingBroadcaster(config.SubscriberInputBufferLen)
+	broadcaster, err := mux.NewNonBlockingBroadcaster(config.InputBufferLen)
 	if err != nil {
 		gaz.Log.Error("could not create stream broadcaster", zap.Error(err))
 		return nil, err
