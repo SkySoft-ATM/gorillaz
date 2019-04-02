@@ -19,8 +19,17 @@ import (
 var mu sync.RWMutex
 
 type ConsumerConfig struct {
-	BufferLen           int                                     // BufferLen is the size of the channel of the consumer
+	BufferLen         int                                     // BufferLen is the size of the channel of the consumer
 	onConnectionRetry func(streamName string, retryNb uint64) // onConnectionRetry is called before trying to reconnect to a stream provider
+	onConnected       func(streamName string)
+}
+
+type Consumer struct {
+	StreamName string
+	EvtChan    chan *Event
+	target     string
+	endpoints  []string
+	config     *ConsumerConfig
 }
 
 func defaultConsumerConfig() *ConsumerConfig {
@@ -52,7 +61,7 @@ func defaultConsumerConfig() *ConsumerConfig {
 
 type ConsumerConfigOpt func(*ConsumerConfig)
 
-func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOpt) (chan *Event, error) {
+func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
 	// TODO: hacky hack to create a resolver to use with round robin
 	mu.Lock()
 	r, _ := manual.GenerateAndRegisterManualResolver()
@@ -71,19 +80,26 @@ func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOp
 	}
 
 	ch := make(chan *Event, config.BufferLen)
+	consumer := &Consumer{
+		StreamName: streamName,
+		EvtChan:    ch,
+		config:     config,
+		endpoints:  endpoints,
+		target:     target,
+	}
 	go func() {
-		run(streamName, target, endpoints, ch, config)
+		consumer.run()
 	}()
-	return ch, nil
+	return consumer, nil
 }
 
-func run(streamName string, target string, endpoints []string, ch chan *Event, config *ConsumerConfig) {
+func (c *Consumer) run() {
 	receivedCounter := promauto.NewCounter(prometheus.CounterOpts{
 		Name: "stream_consumer_received_events",
 		Help: "The total number of events received",
 		ConstLabels: prometheus.Labels{
-			"stream":    streamName,
-			"endpoints": strings.Join(endpoints, ","),
+			"stream":    c.StreamName,
+			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
 
@@ -91,8 +107,8 @@ func run(streamName string, target string, endpoints []string, ch chan *Event, c
 		Name: "stream_consumer_connection_attempts",
 		Help: "The total number of connections to the stream",
 		ConstLabels: prometheus.Labels{
-			"stream":    streamName,
-			"endpoints": strings.Join(endpoints, ","),
+			"stream":    c.StreamName,
+			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
 
@@ -100,8 +116,8 @@ func run(streamName string, target string, endpoints []string, ch chan *Event, c
 		Name: "stream_consumer_connected",
 		Help: "Set to 1 if connected, otherwise 0",
 		ConstLabels: prometheus.Labels{
-			"stream":    streamName,
-			"endpoints": strings.Join(endpoints, ","),
+			"stream":    c.StreamName,
+			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
 
@@ -110,8 +126,8 @@ func run(streamName string, target string, endpoints []string, ch chan *Event, c
 		Help:       "The distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		ConstLabels: prometheus.Labels{
-			"stream":    streamName,
-			"endpoints": strings.Join(endpoints, ","),
+			"stream":    c.StreamName,
+			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
 
@@ -122,26 +138,29 @@ connect:
 	conGauge.Set(0)
 	for {
 		conCounter.Inc()
-		streamClient, err = initConn(target, streamName)
+		streamClient, err = c.initConn()
 		if err == nil {
 			connRetry = 0
 			conGauge.Set(1)
-			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", streamName))
+			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
 			break
 		} else {
-			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", streamName), zap.Error(err))
-			config.onConnectionRetry(streamName, connRetry)
+			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", c.StreamName), zap.Error(err))
+			c.config.onConnectionRetry(c.StreamName, connRetry)
 			connRetry++
 		}
+	}
+	if c.config.onConnected != nil {
+		c.config.onConnected(c.StreamName)
 	}
 	for {
 		streamEvt, err := streamClient.Recv()
 		if err != nil {
 			conGauge.Set(0)
-			gaz.Log.Error("stream is unavailable", zap.String("stream", streamName), zap.Error(err))
+			gaz.Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
 			goto connect
 		}
-		gaz.Log.Debug("event received", zap.String("stream", streamName))
+		gaz.Log.Debug("event received", zap.String("stream", c.StreamName))
 		receivedCounter.Inc()
 		evt := &Event{
 			Key:   streamEvt.Key,
@@ -154,18 +173,20 @@ connect:
 			// convert from ns to ms
 			delaySummary.Observe(math.Max(0, float64(receptTime.UnixNano())/1000000.0-float64(streamTimestamp)/1000000.0))
 		}
-		ch <- evt
+		c.EvtChan <- evt
 	}
 }
 
-func initConn(target string, streamName string) (Stream_StreamClient, error) {
+func (c *Consumer) initConn() (Stream_StreamClient, error) {
 	mu.RLock()
-	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name))
+	//TODO : make grpc.WithInsecure an option
+	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name))
 	mu.RUnlock()
 	if err != nil {
 		return nil, err
 	}
-	c := NewStreamClient(conn)
-	req := &StreamRequest{Name: streamName}
-	return c.Stream(context.TODO(), req)
+	client := NewStreamClient(conn)
+	req := &StreamRequest{Name: c.StreamName}
+	// TODO: do we want to pass a context here?
+	return client.Stream(context.Background(), req)
 }

@@ -51,7 +51,7 @@ func main() {
 		http.ListenAndServe(":6060", nil)
 	}()
 
-	opt := func(config *stream.ProviderConfig){
+	opt := func(config *stream.ProviderConfig) {
 		config.SubscriberInputBufferLen = 1024
 	}
 
@@ -79,7 +79,7 @@ func main() {
 		sp.Finish()
 		p.Submit(event)
 		message++
-		time.Sleep(time.Nanosecond*100)
+		time.Sleep(time.Nanosecond * 100)
 	}
 
 	p.Close()

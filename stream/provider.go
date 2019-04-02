@@ -35,7 +35,6 @@ func Run(port int) error {
 	return nil
 }
 
-
 type Provider struct {
 	streamName          string
 	config              *ProviderConfig

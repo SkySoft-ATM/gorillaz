@@ -51,7 +51,7 @@ func main() {
 	var worstLatency int64
 	var totalLatency int64
 
-	ch, err := stream.NewConsumer(streamName, strings.Split(endpoints, ","))
+	consumer, err := stream.NewConsumer(streamName, strings.Split(endpoints, ","))
 	if err != nil {
 		panic(err)
 	}
@@ -62,7 +62,7 @@ func main() {
 
 	start := time.Now()
 	for i = 0; i < 100000; i++ {
-		evt := <-ch
+		evt := <-consumer.EvtChan
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
 		if latency > worstLatency {
 			worstLatency = latency

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestStreamEvents(t *testing.T){
+func TestStreamEvents(t *testing.T) {
 	// start
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -18,60 +18,80 @@ func TestStreamEvents(t *testing.T){
 
 	addr := l.Addr()
 
-	providerTesty, err := NewProvider("testy")
+	provider1Stream := "testy"
+	provider2Stream := "testoo"
+
+	provider1, err := NewProvider(provider1Stream)
 	if err != nil {
 		t.Errorf("cannot register provider, %+v", err)
 		return
 	}
 
-	providerTestoo, err := NewProvider("testoo")
+	provider2, err := NewProvider(provider2Stream)
 	if err != nil {
 		t.Errorf("cannot register provider, %+v", err)
 		return
 	}
 
-	conTesty,err := NewConsumer("testy", []string{addr.String()})
-	if err != nil {
-		t.Errorf("cannot create consumer, %+v", err)
-		return
-	}
+	consumer1 := createConsumer(t, provider1Stream, addr.String())
+	consumer2 := createConsumer(t, provider2Stream, addr.String())
 
-	conTestoo,err := NewConsumer("testoo", []string{addr.String()})
-	if err != nil {
-		t.Errorf("cannot create consumer, %+v", err)
-		return
-	}
-
-	evtTesty := &Event{
-		Key: []byte("testyKey"),
+	evt1 := &Event{
+		Key:   []byte("testyKey"),
 		Value: []byte("testyValue"),
 	}
 
-	evtTestoo := &Event{
-		Key: []byte("testooKey"),
+	evt2 := &Event{
+		Key:   []byte("testooKey"),
 		Value: []byte("testooValue"),
 	}
 
-	// wait a bit to be sure the consumer is properly connected
-	time.Sleep(time.Second*2)
+	// TODO: not great to sleep here, but connected just means we were able to connect the streaming provider
+	// it doesn't mean the registration is done on the server side, so we must wait for the registration to be successful
+	time.Sleep(time.Second * 1)
 
-	providerTesty.Submit(evtTesty)
-	providerTestoo.Submit(evtTestoo)
+	provider1.Submit(evt1)
+	provider2.Submit(evt2)
 
-	assertReceived(t, conTesty, evtTesty)
-	assertReceived(t, conTestoo, evtTestoo)
+	assertReceived(t, provider1Stream, consumer1.EvtChan, evt1)
+	assertReceived(t, provider2Stream, consumer2.EvtChan, evt2)
 }
 
-func assertReceived(t *testing.T, ch chan *Event, expected *Event){
+func assertReceived(t *testing.T, streamName string, ch <-chan *Event, expected *Event) {
 	select {
-	case evt := <- ch:
+	case evt := <-ch:
 		if !bytes.Equal(expected.Key, evt.Key) {
 			t.Errorf("expected key %v but got key %v", string(expected.Key), string(evt.Key))
 		}
 		if !bytes.Equal(expected.Value, evt.Value) {
 			t.Errorf("expected value %v but got key %v", string(expected.Value), string(evt.Value))
 		}
-	case <- time.After(time.Second*5):
-		t.Errorf("no event received after 3 sec")
+	case <-time.After(time.Second * 5):
+		t.Errorf("no event received after 5 sec for stream %s", streamName)
 	}
+}
+
+func createConsumer(t *testing.T, streamName string, endpoint string) *Consumer {
+	connected := make(chan bool)
+
+	opt := func(config *ConsumerConfig) {
+		config.onConnected = func(string) {
+			connected <- true
+		}
+	}
+
+	consumer, err := NewConsumer(streamName, []string{endpoint}, opt)
+	if err != nil {
+		t.Errorf("cannot create consumer for stream %s,, %+v", streamName, err)
+		t.FailNow()
+	}
+
+	select {
+	case <-connected:
+		return consumer
+	case <-time.After(time.Second * 3):
+		t.Errorf("consumer not created after 3 sec for stream %s", streamName)
+		t.FailNow()
+	}
+	return nil
 }
