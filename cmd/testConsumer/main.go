@@ -60,8 +60,11 @@ func main() {
 
 	var i int64
 
-	start := time.Now()
+	var start time.Time
 	for i = 0; i < 100000; i++ {
+		if i == 0{
+			start = time.Now()
+		}
 		evt := <-consumer.EvtChan
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
 		if latency > worstLatency {
