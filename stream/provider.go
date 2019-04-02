@@ -50,6 +50,7 @@ type ProviderConfig struct {
 	InputBufferLen           int                     // InputBufferLen is the size of the input channel (default: 256)
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
+	LazyBroadcast            bool // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
 }
 
 func defaultProviderConfig() *ProviderConfig {
@@ -59,6 +60,7 @@ func defaultProviderConfig() *ProviderConfig {
 		OnBackPressure: func(streamName string) {
 			gaz.Log.Warn("backpressure applied, an event won't be delivered because it can't consume fast enough", zap.String("stream", streamName))
 		},
+		LazyBroadcast: false,
 	}
 }
 
@@ -75,7 +77,14 @@ func NewProvider(stremaName string, opts ...ProviderConfigOpt) (*Provider, error
 		opt(config)
 	}
 
-	broadcaster, err := mux.NewNonBlockingBroadcaster(config.InputBufferLen)
+	var broadcaster *mux.Broadcaster
+	var err error
+
+	if config.LazyBroadcast {
+		broadcaster, err = mux.NewNonBlockingBroadcaster(config.InputBufferLen, mux.LazyBroadcast)
+	} else {
+		broadcaster, err = mux.NewNonBlockingBroadcaster(config.InputBufferLen)
+	}
 	if err != nil {
 		gaz.Log.Error("could not create stream broadcaster", zap.Error(err))
 		return nil, err

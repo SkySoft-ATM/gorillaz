@@ -7,6 +7,36 @@ import (
 	"time"
 )
 
+func TestStreamLazy(t *testing.T){
+	// start a grpc endpoint
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Errorf("cannot start a TCP listener, %v", err)
+		return
+	}
+	go manager.server.Serve(l)
+
+	provider, err := NewProvider("stream", func(conf *ProviderConfig){
+		conf.LazyBroadcast=true
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	// as this is a lazy provider, it should wait for a first consumer to send events
+	provider.Submit(&Event{Value:[]byte("value1")})
+	provider.Submit(&Event{Value:[]byte("value2")})
+
+	consumer, err := NewConsumer("stream", []string{l.Addr().String()})
+	if err != nil {
+		t.Errorf("cannot start consumer, %+v", err)
+		return
+	}
+	assertReceived(t, "stream", consumer.EvtChan, &Event{Value:[]byte("value1")})
+	assertReceived(t, "stream", consumer.EvtChan, &Event{Value:[]byte("value2")})
+}
+
 func TestStreamEvents(t *testing.T) {
 	// start
 	l, err := net.Listen("tcp", ":0")
