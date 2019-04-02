@@ -22,6 +22,7 @@ type ConsumerConfig struct {
 	BufferLen         int                                     // BufferLen is the size of the channel of the consumer
 	onConnectionRetry func(streamName string, retryNb uint64) // onConnectionRetry is called before trying to reconnect to a stream provider
 	onConnected       func(streamName string)
+	onDisconnected    func(streamName string)
 }
 
 type Consumer struct {
@@ -158,6 +159,9 @@ connect:
 		if err != nil {
 			conGauge.Set(0)
 			gaz.Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
+			if c.config.onDisconnected != nil {
+				c.config.onDisconnected(c.StreamName)
+			}
 			goto connect
 		}
 		gaz.Log.Debug("event received", zap.String("stream", c.StreamName))
