@@ -53,7 +53,7 @@ func main() {
 
 	var ch chan *stream.Event
 	for {
-		ch, err = stream.NewConsumer(streamName, strings.Split(endpoints, ",")...)
+		ch, err = stream.NewConsumer(streamName, strings.Split(endpoints, ","))
 		if err == nil {
 			break
 		}

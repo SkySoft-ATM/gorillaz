@@ -18,7 +18,19 @@ import (
 
 var mu sync.RWMutex
 
-func NewConsumer(streamName string, endpoints ...string) (chan *Event, error) {
+type ConsumerConfig struct{
+	BufferLen int // BufferLen is the size of the channel of the consumer
+}
+
+func defaultConsumerConfig() *ConsumerConfig {
+	return &ConsumerConfig{
+		BufferLen: 256,
+	}
+}
+
+type ConsumerConfigOpt func(*ConsumerConfig)
+
+func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOpt) (chan *Event, error) {
 	// TODO: hacky hack to create a resolver to use with round robin
 	mu.Lock()
 	r, _ := manual.GenerateAndRegisterManualResolver()
@@ -31,7 +43,12 @@ func NewConsumer(streamName string, endpoints ...string) (chan *Event, error) {
 	r.InitialAddrs(addresses)
 	target := r.Scheme() + ":///fake"
 
-	ch := make(chan *Event, 256)
+	config := defaultConsumerConfig()
+	for _, opt := range opts{
+		opt(config)
+	}
+
+	ch := make(chan *Event, config.BufferLen)
 	go func() {
 		run(streamName, target, endpoints, ch)
 	}()
