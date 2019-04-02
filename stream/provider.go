@@ -27,13 +27,14 @@ func init() {
 // Run starts the stream GRPC endpoint on the given port.
 func Run(port int) error {
 	gaz.Log.Info("listening on port", zap.Int("port", port))
-	list, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}
-	go manager.server.Serve(list)
+	go manager.server.Serve(l)
 	return nil
 }
+
 
 type Provider struct {
 	streamName          string
