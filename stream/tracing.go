@@ -31,11 +31,10 @@ func metadataToContext(metadata *Metadata) context.Context {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, timestampKey, metadata.StreamTimestamp)
 	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
-	if err != nil {
+	if err != nil || wireContext == nil {
 		return ctx
 	}
 	// Create the span referring to the RPC client if available.
-	// If wireContext == nil, a root span will be created.
 	serverSpan := opentracing.StartSpan("gorillaz.stream.consumer", ext.RPCServerOption(wireContext))
 	serverSpan.Finish()
 	ctx = opentracing.ContextWithSpan(ctx, serverSpan)
