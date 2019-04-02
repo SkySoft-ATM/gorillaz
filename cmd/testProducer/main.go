@@ -51,7 +51,11 @@ func main() {
 		http.ListenAndServe(":6060", nil)
 	}()
 
-	p, err := stream.NewProvider(streamName)
+	opt := func(config *stream.ProviderConfig){
+		config.SubscriberInputBufferLen = 1024
+	}
+
+	p, err := stream.NewProvider(streamName, opt)
 	if err != nil {
 		panic(err)
 	}
@@ -62,9 +66,7 @@ func main() {
 	}
 
 	var message int64
-	tick := time.Tick(time.Nanosecond * 5)
 	for {
-		<-tick
 		ctx := context.Background()
 		sp, ctx := opentracing.StartSpanFromContext(ctx, "sending_message")
 		sp.LogFields(log.Int64("message", message))
@@ -77,6 +79,7 @@ func main() {
 		sp.Finish()
 		p.Submit(event)
 		message++
+		time.Sleep(time.Nanosecond*100)
 	}
 
 	p.Close()

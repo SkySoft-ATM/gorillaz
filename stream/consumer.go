@@ -20,15 +20,15 @@ var mu sync.RWMutex
 
 type ConsumerConfig struct {
 	BufferLen           int                                     // BufferLen is the size of the channel of the consumer
-	OnConnectionAttempt func(streamName string, attempt uint64) // OnConnectionAttempt is called before trying to connect to a stream provider
+	onConnectionRetry func(streamName string, retryNb uint64) // onConnectionRetry is called before trying to reconnect to a stream provider
 }
 
 func defaultConsumerConfig() *ConsumerConfig {
 	return &ConsumerConfig{
 		BufferLen: 256,
-		OnConnectionAttempt: func(streamName string, attempt uint64) {
+		onConnectionRetry: func(streamName string, retryNb uint64) {
 			wait := time.Second * 0
-			switch attempt {
+			switch retryNb {
 			case 0:
 				// just try to connect directly on the first attempt
 				break
@@ -45,7 +45,7 @@ func defaultConsumerConfig() *ConsumerConfig {
 				gaz.Log.Info("waiting before making another connection attempt", zap.String("streamName", streamName), zap.Int("wait_sec", int(wait.Seconds())))
 				time.Sleep(wait)
 			}
-			gaz.Log.Info("connection attempt to stream", zap.String("stream", streamName))
+			gaz.Log.Info("trying to connect to stream", zap.String("stream", streamName), zap.Uint64("retry_nb", retryNb))
 		},
 	}
 }
@@ -117,22 +117,21 @@ func run(streamName string, target string, endpoints []string, ch chan *Event, c
 
 	var streamClient Stream_StreamClient
 	var err error
-	var connAttempt uint64
+	var connRetry uint64
 connect:
 	conGauge.Set(0)
 	for {
 		conCounter.Inc()
-		config.OnConnectionAttempt(streamName, connAttempt)
-
 		streamClient, err = initConn(target, streamName)
 		if err == nil {
-			connAttempt = 0
+			connRetry = 0
 			conGauge.Set(1)
 			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", streamName))
 			break
 		} else {
-			connAttempt++
 			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", streamName), zap.Error(err))
+			config.onConnectionRetry(streamName, connRetry)
+			connRetry++
 		}
 	}
 	for {
