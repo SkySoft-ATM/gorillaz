@@ -40,28 +40,3 @@ func TestTracingSerialization(t *testing.T) {
 		t.FailNow()
 	}
 }
-
-func TestNoTracing(t *testing.T) {
-	tracer := mocktracer.New()
-	opentracing.SetGlobalTracer(tracer)
-
-	// a nil context should be serialized
-	metadata := contextToMetadata(nil)
-	ctx := metadataToContext(metadata)
-
-	span := opentracing.SpanFromContext(ctx)
-	if span != nil {
-		t.Errorf("span should be nil")
-		t.FailNow()
-	}
-
-	// an empty context should be serializable
-	metadata = contextToMetadata(context.Background())
-	ctx = metadataToContext(metadata)
-
-	span = opentracing.SpanFromContext(ctx)
-	if span != nil {
-		t.Errorf("span should be nil")
-		t.FailNow()
-	}
-}

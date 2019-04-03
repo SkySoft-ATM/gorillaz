@@ -3,7 +3,6 @@ package stream
 import (
 	"context"
 	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/ext"
 	gaz "github.com/skysoft-atm/gorillaz"
 	"go.uber.org/zap"
 	"time"
@@ -28,16 +27,20 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 }
 
 func metadataToContext(metadata *Metadata) context.Context {
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, timestampKey, metadata.StreamTimestamp)
+	ctx := context.WithValue(context.Background(), timestampKey, metadata.StreamTimestamp)
 	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
+	op := "gorillaz.stream.received"
+	var span opentracing.Span
+
+	// if no span is available, create a brand new one
+	// otherwise, create a span with received span as parent
 	if err != nil || wireContext == nil {
-		return ctx
+		span = opentracing.StartSpan(op)
+	} else {
+		span = opentracing.StartSpan(op, opentracing.ChildOf(wireContext))
 	}
-	// Create the span referring to the RPC client if available.
-	serverSpan := opentracing.StartSpan("gorillaz.stream.consumer", ext.RPCServerOption(wireContext))
-	serverSpan.Finish()
-	ctx = opentracing.ContextWithSpan(ctx, serverSpan)
+	span.Finish()
+	ctx = opentracing.ContextWithSpan(ctx, span)
 	return ctx
 }
 
@@ -47,15 +50,16 @@ func contextToMetadata(ctx context.Context) *Metadata {
 		StreamTimestamp: time.Now().UnixNano(),
 		KeyValue:        make(map[string]string),
 	}
+	var sp opentracing.Span
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sp, ctx = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
+	sp.Finish()
 
-	if ctx != nil {
-		sp := opentracing.SpanFromContext(ctx)
-		if sp != nil {
-			err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
-			if err != nil {
-				gaz.Log.Error("cannot serialize tracing headers into the event", zap.Error(err))
-			}
-		}
+	err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
+	if err != nil {
+		gaz.Log.Error("cannot serialize tracing headers into the event", zap.Error(err))
 	}
 	return metadata
 }

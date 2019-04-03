@@ -2,11 +2,9 @@ package gorillaz
 
 import (
 	"fmt"
-	"net/http"
-	"strings"
-
 	"github.com/gorilla/mux"
 	"github.com/spf13/viper"
+	"net/http"
 )
 
 var initialized = false
@@ -34,11 +32,7 @@ func New(context map[string]interface{}) *Gaz {
 	}
 
 	if viper.GetBool("tracing.enabled") {
-		gaz.InitTracing(
-			KafkaTracingConfig{
-				BootstrapServers: strings.Split(viper.GetString("kafka.bootstrapservers"), ","),
-				TracingName:      viper.GetString("tracing.service.name"),
-			})
+		gaz.InitTracingFromConfig()
 	}
 
 	return &gaz

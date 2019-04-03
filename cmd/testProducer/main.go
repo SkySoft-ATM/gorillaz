@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/log"
-	zipkin "github.com/openzipkin-contrib/zipkin-go-opentracing"
+	"github.com/skysoft-atm/gorillaz"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 	"time"
 )
 import "github.com/skysoft-atm/gorillaz/stream"
@@ -23,29 +21,8 @@ func main() {
 	flag.IntVar(&port, "port", 0, "tcp port to listen to")
 	flag.Parse()
 
-	// create collector.
-	collector, err := zipkin.NewHTTPCollector("http://fakeurl.skysoft-atm.com")
-	if err != nil {
-		fmt.Printf("unable to create Zipkin HTTP collector: %+v\n", err)
-		os.Exit(-1)
-	}
-
-	// create recorder.
-	recorder := zipkin.NewRecorder(collector, true, "127.0.0.1:61001", "testProducer")
-
-	// create tracer.
-	tracer, err := zipkin.NewTracer(
-		recorder,
-		zipkin.ClientServerSameSpan(true),
-		zipkin.TraceID128Bit(true),
-	)
-	if err != nil {
-		fmt.Printf("unable to create Zipkin tracer: %+v\n", err)
-		os.Exit(-1)
-	}
-
-	// explicitly set our tracer to be the default tracer.
-	opentracing.InitGlobalTracer(tracer)
+	g := gorillaz.New(nil)
+	g.Run()
 
 	go func() {
 		http.ListenAndServe(":6060", nil)
@@ -67,19 +44,18 @@ func main() {
 
 	var message int64
 	for {
-		ctx := context.Background()
-		sp, ctx := opentracing.StartSpanFromContext(ctx, "sending_message")
+		sp, _ := opentracing.StartSpanFromContext(context.Background(), "sending_message")
 		sp.LogFields(log.Int64("message", message))
 
 		v := []byte("something wonderful")
 		event := &stream.Event{
 			Value: v,
-			Ctx:   ctx,
+			//	Ctx:   ctx,
 		}
-		sp.Finish()
 		p.Submit(event)
+		sp.Finish()
 		message++
-		time.Sleep(time.Nanosecond * 100)
+		time.Sleep(time.Nanosecond * 10000)
 	}
 
 	p.Close()

@@ -50,7 +50,7 @@ type ProviderConfig struct {
 	InputBufferLen           int                     // InputBufferLen is the size of the input channel (default: 256)
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
-	LazyBroadcast            bool // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
+	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
 }
 
 func defaultProviderConfig() *ProviderConfig {

@@ -1,7 +1,6 @@
 package gorillaz
 
 import (
-	"fmt"
 	"github.com/spf13/viper"
 	"log"
 	"strings"
@@ -19,45 +18,74 @@ type kafkaMessageWrapper struct {
 	headers []sarama.RecordHeader
 }
 
-type KafkaTracingConfig struct {
-	BootstrapServers []string
-	TracingName      string
+type TracingConfig struct {
+	collectorUrl          string
+	kafkaBootstrapServers []string
+	tracingName           string
 }
 
-// InitTracing initializes Kafka connection to feed Zipkin
+// InitTracingFromConfig initializes either a kafka connection to push data to Zipkin, or an HTTP connection to a Zipkin Collector
 // You should have provided the following configurations, either in the config file or with flags:
-// kafka.bootstrapservers
+// zipkin.collector.url or kafka.bootstrapservers
 // tracing.service.name
 func (g *Gaz) InitTracingFromConfig() {
-	bootstrapServers := viper.GetStringSlice("kafka.bootstrapservers")
-	tracingName := strings.TrimSpace(viper.GetString("tracing.service.name"))
-	if len(bootstrapServers) == 0 {
-		panic(fmt.Errorf("Configuration 'kafka.bootstrapservers' not provided"))
-	}
-	if len(tracingName) == 0 {
-		panic(fmt.Errorf("Configuration 'tracing.service.name' not provided"))
-	}
-	g.InitTracing(KafkaTracingConfig{bootstrapServers, tracingName})
+	var bootstrapServers []string
+	var collectorUrl string
 
+	if viper.IsSet("tracing.collector.url") {
+		collectorUrl = viper.GetString("tracing.collector.url")
+	} else if viper.IsSet("kafka.bootstrapservers") {
+		bootstrapServers = viper.GetStringSlice("kafka.bootstrapservers")
+	}
+
+	tracingName := strings.TrimSpace(viper.GetString("tracing.service.name"))
+
+	g.InitTracing(
+		TracingConfig{
+			collectorUrl:          collectorUrl,
+			kafkaBootstrapServers: bootstrapServers,
+			tracingName:           tracingName,
+		})
 }
 
 // InitTracing initializes Kafka connection to feed Zipkin
-func (g *Gaz) InitTracing(conf KafkaTracingConfig) {
+func (g *Gaz) InitTracing(conf TracingConfig) {
 
-	collector, err := zipkintracer.NewKafkaCollector(conf.BootstrapServers,
-		zipkintracer.KafkaTopic("tracing"))
-	Sugar.Infof("Initializing tracing with kafka bootstrap servers '%v' and tracing name '%s'", conf.BootstrapServers, conf.TracingName)
-	if err != nil {
-		log.Fatalf("Unable to start Zipkin collector on server %v: %s", conf.BootstrapServers, err)
-		panic(err)
+	if conf.collectorUrl == "" && len(conf.kafkaBootstrapServers) == 0 {
+		panic("zipkin TracingConfig is invalid, neither collectorUrl nor kafkaBootstrapServers is set")
 	}
 
-	recorder := zipkintracer.NewRecorder(collector, false, "", conf.TracingName)
-	tracer, err = zipkintracer.NewTracer(recorder)
+	var collector zipkintracer.Collector
+	var err error
+
+	// TODO: should we crash the service at start time if the Zipkin collector is not available?
+	if conf.collectorUrl != "" {
+		Log.Info("connecting to Zipkin collector", zap.String("url", conf.collectorUrl), zap.String("tracing name", conf.tracingName))
+		collector, err = zipkintracer.NewHTTPCollector(conf.collectorUrl)
+		if err != nil {
+			log.Fatal("cannot start connection to Zipkin collector endpoint", zap.Error(err))
+			panic(err)
+		}
+	} else {
+		collector, err = zipkintracer.NewKafkaCollector(conf.kafkaBootstrapServers, zipkintracer.KafkaTopic("tracing"))
+		Sugar.Infof("Initializing tracing with kafka bootstrap servers '%v' and tracing name '%s'", conf.kafkaBootstrapServers, conf.tracingName)
+		if err != nil {
+			log.Fatalf("Unable to start Zipkin collector on server %v: %s", conf.kafkaBootstrapServers, err)
+			panic(err)
+		}
+	}
+
+	recorder := zipkintracer.NewRecorder(collector, false, "", conf.tracingName)
+	tracer, err = zipkintracer.NewTracer(
+		recorder,
+		zipkintracer.ClientServerSameSpan(true),
+		zipkintracer.TraceID128Bit(true),
+		)
 	if err != nil {
 		log.Fatalf("Unable to start Zipkin tracer: %s", err)
 		panic(err)
 	}
+	opentracing.SetGlobalTracer(tracer)
 }
 
 // Set takes a key/value string pair and fills Kafka message headers
