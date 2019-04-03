@@ -115,7 +115,7 @@ func (c *Consumer) run() {
 
 	conGauge := promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "stream_consumer_connected",
-		Help: "Set to 1 if connected, otherwise 0",
+		Help: "1 if connected, otherwise 0",
 		ConstLabels: prometheus.Labels{
 			"stream":    c.StreamName,
 			"endpoints": strings.Join(c.endpoints, ","),
@@ -124,7 +124,27 @@ func (c *Consumer) run() {
 
 	delaySummary := promauto.NewSummary(prometheus.SummaryOpts{
 		Name:       "stream_consumer_delay_ms",
-		Help:       "The distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
+		Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		ConstLabels: prometheus.Labels{
+			"stream":    c.StreamName,
+			"endpoints": strings.Join(c.endpoints, ","),
+		},
+	})
+
+	originDelaySummary := promauto.NewSummary(prometheus.SummaryOpts{
+		Name:       "stream_consumer_origin_delay_ms",
+		Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		ConstLabels: prometheus.Labels{
+			"stream":    c.StreamName,
+			"endpoints": strings.Join(c.endpoints, ","),
+		},
+	})
+
+	eventDelaySummary := promauto.NewSummary(prometheus.SummaryOpts{
+		Name:       "stream_consumer_event_delay_ms",
+		Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		ConstLabels: prometheus.Labels{
 			"stream":    c.StreamName,
@@ -171,11 +191,21 @@ connect:
 			Value: streamEvt.Value,
 			Ctx:   metadataToContext(streamEvt.Metadata),
 		}
-		streamTimestamp := StreamTimestamp(evt)
+
+		nowMs:= float64(time.Now().UnixNano())/1000000.0
+
+		streamTimestamp := streamEvt.Metadata.StreamTimestamp
 		if streamTimestamp > 0 {
-			receptTime := time.Now()
 			// convert from ns to ms
-			delaySummary.Observe(math.Max(0, float64(receptTime.UnixNano())/1000000.0-float64(streamTimestamp)/1000000.0))
+			delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
+		}
+		eventTimestamp := streamEvt.Metadata.EventTimestamp
+		if eventTimestamp > 0{
+			eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
+		}
+		originTimestamp := streamEvt.Metadata.OriginStreamTimestamp
+		if originTimestamp > 0 {
+			originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
 		}
 		c.EvtChan <- evt
 	}

@@ -27,11 +27,13 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 }
 
 func metadataToContext(metadata *Metadata) context.Context {
-	ctx := context.WithValue(context.Background(), timestampKey, metadata.StreamTimestamp)
+	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
+	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
+	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
 	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
 	op := "gorillaz.stream.received"
 	var span opentracing.Span
-
+	
 	// if no span is available, create a brand new one
 	// otherwise, create a span with received span as parent
 	if err != nil || wireContext == nil {
@@ -46,10 +48,29 @@ func metadataToContext(metadata *Metadata) context.Context {
 
 // contextToMetadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
 func contextToMetadata(ctx context.Context) *Metadata {
-	metadata := &Metadata{
-		StreamTimestamp: time.Now().UnixNano(),
-		KeyValue:        make(map[string]string),
+	streamTs := time.Now().UnixNano()
+	var eventTs int64
+	var originStreamTs int64
+	if ctx != nil {
+		if ts := ctx.Value(eventTimeNs); ts != nil {
+			eventTs = ts.(int64)
+		}
+		if ts := ctx.Value(originStreamTimestampNs); ts != nil {
+			originStreamTs = ts.(int64)
+		}
 	}
+
+	if originStreamTs == 0 {
+		originStreamTs = streamTs
+	}
+
+	metadata := &Metadata{
+		EventTimestamp:        eventTs,
+		OriginStreamTimestamp: originStreamTs,
+		StreamTimestamp:       streamTs,
+		KeyValue:              make(map[string]string),
+	}
+
 	var sp opentracing.Span
 	if ctx == nil {
 		ctx = context.Background()

@@ -16,6 +16,8 @@ message StreamEvent {
 }
 
 message Metadata {
-    int64               StreamTimestamp = 1;
-    map<string, string> keyValue = 2;
+    int64               EventTimestamp = 1;
+    int64               OriginStreamTimestamp = 2;
+    int64               StreamTimestamp = 3;
+    map<string, string> keyValue = 4;
 }
