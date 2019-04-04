@@ -210,6 +210,9 @@ connect:
 
 		if err == nil {
 			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
+			if c.config.onConnected != nil {
+				c.config.onConnected(c.StreamName)
+			}
 			break
 		} else {
 			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", c.StreamName), zap.Error(err))
@@ -235,9 +238,6 @@ connect:
 			firstEvent = false
 			connAttempt = 0
 			conGauge.Set(1)
-			if c.config.onConnected != nil {
-				c.config.onConnected(c.StreamName)
-			}
 		}
 
 		gaz.Log.Debug("event received", zap.String("stream", c.StreamName))
