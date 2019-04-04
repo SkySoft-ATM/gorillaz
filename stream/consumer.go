@@ -20,7 +20,6 @@ import (
 var mu sync.RWMutex
 var authority string
 
-
 type ConsumerConfig struct {
 	BufferLen         int                                     // BufferLen is the size of the channel of the consumer
 	onConnectionRetry func(streamName string, retryNb uint64) // onConnectionRetry is called before trying to reconnect to a stream provider
@@ -39,14 +38,14 @@ type Consumer struct {
 func defaultConsumerConfig() *ConsumerConfig {
 	return &ConsumerConfig{
 		BufferLen: 256,
-		onConnectionRetry: func(streamName string, retryNb uint64) {
+		onConnectionRetry: func(streamName string, attemptNb uint64) {
 			wait := time.Second * 0
-			switch retryNb {
+			switch attemptNb {
 			case 0:
 				// just try to connect directly on the first attempt
 				break
 			case 1:
-				wait = time.Second
+				wait = time.Second * 1
 			case 2:
 				wait = time.Second * 2
 			case 3:
@@ -58,7 +57,6 @@ func defaultConsumerConfig() *ConsumerConfig {
 				gaz.Log.Info("waiting before making another connection attempt", zap.String("streamName", streamName), zap.Int("wait_sec", int(wait.Seconds())))
 				time.Sleep(wait)
 			}
-			gaz.Log.Info("trying to connect to stream", zap.String("stream", streamName), zap.Uint64("retry_nb", retryNb))
 		},
 	}
 }
@@ -71,7 +69,6 @@ const (
 	DNSEndpoint = EndpointType(iota)
 	IPEndpoint
 )
-
 
 func NewConsumer(streamName string, endpointType EndpointType, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
 	// TODO: hacky hack to create a resolver to use with round robin
@@ -106,12 +103,11 @@ func NewConsumer(streamName string, endpointType EndpointType, endpoints []strin
 }
 
 // SetDNSAddr be used to define the DNS server to use for DNS endpoint type, in format "IP:PORT"
-func SetDNSAddr(addr string){
+func SetDNSAddr(addr string) {
 	mu.Lock()
 	defer mu.Unlock()
 	authority = addr
 }
-
 
 func grpcTarget(endpointType EndpointType, endpoints []string) string {
 	switch endpointType {
@@ -129,9 +125,9 @@ func grpcTarget(endpointType EndpointType, endpoints []string) string {
 		return r.Scheme() + ":///stream"
 	case DNSEndpoint:
 		if len(endpoints) != 1 {
-			panic("DNS Grpc endpointType expect only 1 endpoint address, but got "+strconv.Itoa(len(endpoints)))
+			panic("DNS Grpc endpointType expect only 1 endpoint address, but got " + strconv.Itoa(len(endpoints)))
 		}
-		return "dns://"+authority+"/"+endpoints[0]
+		return "dns://" + authority + "/" + endpoints[0]
 	default:
 		panic("unknown Grpc EndpointType " + strconv.Itoa(int(endpointType)))
 	}
@@ -198,36 +194,53 @@ func (c *Consumer) run() {
 
 	var streamClient Stream_StreamClient
 	var err error
-	var connRetry uint64
+	var connAttempt uint64
+
 connect:
-	conGauge.Set(0)
 	for {
-		conCounter.Inc()
+		// if it's not the first connection attempt, call onConnectionRetry
+		if connAttempt != 0{
+			c.config.onConnectionRetry(c.StreamName, connAttempt)
+		}
+		conGauge.Set(0)
+		gaz.Log.Info("trying to connect to stream", zap.String("stream", c.StreamName), zap.Uint64("attempt_number", connAttempt))
 		streamClient, err = c.initConn()
+		connAttempt++
+		conCounter.Inc()
+
 		if err == nil {
-			connRetry = 0
-			conGauge.Set(1)
 			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
 			break
 		} else {
 			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", c.StreamName), zap.Error(err))
-			c.config.onConnectionRetry(c.StreamName, connRetry)
-			connRetry++
 		}
 	}
-	if c.config.onConnected != nil {
-		c.config.onConnected(c.StreamName)
-	}
+
+	// at this point, the GRPC connection is established with the server
+
+	firstEvent := true
 	for {
 		streamEvt, err := streamClient.Recv()
 		if err != nil {
-			conGauge.Set(0)
 			gaz.Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
-			if c.config.onDisconnected != nil {
+			if !firstEvent && c.config.onDisconnected != nil {
 				c.config.onDisconnected(c.StreamName)
 			}
 			goto connect
 		}
+
+		// if first event received successfully, set the status to connected.
+		// we need to do it here because setting up a GRPC connection is not enough, the server can still return us an error
+		if firstEvent {
+			firstEvent = false
+			connAttempt = 0
+			conGauge.Set(1)
+			if c.config.onConnected != nil {
+				c.config.onConnected(c.StreamName)
+			}
+		}
+
+
 		gaz.Log.Debug("event received", zap.String("stream", c.StreamName))
 		receivedCounter.Inc()
 		evt := &Event{
@@ -236,7 +249,7 @@ connect:
 			Ctx:   metadataToContext(streamEvt.Metadata),
 		}
 
-		nowMs:= float64(time.Now().UnixNano())/1000000.0
+		nowMs := float64(time.Now().UnixNano()) / 1000000.0
 
 		streamTimestamp := streamEvt.Metadata.StreamTimestamp
 		if streamTimestamp > 0 {
@@ -244,7 +257,7 @@ connect:
 			delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
 		}
 		eventTimestamp := streamEvt.Metadata.EventTimestamp
-		if eventTimestamp > 0{
+		if eventTimestamp > 0 {
 			eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
 		}
 		originTimestamp := streamEvt.Metadata.OriginStreamTimestamp

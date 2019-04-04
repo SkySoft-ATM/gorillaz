@@ -44,7 +44,7 @@ func OriginStreamTimestamp(e *Event) int64 {
 
 // SetEventTimestamp stores in the event the timestamp of when the event happened (as opposite as when it was streamed).
 // use this function to store values such as when an observation was recorded
-func SetEventTimestamp(evt *Event, t time.Time){
+func SetEventTimestamp(evt *Event, t time.Time) {
 	if evt.Ctx == nil {
 		evt.Ctx = context.Background()
 	}

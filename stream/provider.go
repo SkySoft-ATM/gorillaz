@@ -164,6 +164,7 @@ func (manager *subscriptionManager) Stream(req *StreamRequest, stream Stream_Str
 	provider, ok := manager.providers[req.Name]
 	manager.RUnlock()
 	if !ok {
+		gaz.Log.Error("unknown stream %s", zap.String("stream", streamName))
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
 	provider.clientCounter.Inc()

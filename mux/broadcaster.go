@@ -14,6 +14,7 @@ import (
 )
 
 type Broadcaster struct {
+	closeReq  chan chan bool
 	input   chan interface{}
 	reg     chan registration
 	unreg   chan unregistration
@@ -44,7 +45,9 @@ func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 
 // Shut this StateBroadcaster down.
 func (b *Broadcaster) Close() error {
-	close(b.reg)
+	closed := make(chan bool)
+	b.closeReq <- closed
+	<-closed
 	return nil
 }
 
@@ -91,38 +94,51 @@ func (b *Broadcaster) broadcast(m interface{}) {
 // onBackPressureState can be nil
 func (b *Broadcaster) run() {
 	subscriberCount := 0
-	for {
-		if b.eagerBroadcast == false {
-			// wait for first consumer
-			r, ok := <-b.reg
-			if ok {
-				subscriberCount = b.addSubscriber(r, subscriberCount)
-			} else {
-				// close all output channel to notify them that the broadcaster is closed
-				for output := range b.outputs {
-					close(output)
-				}
-			}
-		}
-		for b.eagerBroadcast == true || subscriberCount != 0 {
-			select {
-			case r, ok := <-b.reg:
-				if ok {
-					subscriberCount = b.addSubscriber(r, subscriberCount)
-				} else {
-					return
-				}
-			case u := <-b.unreg:
-				delete(b.outputs, u.channel)
-				subscriberCount--
-				u.done <- true
-			case m := <-b.input:
-				b.broadcast(m)
 
+waitForSub:
+	// if lazy, wait for the first registration before doing anything
+	if !b.eagerBroadcast {
+		select {
+		case r := <-b.reg:
+			subscriberCount = b.addSubscriber(r, subscriberCount)
+		case closed := <-b.closeReq:
+			closed <- true
+			return
+		}
+	}
+
+	for {
+		select {
+		case closed := <-b.closeReq:
+			close(b.input)
+			// if there are still messages to broadcast, do it
+			for m := range b.input {
+				b.broadcast(m)
 			}
+			// close all subscribers
+			for sub := range b.outputs{
+				close(sub)
+			}
+			closed<-true
+			return
+
+		case r := <-b.reg:
+			subscriberCount = b.addSubscriber(r, subscriberCount)
+		case u := <-b.unreg:
+			delete(b.outputs, u.channel)
+			subscriberCount--
+			u.done <- true
+
+			// if lazy, if there is no more subscriber, block until there is at least 1 subscriber
+			if !b.eagerBroadcast && subscriberCount == 0 {
+				goto waitForSub
+			}
+		case m := <-b.input:
+			b.broadcast(m)
 		}
 	}
 }
+
 
 func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
 	b.outputs[r.consumer.channel] = r.consumer.config
@@ -134,6 +150,7 @@ func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
 func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*Broadcaster, error) {
 	b := &Broadcaster{
+		closeReq: make(chan chan bool),
 		input:             make(chan interface{}, bufLen),
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),

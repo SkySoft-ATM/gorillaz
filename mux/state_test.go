@@ -10,17 +10,17 @@ import (
 const blockingConsumerName = "blocking"
 
 // this function will consume the given amount of messages and block
-func consumeAndBlockState(amountToConsume int, channel <-chan interface{}) {
-	go func(c <-chan interface{}) {
+func consumeAndBlockState(t *testing.T, amountToConsume int, channel <-chan interface{}, blocking chan bool) {
+	go func() {
 		for i := 0; i < amountToConsume; i++ {
-			<-c
+			<-channel
 		}
 		fmt.Println("consumeAndBlock is now blocking")
-		time.Sleep(30000 * time.Second)
-	}(channel)
+		blocking <- true
+	}()
 }
 
-func consumeState(channel <-chan interface{}, numberOfMessages int, finished chan<- bool) {
+func consumeState(t *testing.T, channel <-chan interface{}, numberOfMessages int, finished chan bool) {
 	go func(c <-chan interface{}) {
 		i := 0
 		for {
@@ -39,9 +39,9 @@ var keyExtractor = func(f interface{}) interface{} {
 
 func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	const numberOfStateMessagesSent = 20
-	var blockingClientChan = make(chan string, numberOfStateMessagesSent+1)
-	var nonBlockingClientChan = make(chan string, numberOfStateMessagesSent+1)
-	var finished = make(chan bool, 1)
+	var blockingClientChan = make(chan string, numberOfStateMessagesSent)
+	var nonBlockingClientChan = make(chan string, numberOfStateMessagesSent)
+	var finished = make(chan bool, 2)
 
 	b, err := NewNonBlockingStateBroadcaster(50, 0)
 
@@ -50,18 +50,19 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	}
 
 	blockingChan := make(chan interface{}, 10)
-	consumeAndBlockState(5, blockingChan)
+	consumeAndBlockState(t, 5, blockingChan, finished)
 
-	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent+1)
-	consumeState(nonBlockingChan, numberOfStateMessagesSent, finished)
+	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent)
+	consumeState(t, nonBlockingChan, numberOfStateMessagesSent, finished)
 
 	b.Register(blockingChan, backpressureOptionForConsumer(blockingConsumerName, blockingClientChan))
 	b.Register(nonBlockingChan, backpressureOptionForConsumer("non-blocking", nonBlockingClientChan))
-	fmt.Println("submitting messages")
+
 	for i := 0; i < numberOfStateMessagesSent; i++ {
 		b.Submit("key", fmt.Sprintf("value %d", i))
 	}
-	fmt.Println("wait until the non blocking consumer consumes everything ")
+
+	<-finished
 	<-finished
 	close(blockingClientChan)
 

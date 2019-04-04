@@ -80,7 +80,7 @@ func (g *Gaz) InitTracing(conf TracingConfig) {
 		recorder,
 		zipkintracer.ClientServerSameSpan(true),
 		zipkintracer.TraceID128Bit(true),
-		)
+	)
 	if err != nil {
 		log.Fatalf("Unable to start Zipkin tracer: %s", err)
 		panic(err)
