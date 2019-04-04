@@ -40,7 +40,7 @@ func main() {
 	var i int64
 
 	var start time.Time
-	for i = 0; i < 10000000000; i++ {
+	for i = 0; i < 10000; i++ {
 		if i == 0 {
 			start = time.Now()
 		}

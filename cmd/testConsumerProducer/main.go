@@ -36,7 +36,11 @@ func main() {
 		panic(err)
 	}
 
-	consumer, err := stream.NewConsumer(streamName, stream.IPEndpoint, strings.Split(endpoints, ","))
+	opt := func(config *stream.ConsumerConfig) {
+		config.UseGzip = true
+	}
+
+	consumer, err := stream.NewConsumer(streamName, stream.IPEndpoint, strings.Split(endpoints, ","), opt)
 	if err != nil {
 		panic(err)
 	}

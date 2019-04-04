@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer/roundrobin"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"math"
@@ -25,6 +26,7 @@ type ConsumerConfig struct {
 	onConnectionRetry func(streamName string, retryNb uint64) // onConnectionRetry is called before trying to reconnect to a stream provider
 	onConnected       func(streamName string)
 	onDisconnected    func(streamName string)
+	UseGzip           bool
 }
 
 type Consumer struct {
@@ -270,13 +272,17 @@ connect:
 func (c *Consumer) initConn() (Stream_StreamClient, error) {
 	mu.RLock()
 	//TODO : make grpc.WithInsecure an option
-	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name))
+	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure())
 	mu.RUnlock()
 	if err != nil {
 		return nil, err
 	}
 	client := NewStreamClient(conn)
 	req := &StreamRequest{Name: c.StreamName}
-	// TODO: do we want to pass a context here?
-	return client.Stream(context.Background(), req)
+
+	var callOpts []grpc.CallOption
+	if c.config.UseGzip {
+		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
+	}
+	return client.Stream(context.Background(), req, callOpts...)
 }
