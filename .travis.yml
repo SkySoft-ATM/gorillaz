@@ -1,16 +1,18 @@
 language: go
 sudo: required
 go:
-  - 1.10.x
+  - 1.12.x
 go_import_path: github.com/skysoft-atm/gorillaz
 
 cache:
   directories:
     - "$HOME/google-cloud-sdk/"
 
+env:
+  - GO111MODULE=on
+
 before_install:
-  - wget -O - https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-  - dep ensure
+  - go mod download
 
 install:
   - go test ./... -race
