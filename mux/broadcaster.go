@@ -14,11 +14,11 @@ import (
 )
 
 type Broadcaster struct {
-	closeReq  chan chan bool
-	input   chan interface{}
-	reg     chan registration
-	unreg   chan unregistration
-	outputs map[chan<- interface{}]ConsumerConfig
+	closeReq chan chan bool
+	input    chan interface{}
+	reg      chan registration
+	unreg    chan unregistration
+	outputs  map[chan<- interface{}]ConsumerConfig
 	*BroadcasterConfig
 }
 
@@ -116,12 +116,11 @@ waitForSub:
 				b.broadcast(m)
 			}
 			// close all subscribers
-			for sub := range b.outputs{
+			for sub := range b.outputs {
 				close(sub)
 			}
-			closed<-true
+			closed <- true
 			return
-
 		case r := <-b.reg:
 			subscriberCount = b.addSubscriber(r, subscriberCount)
 		case u := <-b.unreg:
@@ -139,7 +138,6 @@ waitForSub:
 	}
 }
 
-
 func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
 	b.outputs[r.consumer.channel] = r.consumer.config
 	r.done <- true
@@ -150,7 +148,7 @@ func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
 func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*Broadcaster, error) {
 	b := &Broadcaster{
-		closeReq: make(chan chan bool),
+		closeReq:          make(chan chan bool),
 		input:             make(chan interface{}, bufLen),
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),

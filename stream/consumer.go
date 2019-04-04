@@ -199,7 +199,7 @@ func (c *Consumer) run() {
 connect:
 	for {
 		// if it's not the first connection attempt, call onConnectionRetry
-		if connAttempt != 0{
+		if connAttempt != 0 {
 			c.config.onConnectionRetry(c.StreamName, connAttempt)
 		}
 		conGauge.Set(0)
@@ -239,7 +239,6 @@ connect:
 				c.config.onConnected(c.StreamName)
 			}
 		}
-
 
 		gaz.Log.Debug("event received", zap.String("stream", c.StreamName))
 		receivedCounter.Inc()

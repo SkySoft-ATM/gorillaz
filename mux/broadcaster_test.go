@@ -64,11 +64,10 @@ func TestBackpressureOnConsumer(t *testing.T) {
 	slowConsumerChan := make(chan interface{})
 	go func() {
 		// only consume 5 messages and stop working to simulate slow consumption after 5 messages
-		for i:=0;i<5;i++{
+		for i := 0; i < 5; i++ {
 			<-slowConsumerChan
 		}
 	}()
-
 
 	var backPressureChan = make(chan string, 2*toSend+1)
 
