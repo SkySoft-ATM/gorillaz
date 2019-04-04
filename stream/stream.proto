@@ -16,8 +16,8 @@ message StreamEvent {
 }
 
 message Metadata {
-    int64               EventTimestamp = 1;
-    int64               OriginStreamTimestamp = 2;
-    int64               StreamTimestamp = 3;
+    int64               EventTimestamp = 1; // timestamp in ns of when the event was recorded/created
+    int64               OriginStreamTimestamp = 2;  // timestamp in ns of when the event was streamed by the first producer of the chain of streams
+    int64               StreamTimestamp = 3; // timestamp in ns of when the event was streamed by the producer
     map<string, string> keyValue = 4;
 }

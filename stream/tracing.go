@@ -33,7 +33,7 @@ func metadataToContext(metadata *Metadata) context.Context {
 	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
 	op := "gorillaz.stream.received"
 	var span opentracing.Span
-	
+
 	// if no span is available, create a brand new one
 	// otherwise, create a span with received span as parent
 	if err != nil || wireContext == nil {
