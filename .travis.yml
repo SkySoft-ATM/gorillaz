@@ -16,7 +16,7 @@ before_install:
 
 install:
   - go test ./... -race
-  - go build ./cmd/example/
+  - go build ./...
 
 notifications:
   slack: skysoft-it:0fUbWaFgKoEVS9FITjuVkKIh
