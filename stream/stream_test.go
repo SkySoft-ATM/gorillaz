@@ -28,7 +28,7 @@ func TestStreamLazy(t *testing.T) {
 	provider.Submit(&Event{Value: []byte("value1")})
 	provider.Submit(&Event{Value: []byte("value2")})
 
-	consumer, err := NewConsumer("stream", []string{l.Addr().String()})
+	consumer, err := NewConsumer("stream", IPEndpoint, []string{l.Addr().String()})
 	if err != nil {
 		t.Errorf("cannot start consumer, %+v", err)
 		return
@@ -110,7 +110,7 @@ func createConsumer(t *testing.T, streamName string, endpoint string) *Consumer 
 		}
 	}
 
-	consumer, err := NewConsumer(streamName, []string{endpoint}, opt)
+	consumer, err := NewConsumer(streamName, IPEndpoint, []string{endpoint}, opt)
 	if err != nil {
 		t.Errorf("cannot create consumer for stream %s,, %+v", streamName, err)
 		t.FailNow()

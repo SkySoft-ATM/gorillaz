@@ -30,7 +30,7 @@ func main() {
 	var worstLatency int64
 	var totalLatency int64
 
-	consumer, err := stream.NewConsumer(streamName, strings.Split(endpoints, ","))
+	consumer, err := stream.NewConsumer(streamName, stream.IPEndpoint, strings.Split(endpoints, ","))
 	if err != nil {
 		panic(err)
 	}

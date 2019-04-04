@@ -11,12 +11,15 @@ import (
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 var mu sync.RWMutex
+var authority string
+
 
 type ConsumerConfig struct {
 	BufferLen         int                                     // BufferLen is the size of the channel of the consumer
@@ -62,7 +65,15 @@ func defaultConsumerConfig() *ConsumerConfig {
 
 type ConsumerConfigOpt func(*ConsumerConfig)
 
-func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
+type EndpointType uint8
+
+const (
+	DNSEndpoint = EndpointType(iota)
+	IPEndpoint
+)
+
+
+func NewConsumer(streamName string, endpointType EndpointType, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
 	// TODO: hacky hack to create a resolver to use with round robin
 	mu.Lock()
 	r, _ := manual.GenerateAndRegisterManualResolver()
@@ -73,7 +84,7 @@ func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOp
 		addresses[i] = resolver.Address{Addr: endpoints[i]}
 	}
 	r.InitialAddrs(addresses)
-	target := r.Scheme() + ":///fake"
+	target := r.Scheme() + ":///stream"
 
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
@@ -92,6 +103,39 @@ func NewConsumer(streamName string, endpoints []string, opts ...ConsumerConfigOp
 		consumer.run()
 	}()
 	return consumer, nil
+}
+
+// SetDNSAddr be used to define the DNS server to use for DNS endpoint type, in format "IP:PORT"
+func SetDNSAddr(addr string){
+	mu.Lock()
+	defer mu.Unlock()
+	authority = addr
+}
+
+
+func grpcTarget(endpointType EndpointType, endpoints []string) string {
+	switch endpointType {
+	case IPEndpoint:
+		// TODO: hacky hack to create a resolver for list of IP addresses
+		mu.Lock()
+		r, _ := manual.GenerateAndRegisterManualResolver()
+		mu.Unlock()
+
+		addresses := make([]resolver.Address, len(endpoints))
+		for i := 0; i < len(endpoints); i++ {
+			addresses[i] = resolver.Address{Addr: endpoints[i]}
+		}
+		r.InitialAddrs(addresses)
+		return r.Scheme() + ":///stream"
+	case DNSEndpoint:
+		if len(endpoints) != 1 {
+			panic("DNS Grpc endpointType expect only 1 endpoint address, but got "+strconv.Itoa(len(endpoints)))
+		}
+		return "dns://"+authority+"/"+endpoints[0]
+	default:
+		panic("unknown Grpc EndpointType " + strconv.Itoa(int(endpointType)))
+	}
+	return ""
 }
 
 func (c *Consumer) run() {
