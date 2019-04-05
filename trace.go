@@ -152,7 +152,7 @@ func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.S
 	var carrier = opentracing.TextMapCarrier(
 		map[string]string{
 			"x-b3-traceid": traceId,
-			"x-b3-spanid":  traceId,
+			"x-b3-spanid":  "0",
 			"x-b3-sampled": "true",
 		})
 	ctx, err := tracer.Extract(opentracing.TextMap, carrier)
