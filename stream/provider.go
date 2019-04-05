@@ -67,6 +67,10 @@ func defaultProviderConfig() *ProviderConfig {
 // ProviderConfigOpt is a ProviderConfig option function to modify the ProviderConfig used by the stream Provider
 type ProviderConfigOpt func(p *ProviderConfig)
 
+var LazyBroadcast = func(p *ProviderConfig) {
+	p.LazyBroadcast = true
+}
+
 // NewProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
 func NewProvider(stremaName string, opts ...ProviderConfigOpt) (*Provider, error) {
