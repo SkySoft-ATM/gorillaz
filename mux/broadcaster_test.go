@@ -81,6 +81,7 @@ func TestBackpressureOnConsumer(t *testing.T) {
 	}
 	b.Close()
 
+	time.Sleep(time.Second)
 	close(backPressureChan)
 
 	backPressureCount := 0
