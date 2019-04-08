@@ -15,7 +15,7 @@ before_install:
   - go mod download
 
 install:
-  - go test ./... -race
+  - go test ./... -race -count=1
   - go build ./...
 
 notifications:
