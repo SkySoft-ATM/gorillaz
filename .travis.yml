@@ -1,23 +1,12 @@
-language: go
+language: generic
 sudo: required
-go:
-  - 1.12.x
-go_import_path: github.com/skysoft-atm/gorillaz
+dist: xenial
 
-cache:
-  directories:
-    - "$HOME/google-cloud-sdk/"
-
-env:
-  - GO111MODULE=on
-
-before_install:
-  - sudo apt-get update && sudo apt-get upgrade libc-bin
-  - go mod download
+services:
+- docker
 
 install:
-  - go test ./... -race
-  - go build ./...
+  - docker build .
 
 notifications:
   slack: skysoft-it:0fUbWaFgKoEVS9FITjuVkKIh
