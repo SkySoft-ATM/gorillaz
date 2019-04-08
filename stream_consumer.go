@@ -3,7 +3,6 @@ package gorillaz
 import (
 	"context"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -137,7 +136,7 @@ func grpcTarget(endpointType EndpointType, endpoints []string) string {
 }
 
 func (c *Consumer) run() {
-	receivedCounter := promauto.NewCounter(prometheus.CounterOpts{
+	receivedCounter := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "stream_consumer_received_events",
 		Help: "The total number of events received",
 		ConstLabels: prometheus.Labels{
@@ -145,8 +144,9 @@ func (c *Consumer) run() {
 			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
+	prometheus.Register(receivedCounter)
 
-	conCounter := promauto.NewCounter(prometheus.CounterOpts{
+	conCounter := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "stream_consumer_connection_attempts",
 		Help: "The total number of connections to the stream",
 		ConstLabels: prometheus.Labels{
@@ -154,8 +154,9 @@ func (c *Consumer) run() {
 			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
+	prometheus.Register(conCounter)
 
-	conGauge := promauto.NewGauge(prometheus.GaugeOpts{
+	conGauge := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "stream_consumer_connected",
 		Help: "1 if connected, otherwise 0",
 		ConstLabels: prometheus.Labels{
@@ -163,8 +164,9 @@ func (c *Consumer) run() {
 			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
+	prometheus.Register(conGauge)
 
-	delaySummary := promauto.NewSummary(prometheus.SummaryOpts{
+	delaySummary := prometheus.NewSummary(prometheus.SummaryOpts{
 		Name:       "stream_consumer_delay_ms",
 		Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -173,8 +175,9 @@ func (c *Consumer) run() {
 			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
+	prometheus.Register(delaySummary)
 
-	originDelaySummary := promauto.NewSummary(prometheus.SummaryOpts{
+	originDelaySummary := prometheus.NewSummary(prometheus.SummaryOpts{
 		Name:       "stream_consumer_origin_delay_ms",
 		Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -183,8 +186,9 @@ func (c *Consumer) run() {
 			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
+	prometheus.Register(originDelaySummary)
 
-	eventDelaySummary := promauto.NewSummary(prometheus.SummaryOpts{
+	eventDelaySummary := prometheus.NewSummary(prometheus.SummaryOpts{
 		Name:       "stream_consumer_event_delay_ms",
 		Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -193,6 +197,7 @@ func (c *Consumer) run() {
 			"endpoints": strings.Join(c.endpoints, ","),
 		},
 	})
+	prometheus.Register(eventDelaySummary)
 
 	var streamClient stream.Stream_StreamClient
 	var err error
@@ -222,10 +227,10 @@ connect:
 	}
 
 	// at this point, the GRPC connection is established with the server
-
 	firstEvent := true
 	for {
 		streamEvt, err := streamClient.Recv()
+
 		if err != nil {
 			Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
 			if !firstEvent && c.config.onDisconnected != nil {
@@ -233,6 +238,7 @@ connect:
 			}
 			goto connect
 		}
+
 
 		// if first event received successfully, set the status to connected.
 		// we need to do it here because setting up a GRPC connection is not enough, the server can still return us an error

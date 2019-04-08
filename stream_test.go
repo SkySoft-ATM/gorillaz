@@ -12,13 +12,17 @@ import (
 var g *Gaz
 
 func newGaz() (gaz *Gaz, addr string, shutdown func()) {
+	return newGazOnAddr(":0")
+}
+
+func newGazOnAddr(conAddr string) (gaz *Gaz, addr string, shutdown func()) {
 	g := &Gaz{
 		grpcServer: grpc.NewServer(),
 		streamRegistry: &streamRegistry{
 			providers: make(map[string]*StreamProvider),
 		},
 	}
-	l, err := net.Listen("tcp", ":0")
+	l, err := net.Listen("tcp", conAddr)
 	if err != nil {
 		panic(err)
 	}
@@ -97,6 +101,82 @@ func TestStreamEvents(t *testing.T) {
 	assertReceived(t, provider2Stream, consumer2.EvtChan, evt2)
 }
 
+func TestMultipleConsumers(t *testing.T){
+	g, addr, shutdown := newGaz()
+	defer shutdown()
+
+	streamName := "testaa"
+
+	provider, err := g.NewStreamProvider(streamName, func(conf *ProviderConfig) {
+		conf.LazyBroadcast = true
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	consumer1 := createConsumer(t, streamName, addr)
+	consumer2 := createConsumer(t, streamName, addr)
+	consumer3 := createConsumer(t, streamName, addr)
+
+	// give time to the consumers to be properly subscribed
+	time.Sleep(time.Second*3)
+
+	provider.Submit(&stream.Event{Value: []byte("value1")})
+	provider.Submit(&stream.Event{Value: []byte("value2")})
+
+	assertReceived(t, "stream", consumer1.EvtChan, &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer1.EvtChan, &stream.Event{Value: []byte("value2")})
+
+	assertReceived(t, "stream", consumer2.EvtChan, &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer2.EvtChan, &stream.Event{Value: []byte("value2")})
+
+	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value2")})
+}
+
+func TestProducerReconnect(t *testing.T){
+	g, addr, shutdown := newGaz()
+	defer shutdown()
+
+	streamName := "testaa"
+
+	provider, err := g.NewStreamProvider(streamName, func(conf *ProviderConfig) {
+		conf.LazyBroadcast = true
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	// as this is a lazy provider, it should wait for a first consumer to send events
+	provider.Submit(&stream.Event{Value: []byte("value1")})
+
+	consumer := createConsumer(t, streamName, addr)
+
+	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
+
+	// disconnect the provider
+	shutdown()
+
+	// wait a bit to be sure the consumer has seen it
+	time.Sleep(time.Second)
+
+	g, _, shutdown = newGazOnAddr(addr)
+	provider2, err := g.NewStreamProvider(streamName)
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	// let some time for the consumer to figure out the connection is back
+	time.Sleep(time.Second*6)
+	provider2.Submit(&stream.Event{Value: []byte("newValue")})
+
+	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("newValue")})
+}
+
+
 func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, expected *stream.Event) {
 	select {
 	case evt := <-ch:
@@ -112,11 +192,16 @@ func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, ex
 }
 
 func createConsumer(t *testing.T, streamName string, endpoint string) *Consumer {
-	connected := make(chan bool)
+	connected := make(chan bool, 1)
 
 	opt := func(config *ConsumerConfig) {
 		config.onConnected = func(string) {
-			connected <- true
+			select {
+			case connected <- true:
+				// ok
+			default:
+				// nobody is listening, OK too
+			}
 		}
 	}
 

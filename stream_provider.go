@@ -3,7 +3,6 @@ package gorillaz
 import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -40,37 +39,41 @@ func (g *Gaz) NewStreamProvider(streamName string, opts ...ProviderConfigOpt) (*
 	}
 	g.streamRegistry.register(streamName, p)
 
-	p.sentCounter = promauto.NewCounter(prometheus.CounterOpts{
+	p.sentCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "stream_event_sent",
 		Help: "The total number of messages sent",
 		ConstLabels: prometheus.Labels{
 			"stream": streamName,
 		},
 	})
+	prometheus.Register(p.sentCounter)
 
-	p.backPressureCounter = promauto.NewCounter(prometheus.CounterOpts{
+	p.backPressureCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "stream_backpressure_dropped",
 		Help: "The total number of messages dropped due to backpressure",
 		ConstLabels: prometheus.Labels{
 			"stream": streamName,
 		},
 	})
+	prometheus.Register(p.backPressureCounter)
 
-	p.clientCounter = promauto.NewGauge(prometheus.GaugeOpts{
+	p.clientCounter = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "stream_connected_clients",
 		Help: "The total number of clients connected",
 		ConstLabels: prometheus.Labels{
 			"stream": streamName,
 		},
 	})
+	prometheus.Register(p.clientCounter)
 
-	p.lastEventTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+	p.lastEventTimestamp = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "stream_last_evt_timestamp",
 		Help: "Timestamp of the last event produced",
 		ConstLabels: prometheus.Labels{
 			"stream": streamName,
 		},
 	})
+	prometheus.Register(p.lastEventTimestamp)
 
 	return p, nil
 }
@@ -172,14 +175,17 @@ type streamRegistry struct {
 }
 
 func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
-	r.Lock()
+	r.RLock()
 	p, ok := r.providers[streamName]
-	r.Unlock()
+	r.RUnlock()
 	return p, ok
 }
 
 func (r *streamRegistry) register(streamName string, p *StreamProvider) {
 	r.Lock()
+	if _, found := r.providers[streamName]; found {
+		panic("cannot register 2 providers with the same streamName")
+	}
 	r.providers[streamName] = p
 	r.Unlock()
 }
