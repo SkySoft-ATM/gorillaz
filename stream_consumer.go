@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"context"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -135,69 +136,92 @@ func grpcTarget(endpointType EndpointType, endpoints []string) string {
 	return ""
 }
 
+type consumerMonitoringHolder struct {
+	receivedCounter    prometheus.Counter
+	conCounter         prometheus.Counter
+	conGauge           prometheus.Gauge
+	delaySummary       prometheus.Summary
+	originDelaySummary prometheus.Summary
+	eventDelaySummary  prometheus.Summary
+}
+
+// map of metrics registered to Prometheus
+// it's here because we cannot register twice to Prometheus the metrics with the same label
+// if we register several consumers on the same stream, we must be sure we don't register the metrics twice
+var consMonitoringMu sync.Mutex
+var consumerMonitorings = make(map[string]consumerMonitoringHolder)
+
+func consumerMonitoring(streamName string, endpoints []string) consumerMonitoringHolder {
+	consMonitoringMu.Lock()
+	defer consMonitoringMu.Unlock()
+
+	if m, ok := consumerMonitorings[streamName]; ok {
+		return m
+	}
+	m := consumerMonitoringHolder{
+		receivedCounter: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "stream_consumer_received_events",
+			Help: "The total number of events received",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		conCounter: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "stream_consumer_connection_attempts",
+			Help: "The total number of connections to the stream",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		conGauge: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "stream_consumer_connected",
+			Help: "1 if connected, otherwise 0",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		delaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+			Name:       "stream_consumer_delay_ms",
+			Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		originDelaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+			Name:       "stream_consumer_origin_delay_ms",
+			Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+		eventDelaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+			Name:       "stream_consumer_event_delay_ms",
+			Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+	}
+	consumerMonitorings[streamName] = m
+	return m
+}
+
 func (c *Consumer) run() {
-	receivedCounter := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "stream_consumer_received_events",
-		Help: "The total number of events received",
-		ConstLabels: prometheus.Labels{
-			"stream":    c.StreamName,
-			"endpoints": strings.Join(c.endpoints, ","),
-		},
-	})
-	prometheus.Register(receivedCounter)
 
-	conCounter := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "stream_consumer_connection_attempts",
-		Help: "The total number of connections to the stream",
-		ConstLabels: prometheus.Labels{
-			"stream":    c.StreamName,
-			"endpoints": strings.Join(c.endpoints, ","),
-		},
-	})
-	prometheus.Register(conCounter)
-
-	conGauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "stream_consumer_connected",
-		Help: "1 if connected, otherwise 0",
-		ConstLabels: prometheus.Labels{
-			"stream":    c.StreamName,
-			"endpoints": strings.Join(c.endpoints, ","),
-		},
-	})
-	prometheus.Register(conGauge)
-
-	delaySummary := prometheus.NewSummary(prometheus.SummaryOpts{
-		Name:       "stream_consumer_delay_ms",
-		Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
-		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		ConstLabels: prometheus.Labels{
-			"stream":    c.StreamName,
-			"endpoints": strings.Join(c.endpoints, ","),
-		},
-	})
-	prometheus.Register(delaySummary)
-
-	originDelaySummary := prometheus.NewSummary(prometheus.SummaryOpts{
-		Name:       "stream_consumer_origin_delay_ms",
-		Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
-		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		ConstLabels: prometheus.Labels{
-			"stream":    c.StreamName,
-			"endpoints": strings.Join(c.endpoints, ","),
-		},
-	})
-	prometheus.Register(originDelaySummary)
-
-	eventDelaySummary := prometheus.NewSummary(prometheus.SummaryOpts{
-		Name:       "stream_consumer_event_delay_ms",
-		Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
-		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		ConstLabels: prometheus.Labels{
-			"stream":    c.StreamName,
-			"endpoints": strings.Join(c.endpoints, ","),
-		},
-	})
-	prometheus.Register(eventDelaySummary)
+	var monitoringHolder = consumerMonitoring(c.StreamName, c.endpoints)
 
 	var streamClient stream.Stream_StreamClient
 	var err error
@@ -209,11 +233,11 @@ connect:
 		if connAttempt != 0 {
 			c.config.onConnectionRetry(c.StreamName, connAttempt)
 		}
-		conGauge.Set(0)
+		monitoringHolder.conGauge.Set(0)
 		Log.Info("trying to connect to stream", zap.String("stream", c.StreamName), zap.Uint64("attempt_number", connAttempt))
 		streamClient, err = c.initConn()
 		connAttempt++
-		conCounter.Inc()
+		monitoringHolder.conCounter.Inc()
 
 		if err == nil {
 			Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
@@ -239,17 +263,16 @@ connect:
 			goto connect
 		}
 
-
 		// if first event received successfully, set the status to connected.
 		// we need to do it here because setting up a GRPC connection is not enough, the server can still return us an error
 		if firstEvent {
 			firstEvent = false
 			connAttempt = 0
-			conGauge.Set(1)
+			monitoringHolder.conGauge.Set(1)
 		}
 
 		Log.Debug("event received", zap.String("stream", c.StreamName))
-		receivedCounter.Inc()
+		monitoringHolder.receivedCounter.Inc()
 		evt := &stream.Event{
 			Key:   streamEvt.Key,
 			Value: streamEvt.Value,
@@ -261,15 +284,15 @@ connect:
 		streamTimestamp := streamEvt.Metadata.StreamTimestamp
 		if streamTimestamp > 0 {
 			// convert from ns to ms
-			delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
+			monitoringHolder.delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
 		}
 		eventTimestamp := streamEvt.Metadata.EventTimestamp
 		if eventTimestamp > 0 {
-			eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
+			monitoringHolder.eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
 		}
 		originTimestamp := streamEvt.Metadata.OriginStreamTimestamp
 		if originTimestamp > 0 {
-			originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
+			monitoringHolder.originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
 		}
 		c.EvtChan <- evt
 	}

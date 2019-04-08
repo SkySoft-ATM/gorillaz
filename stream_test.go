@@ -101,7 +101,7 @@ func TestStreamEvents(t *testing.T) {
 	assertReceived(t, provider2Stream, consumer2.EvtChan, evt2)
 }
 
-func TestMultipleConsumers(t *testing.T){
+func TestMultipleConsumers(t *testing.T) {
 	g, addr, shutdown := newGaz()
 	defer shutdown()
 
@@ -120,7 +120,7 @@ func TestMultipleConsumers(t *testing.T){
 	consumer3 := createConsumer(t, streamName, addr)
 
 	// give time to the consumers to be properly subscribed
-	time.Sleep(time.Second*3)
+	time.Sleep(time.Second * 3)
 
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 	provider.Submit(&stream.Event{Value: []byte("value2")})
@@ -135,7 +135,7 @@ func TestMultipleConsumers(t *testing.T){
 	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value2")})
 }
 
-func TestProducerReconnect(t *testing.T){
+func TestProducerReconnect(t *testing.T) {
 	g, addr, shutdown := newGaz()
 	defer shutdown()
 
@@ -170,12 +170,11 @@ func TestProducerReconnect(t *testing.T){
 	}
 
 	// let some time for the consumer to figure out the connection is back
-	time.Sleep(time.Second*6)
+	time.Sleep(time.Second * 6)
 	provider2.Submit(&stream.Event{Value: []byte("newValue")})
 
 	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("newValue")})
 }
-
 
 func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, expected *stream.Event) {
 	select {

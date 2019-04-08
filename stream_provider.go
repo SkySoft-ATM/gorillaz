@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -36,44 +37,9 @@ func (g *Gaz) NewStreamProvider(streamName string, opts ...ProviderConfigOpt) (*
 		streamName:  streamName,
 		config:      config,
 		broadcaster: broadcaster,
+		metrics:     pMetricHolder(streamName),
 	}
 	g.streamRegistry.register(streamName, p)
-
-	p.sentCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "stream_event_sent",
-		Help: "The total number of messages sent",
-		ConstLabels: prometheus.Labels{
-			"stream": streamName,
-		},
-	})
-	prometheus.Register(p.sentCounter)
-
-	p.backPressureCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "stream_backpressure_dropped",
-		Help: "The total number of messages dropped due to backpressure",
-		ConstLabels: prometheus.Labels{
-			"stream": streamName,
-		},
-	})
-	prometheus.Register(p.backPressureCounter)
-
-	p.clientCounter = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "stream_connected_clients",
-		Help: "The total number of clients connected",
-		ConstLabels: prometheus.Labels{
-			"stream": streamName,
-		},
-	})
-	prometheus.Register(p.clientCounter)
-
-	p.lastEventTimestamp = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "stream_last_evt_timestamp",
-		Help: "Timestamp of the last event produced",
-		ConstLabels: prometheus.Labels{
-			"stream": streamName,
-		},
-	})
-	prometheus.Register(p.lastEventTimestamp)
 
 	return p, nil
 }
@@ -90,9 +56,60 @@ func (g *Gaz) CloseStream(streamName string) error {
 }
 
 type StreamProvider struct {
-	streamName          string
-	config              *ProviderConfig
-	broadcaster         *mux.Broadcaster
+	streamName  string
+	config      *ProviderConfig
+	broadcaster *mux.Broadcaster
+	metrics     providerMetricsHolder
+}
+
+var pMetricHolderMu sync.Mutex
+var pMetrics = make(map[string]providerMetricsHolder)
+
+func pMetricHolder(streamName string) providerMetricsHolder {
+	pMetricHolderMu.Lock()
+	defer pMetricHolderMu.Unlock()
+	if h, ok := pMetrics[streamName]; ok {
+		return h
+	}
+
+	h := providerMetricsHolder{
+		sentCounter: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "stream_event_sent",
+			Help: "The total number of messages sent",
+			ConstLabels: prometheus.Labels{
+				"stream": streamName,
+			},
+		}),
+
+		backPressureCounter: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "stream_backpressure_dropped",
+			Help: "The total number of messages dropped due to backpressure",
+			ConstLabels: prometheus.Labels{
+				"stream": streamName,
+			},
+		}),
+
+		clientCounter: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "stream_connected_clients",
+			Help: "The total number of clients connected",
+			ConstLabels: prometheus.Labels{
+				"stream": streamName,
+			},
+		}),
+
+		lastEventTimestamp: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "stream_last_evt_timestamp",
+			Help: "Timestamp of the last event produced",
+			ConstLabels: prometheus.Labels{
+				"stream": streamName,
+			},
+		}),
+	}
+	pMetrics[streamName] = h
+	return h
+}
+
+type providerMetricsHolder struct {
 	sentCounter         prometheus.Counter
 	backPressureCounter prometheus.Counter
 	clientCounter       prometheus.Gauge
@@ -136,19 +153,19 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 		Value:    evt.Value,
 		Metadata: metadata,
 	}
-	p.sentCounter.Inc()
-	p.lastEventTimestamp.SetToCurrentTime()
+	p.metrics.sentCounter.Inc()
+	p.metrics.lastEventTimestamp.SetToCurrentTime()
 	p.broadcaster.SubmitBlocking(streamEvent)
 }
 
 func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamServer) {
-	p.clientCounter.Inc()
+	p.metrics.clientCounter.Inc()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
 	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
 		config.OnBackpressure(func(interface{}) {
 			p.config.OnBackPressure(streamName)
-			p.backPressureCounter.Inc()
+			p.metrics.backPressureCounter.Inc()
 		})
 		return nil
 	})
@@ -162,7 +179,7 @@ func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamSe
 			break
 		}
 	}
-	p.clientCounter.Dec()
+	p.metrics.clientCounter.Dec()
 }
 
 func (p *StreamProvider) close() {

@@ -20,7 +20,7 @@ require (
 	github.com/onsi/gomega v1.5.0 // indirect
 	github.com/opentracing-contrib/go-observer v0.0.0-20170622124052-a52f23424492 // indirect
 	github.com/opentracing/opentracing-go v1.0.2
-	github.com/openzipkin-contrib/zipkin-go-opentracing v0.3.5
+	github.com/openzipkin-contrib/zipkin-go-opentracing v0.3.5 // indirect
 	github.com/openzipkin/zipkin-go-opentracing v0.3.5
 	github.com/pierrec/lz4 v2.0.5+incompatible // indirect
 	github.com/pkg/errors v0.8.1 // indirect
