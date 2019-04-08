@@ -12,7 +12,7 @@ env:
   - GO111MODULE=on
 
 before_install:
-  - sudo apt-get install --qq g++-6
+  - sudo apt-get update && sudo apt-get upgrade libc-bin
   - go mod download
 
 install:
