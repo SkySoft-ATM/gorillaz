@@ -13,7 +13,7 @@ func TestTimestamp(t *testing.T) {
 	metadata := &Metadata{
 		StreamTimestamp: ts,
 	}
-	ctx := metadataToContext(metadata)
+	ctx := MetadataToContext(metadata)
 	evt := &Event{
 		Ctx: ctx,
 	}
@@ -31,8 +31,11 @@ func TestTracingSerialization(t *testing.T) {
 	ctx := opentracing.ContextWithSpan(context.Background(), span)
 	span.Finish()
 
-	metadata := contextToMetadata(ctx)
-	ctx2 := metadataToContext(metadata)
+	metadata, err := ContextToMetadata(ctx)
+	if err != nil {
+		t.Errorf("unexpected error: %+v", err)
+	}
+	ctx2 := MetadataToContext(metadata)
 
 	span2 := opentracing.SpanFromContext(ctx2)
 	if span2 == nil {

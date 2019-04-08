@@ -1,10 +1,10 @@
-package stream
+package gorillaz
 
 import (
 	"context"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	gaz "github.com/skysoft-atm/gorillaz"
+	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer/roundrobin"
@@ -31,7 +31,7 @@ type ConsumerConfig struct {
 
 type Consumer struct {
 	StreamName string
-	EvtChan    chan *Event
+	EvtChan    chan *stream.Event
 	target     string
 	endpoints  []string
 	config     *ConsumerConfig
@@ -56,7 +56,7 @@ func defaultConsumerConfig() *ConsumerConfig {
 				wait = time.Second * 5
 			}
 			if wait > 0 {
-				gaz.Log.Info("waiting before making another connection attempt", zap.String("streamName", streamName), zap.Int("wait_sec", int(wait.Seconds())))
+				Log.Info("waiting before making another connection attempt", zap.String("streamName", streamName), zap.Int("wait_sec", int(wait.Seconds())))
 				time.Sleep(wait)
 			}
 		},
@@ -72,7 +72,7 @@ const (
 	IPEndpoint
 )
 
-func NewConsumer(streamName string, endpointType EndpointType, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
+func NewStreamConsumer(streamName string, endpointType EndpointType, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
 	// TODO: hacky hack to create a resolver to use with round robin
 	mu.Lock()
 	r, _ := manual.GenerateAndRegisterManualResolver()
@@ -90,7 +90,7 @@ func NewConsumer(streamName string, endpointType EndpointType, endpoints []strin
 		opt(config)
 	}
 
-	ch := make(chan *Event, config.BufferLen)
+	ch := make(chan *stream.Event, config.BufferLen)
 	consumer := &Consumer{
 		StreamName: streamName,
 		EvtChan:    ch,
@@ -194,7 +194,7 @@ func (c *Consumer) run() {
 		},
 	})
 
-	var streamClient Stream_StreamClient
+	var streamClient stream.Stream_StreamClient
 	var err error
 	var connAttempt uint64
 
@@ -205,19 +205,19 @@ connect:
 			c.config.onConnectionRetry(c.StreamName, connAttempt)
 		}
 		conGauge.Set(0)
-		gaz.Log.Info("trying to connect to stream", zap.String("stream", c.StreamName), zap.Uint64("attempt_number", connAttempt))
+		Log.Info("trying to connect to stream", zap.String("stream", c.StreamName), zap.Uint64("attempt_number", connAttempt))
 		streamClient, err = c.initConn()
 		connAttempt++
 		conCounter.Inc()
 
 		if err == nil {
-			gaz.Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
+			Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
 			if c.config.onConnected != nil {
 				c.config.onConnected(c.StreamName)
 			}
 			break
 		} else {
-			gaz.Log.Error("connection attempt to stream failed", zap.String("stream", c.StreamName), zap.Error(err))
+			Log.Error("connection attempt to stream failed", zap.String("stream", c.StreamName), zap.Error(err))
 		}
 	}
 
@@ -227,7 +227,7 @@ connect:
 	for {
 		streamEvt, err := streamClient.Recv()
 		if err != nil {
-			gaz.Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
+			Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
 			if !firstEvent && c.config.onDisconnected != nil {
 				c.config.onDisconnected(c.StreamName)
 			}
@@ -242,12 +242,12 @@ connect:
 			conGauge.Set(1)
 		}
 
-		gaz.Log.Debug("event received", zap.String("stream", c.StreamName))
+		Log.Debug("event received", zap.String("stream", c.StreamName))
 		receivedCounter.Inc()
-		evt := &Event{
+		evt := &stream.Event{
 			Key:   streamEvt.Key,
 			Value: streamEvt.Value,
-			Ctx:   metadataToContext(streamEvt.Metadata),
+			Ctx:   stream.MetadataToContext(streamEvt.Metadata),
 		}
 
 		nowMs := float64(time.Now().UnixNano()) / 1000000.0
@@ -269,7 +269,7 @@ connect:
 	}
 }
 
-func (c *Consumer) initConn() (Stream_StreamClient, error) {
+func (c *Consumer) initConn() (stream.Stream_StreamClient, error) {
 	mu.RLock()
 	//TODO : make grpc.WithInsecure an option
 	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure())
@@ -277,8 +277,8 @@ func (c *Consumer) initConn() (Stream_StreamClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := NewStreamClient(conn)
-	req := &StreamRequest{Name: c.StreamName}
+	client := stream.NewStreamClient(conn)
+	req := &stream.StreamRequest{Name: c.StreamName}
 
 	var callOpts []grpc.CallOption
 	if c.config.UseGzip {

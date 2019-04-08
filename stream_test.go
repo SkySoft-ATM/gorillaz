@@ -1,22 +1,39 @@
-package stream
+package gorillaz
 
 import (
 	"bytes"
+	"github.com/skysoft-atm/gorillaz/stream"
+	"google.golang.org/grpc"
 	"net"
 	"testing"
 	"time"
 )
 
-func TestStreamLazy(t *testing.T) {
-	// start a grpc endpoint
+var g *Gaz
+
+func newGaz() (gaz *Gaz, addr string, shutdown func()) {
+	g := &Gaz{
+		grpcServer: grpc.NewServer(),
+		streamRegistry: &streamRegistry{
+			providers: make(map[string]*StreamProvider),
+		},
+	}
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
-		t.Errorf("cannot start a TCP listener, %v", err)
-		return
+		panic(err)
 	}
-	go manager.server.Serve(l)
+	stream.RegisterStreamServer(g.grpcServer, g.streamRegistry)
+	go g.grpcServer.Serve(l)
+	return g, l.Addr().String(), func() {
+		g.grpcServer.Stop()
+	}
+}
 
-	provider, err := NewProvider("stream", func(conf *ProviderConfig) {
+func TestStreamLazy(t *testing.T) {
+	g, addr, shutdown := newGaz()
+	defer shutdown()
+
+	provider, err := g.NewStreamProvider("stream", func(conf *ProviderConfig) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
@@ -25,53 +42,46 @@ func TestStreamLazy(t *testing.T) {
 	}
 
 	// as this is a lazy provider, it should wait for a first consumer to send events
-	provider.Submit(&Event{Value: []byte("value1")})
-	provider.Submit(&Event{Value: []byte("value2")})
+	provider.Submit(&stream.Event{Value: []byte("value1")})
+	provider.Submit(&stream.Event{Value: []byte("value2")})
 
-	consumer, err := NewConsumer("stream", IPEndpoint, []string{l.Addr().String()})
+	consumer, err := NewStreamConsumer("stream", IPEndpoint, []string{addr})
 	if err != nil {
 		t.Errorf("cannot start consumer, %+v", err)
 		return
 	}
-	assertReceived(t, "stream", consumer.EvtChan, &Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer.EvtChan, &Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value2")})
 }
 
 func TestStreamEvents(t *testing.T) {
-	// start
-	l, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Errorf("cannot start listener, %v", err)
-		return
-	}
-	go manager.server.Serve(l)
-
-	addr := l.Addr()
+	g, addr, shutdown := newGaz()
+	defer shutdown()
 
 	provider1Stream := "testy"
 	provider2Stream := "testoo"
 
-	provider1, err := NewProvider(provider1Stream)
+	provider1, err := g.NewStreamProvider(provider1Stream)
 	if err != nil {
 		t.Errorf("cannot register provider, %+v", err)
 		return
 	}
 
-	provider2, err := NewProvider(provider2Stream)
+	provider2, err := g.NewStreamProvider(provider2Stream)
 	if err != nil {
 		t.Errorf("cannot register provider, %+v", err)
 		return
 	}
 
-	consumer1 := createConsumer(t, provider1Stream, addr.String())
-	consumer2 := createConsumer(t, provider2Stream, addr.String())
+	consumer1 := createConsumer(t, provider1Stream, addr)
+	consumer2 := createConsumer(t, provider2Stream, addr)
 
-	evt1 := &Event{
+	evt1 := &stream.Event{
 		Key:   []byte("testyKey"),
 		Value: []byte("testyValue"),
 	}
 
-	evt2 := &Event{
+	evt2 := &stream.Event{
 		Key:   []byte("testooKey"),
 		Value: []byte("testooValue"),
 	}
@@ -87,7 +97,7 @@ func TestStreamEvents(t *testing.T) {
 	assertReceived(t, provider2Stream, consumer2.EvtChan, evt2)
 }
 
-func assertReceived(t *testing.T, streamName string, ch <-chan *Event, expected *Event) {
+func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, expected *stream.Event) {
 	select {
 	case evt := <-ch:
 		if !bytes.Equal(expected.Key, evt.Key) {
@@ -110,7 +120,7 @@ func createConsumer(t *testing.T, streamName string, endpoint string) *Consumer 
 		}
 	}
 
-	consumer, err := NewConsumer(streamName, IPEndpoint, []string{endpoint}, opt)
+	consumer, err := NewStreamConsumer(streamName, IPEndpoint, []string{endpoint}, opt)
 	if err != nil {
 		t.Errorf("cannot create consumer for stream %s,, %+v", streamName, err)
 		t.FailNow()

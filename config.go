@@ -29,7 +29,7 @@ func parseProperties(reader io.Reader) map[string]string {
 		if strings.HasSuffix(line, multilineSeparator) {
 			multiline += strings.TrimSuffix(line, multilineSeparator)
 			continue
-		}else{
+		} else {
 			if len(multiline) > 0 {
 				line = multiline + line
 				multiline = ""

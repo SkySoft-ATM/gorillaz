@@ -30,17 +30,16 @@ func main() {
 	var totalLatency int64
 
 	// starting Grpc server
-	stream.Run(port)
-	p, err := stream.NewProvider(streamName)
+	p, err := g.NewStreamProvider(streamName)
 	if err != nil {
 		panic(err)
 	}
 
-	opt := func(config *stream.ConsumerConfig) {
+	opt := func(config *gaz.ConsumerConfig) {
 		config.UseGzip = true
 	}
 
-	consumer, err := stream.NewConsumer(streamName, stream.IPEndpoint, strings.Split(endpoints, ","), opt)
+	consumer, err := gaz.NewStreamConsumer(streamName, gaz.IPEndpoint, strings.Split(endpoints, ","), opt)
 	if err != nil {
 		panic(err)
 	}

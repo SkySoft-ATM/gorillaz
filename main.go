@@ -3,7 +3,11 @@ package gorillaz
 import (
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"net"
 	"net/http"
 )
 
@@ -12,8 +16,10 @@ var initialized = false
 type Gaz struct {
 	Router *mux.Router
 	// use int32 because sync.atomic package doesn't support boolean out of the box
-	isReady *int32
-	isLive  *int32
+	isReady        *int32
+	isLive         *int32
+	grpcServer     *grpc.Server
+	streamRegistry *streamRegistry
 }
 
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
@@ -35,11 +41,27 @@ func New(context map[string]interface{}) *Gaz {
 		gaz.InitTracingFromConfig()
 	}
 
+	gaz.grpcServer = grpc.NewServer()
+	gaz.streamRegistry = &streamRegistry{
+		providers: make(map[string]*StreamProvider),
+	}
+	stream.RegisterStreamServer(gaz.grpcServer, gaz.streamRegistry)
+
 	return &gaz
 }
 
 // Starts the router, once Run is launched, you should no longer add new handlers on the router
 func (g Gaz) Run() {
+	if viper.IsSet("stream.provider.port") {
+		streamPort := viper.GetInt("stream.provider.port")
+		Log.Info("Listening for streaming request on port", zap.Int("port", streamPort))
+		l, err := net.Listen("tcp", fmt.Sprintf(":%d", streamPort))
+		if err != nil {
+			panic(err)
+		}
+		go g.grpcServer.Serve(l)
+	}
+
 	go func() {
 		if health := viper.GetBool("healthcheck.enabled"); health {
 			Sugar.Info("Activating health check")

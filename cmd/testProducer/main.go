@@ -15,10 +15,7 @@ import "github.com/skysoft-atm/gorillaz/stream"
 func main() {
 	var streamName string
 
-	var port int
 	flag.StringVar(&streamName, "stream", "", "stream to receive")
-
-	flag.IntVar(&port, "port", 0, "tcp port to listen to")
 	flag.Parse()
 
 	g := gorillaz.New(nil)
@@ -28,16 +25,11 @@ func main() {
 		http.ListenAndServe(":6060", nil)
 	}()
 
-	opt := func(config *stream.ProviderConfig) {
+	opt := func(config *gorillaz.ProviderConfig) {
 		config.SubscriberInputBufferLen = 1024
 	}
 
-	p, err := stream.NewProvider(streamName, opt)
-	if err != nil {
-		panic(err)
-	}
-
-	err = stream.Run(port)
+	p, err := g.NewStreamProvider(streamName, opt)
 	if err != nil {
 		panic(err)
 	}
@@ -58,7 +50,7 @@ func main() {
 		time.Sleep(time.Nanosecond * 10000)
 	}
 
-	p.Close()
+	g.CloseStream(streamName)
 
 	time.Sleep(time.Second * 5)
 }

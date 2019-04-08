@@ -2,13 +2,10 @@ package stream
 
 import (
 	"context"
+	"fmt"
 	"github.com/opentracing/opentracing-go"
-	gaz "github.com/skysoft-atm/gorillaz"
-	"go.uber.org/zap"
 	"time"
 )
-
-var tracer opentracing.Tracer
 
 // OpenTracing TextMapWriter
 func (m *Metadata) Set(key, value string) {
@@ -26,7 +23,7 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 	return nil
 }
 
-func metadataToContext(metadata *Metadata) context.Context {
+func MetadataToContext(metadata *Metadata) context.Context {
 	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
 	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
 	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
@@ -47,7 +44,7 @@ func metadataToContext(metadata *Metadata) context.Context {
 }
 
 // contextToMetadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
-func contextToMetadata(ctx context.Context) *Metadata {
+func ContextToMetadata(ctx context.Context) (*Metadata, error) {
 	streamTs := time.Now().UnixNano()
 	var eventTs int64
 	var originStreamTs int64
@@ -80,7 +77,7 @@ func contextToMetadata(ctx context.Context) *Metadata {
 
 	err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
 	if err != nil {
-		gaz.Log.Error("cannot serialize tracing headers into the event", zap.Error(err))
+		err = fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)
 	}
-	return metadata
+	return metadata, err
 }
