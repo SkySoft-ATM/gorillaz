@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"fmt"
-	"github.com/gogo/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
@@ -158,7 +157,7 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	b, err := proto.Marshal(streamEvent)
+	b, err := streamEvent.Marshal()
 	p.broadcaster.SubmitBlocking(b)
 }
 
@@ -245,9 +244,10 @@ func (c *binaryCodec) Marshal(v interface{}) ([]byte, error){
 
 // Unmarshal parses the wire format into v.
 func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error{
-	var pb = v.(proto.Message)
-	return proto.Unmarshal(data, pb)
+	evt := v.(*stream.StreamRequest)
+	return evt.Unmarshal(data)
 }
+
 // Name returns the name of the Codec implementation. The returned string
 // will be used as part of content type in transmission.  The result must be
 // static; the result cannot change between calls.

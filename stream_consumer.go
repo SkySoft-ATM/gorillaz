@@ -301,7 +301,7 @@ connect:
 func (c *Consumer) initConn() (stream.Stream_StreamClient, error) {
 	mu.RLock()
 	//TODO : make grpc.WithInsecure an option
-	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure())
+	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})))
 	mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -313,5 +313,25 @@ func (c *Consumer) initConn() (stream.Stream_StreamClient, error) {
 	if c.config.UseGzip {
 		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 	}
+	callOpts = append(callOpts)
 	return client.Stream(context.Background(), req, callOpts...)
+}
+
+
+type gogoCodec struct {}
+
+// Marshal returns the wire format of v.
+func (c *gogoCodec) Marshal(v interface{}) ([]byte, error){
+	var req = v.(*stream.StreamRequest)
+	return req.Marshal()
+}
+
+// Unmarshal parses the wire format into v.
+func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error{
+	evt := v.(*stream.StreamEvent)
+	return evt.Unmarshal(data)
+}
+
+func (c *gogoCodec) Name() string {
+	return "gogoCodec"
 }

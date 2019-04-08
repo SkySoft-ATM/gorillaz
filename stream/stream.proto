@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 
+
 service Stream {
     rpc Stream(StreamRequest) returns (stream StreamEvent);
 }
