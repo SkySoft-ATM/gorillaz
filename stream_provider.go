@@ -2,12 +2,14 @@ package gorillaz
 
 import (
 	"fmt"
+	"github.com/gogo/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 	"sync"
 )
 
@@ -155,7 +157,9 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	}
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
-	p.broadcaster.SubmitBlocking(streamEvent)
+
+	b, err := proto.Marshal(streamEvent)
+	p.broadcaster.SubmitBlocking(b)
 }
 
 func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamServer) {
@@ -171,8 +175,8 @@ func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamSe
 	})
 
 	for val := range streamCh {
-		evt := val.(*stream.StreamEvent)
-		err := strm.Send(evt)
+		evt := val.([]byte)
+		err := strm.(grpc.ServerStream).SendMsg(evt)
 		if err != nil {
 			Log.Info("consumer disconnected", zap.Error(err))
 			broadcaster.Unregister(streamCh)
@@ -227,4 +231,26 @@ func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_St
 	}
 	provider.sendLoop(streamName, strm)
 	return nil
+}
+
+// binaryCodec takes the received binary data and directly returns it, without serializing it with proto.
+// the main reason to use this is in case of 100s of subscribers, encode the data only once and just forward it without re-encoding it for each subscriber
+type binaryCodec struct {}
+
+// Marshal returns the wire format of v.
+func (c *binaryCodec) Marshal(v interface{}) ([]byte, error){
+	var encoded = v.([]byte)
+	return encoded, nil
+}
+
+// Unmarshal parses the wire format into v.
+func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error{
+	var pb = v.(proto.Message)
+	return proto.Unmarshal(data, pb)
+}
+// Name returns the name of the Codec implementation. The returned string
+// will be used as part of content type in transmission.  The result must be
+// static; the result cannot change between calls.
+func (c *binaryCodec) String() string {
+	return "binaryCodec"
 }

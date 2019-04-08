@@ -41,7 +41,7 @@ func New(context map[string]interface{}) *Gaz {
 		gaz.InitTracingFromConfig()
 	}
 
-	gaz.grpcServer = grpc.NewServer()
+	gaz.grpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}))
 	gaz.streamRegistry = &streamRegistry{
 		providers: make(map[string]*StreamProvider),
 	}

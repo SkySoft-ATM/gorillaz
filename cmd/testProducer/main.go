@@ -47,7 +47,7 @@ func main() {
 		p.Submit(event)
 		sp.Finish()
 		message++
-		time.Sleep(time.Nanosecond * 10000)
+		time.Sleep(time.Nanosecond * 30)
 	}
 
 	g.CloseStream(streamName)

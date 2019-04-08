@@ -17,7 +17,7 @@ func newGaz() (gaz *Gaz, addr string, shutdown func()) {
 
 func newGazOnAddr(conAddr string) (gaz *Gaz, addr string, shutdown func()) {
 	g := &Gaz{
-		grpcServer: grpc.NewServer(),
+		grpcServer: grpc.NewServer(grpc.CustomCodec(&binaryCodec{})),
 		streamRegistry: &streamRegistry{
 			providers: make(map[string]*StreamProvider),
 		},
