@@ -12,10 +12,11 @@ env:
   - GO111MODULE=on
 
 before_install:
+  - sudo apt-get install --qq g++-6
   - go mod download
 
 install:
-  - go test ./... -race -tags nopie
+  - go test ./... -race
   - go build ./...
 
 notifications:
