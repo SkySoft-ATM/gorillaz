@@ -128,6 +128,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				for output := range b.outputs {
 					close(output)
 				}
+				ticker.Stop() //to avoid goroutine leak
 			}
 		case u := <-b.unreg:
 			delete(b.outputs, u.channel)
