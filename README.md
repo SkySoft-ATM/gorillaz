@@ -2,6 +2,11 @@
 
 ## Gorillaz offers:
 
+### Centralized config
+
+in configs/application.properties
+can override with flags
+
 ### Easy streaming over gRPC
 
 Producer: 
