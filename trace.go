@@ -14,6 +14,9 @@ import (
 
 var tracer opentracing.Tracer
 
+const traceIdKey = "x-b3-traceid"
+const spanIdKey = "x-b3-spanid"
+
 type kafkaMessageWrapper struct {
 	headers []sarama.RecordHeader
 }
@@ -149,10 +152,11 @@ func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.S
 	}
 
 	// TODO: this code makes me sad. Are we forced to use a SpanContext?
+
 	var carrier = opentracing.TextMapCarrier(
 		map[string]string{
-			"x-b3-traceid": traceId,
-			"x-b3-spanid":  "0",
+			traceIdKey:     traceId,
+			spanIdKey:      "0",
 			"x-b3-sampled": "true",
 		})
 	ctx, err := tracer.Extract(opentracing.TextMap, carrier)
@@ -165,6 +169,24 @@ func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.S
 	}
 
 	return createSpanFromContext(spanName, ctx)
+}
+
+func ExtractTraceId(span opentracing.Span) string {
+	var carrier = map[string]string{}
+
+	if err := span.Tracer().Inject(span.Context(), opentracing.HTTPHeaders, opentracing.TextMapCarrier(carrier)); err != nil {
+		return ""
+	}
+	return carrier[traceIdKey]
+}
+
+func ExtractSpanId(span opentracing.Span) string {
+	var carrier = map[string]string{}
+
+	if err := span.Tracer().Inject(span.Context(), opentracing.HTTPHeaders, opentracing.TextMapCarrier(carrier)); err != nil {
+		return ""
+	}
+	return carrier[spanIdKey]
 }
 
 func createSpanFromContext(spanName string, ctx opentracing.SpanContext) opentracing.Span {
