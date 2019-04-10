@@ -92,6 +92,7 @@ type KafkaProducer struct {
 	Errors <-chan *sarama.ProducerError
 }
 
+//Deprecated : use gRPC streams instead
 // NewKafkaProducer returns a new KafkaProducer forwarding
 func NewKafkaProducer(bootstrapServers []string, sink string, options ...KafkaProducerOptionFunc) (*KafkaProducer, error) {
 	Log.Info("Creation of a new Kafka producer",
@@ -129,6 +130,7 @@ func NewKafkaProducer(bootstrapServers []string, sink string, options ...KafkaPr
 // - a channel to consume Kafka notifications
 // - a channel to consume errors
 // - an error if the consumer could not be created
+//Deprecated : use gRPC streams instead
 func NewKafkaConsumer(bootstrapServers []string, topic string, groupID string, options ...KafkaConsumerOptionFunc) (<-chan *KafkaEnvelope, error) {
 	Log.Info("Creation of a new Kafka consumer",
 		zap.Strings("server", bootstrapServers),
