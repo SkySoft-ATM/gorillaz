@@ -124,7 +124,11 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				}
 				r.done <- true
 			} else {
-				return
+				// close all registered output channel to notify them that the StateBroadcaster is closed
+				for output := range b.outputs {
+					close(output)
+				}
+				ticker.Stop() //to avoid goroutine leak
 			}
 		case u := <-b.unreg:
 			delete(b.outputs, u.channel)

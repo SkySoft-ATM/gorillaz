@@ -31,58 +31,69 @@ func consume(channel <-chan interface{}, numberOfMessages int, finished chan<- b
 	}(channel)
 }
 
-func backpressureForConsumer(consumerName string, backpressureConsumer chan string) func(value interface{}) {
+func backpressureForConsumer(consumerName string, consumer chan string) func(value interface{}) {
 	return func(value interface{}) {
 		fmt.Println("on back pressure " + consumerName)
-		backpressureConsumer <- consumerName
+		consumer <- consumerName
 	}
 }
 
-func backpressureOptionForConsumer(consumerName string, backpressureConsumer chan string) func(config *ConsumerConfig) error {
+func backpressureOptionForConsumer(consumerName string, consumer chan string) func(config *ConsumerConfig) error {
 	return func(config *ConsumerConfig) error {
-		config.OnBackpressure(backpressureForConsumer(consumerName, backpressureConsumer))
+		config.OnBackpressure(backpressureForConsumer(consumerName, consumer))
 		return nil
 	}
 }
 
 func TestBackpressureOnConsumer(t *testing.T) {
 
-	const numberOfMessagesSent = 20
-	var blockingClientChan = make(chan string, numberOfMessagesSent+1)
-	var nonBlockingClientChan = make(chan string, numberOfMessagesSent+1)
-	var finished = make(chan bool, 1)
+	toSend := 20
 
-	b, err := NewNonBlockingBroadcaster(50)
-
-	failIfError(err, t)
-
-	blockingChan := make(chan interface{}, 10)
-	consumeAndBlock(5, blockingChan)
-
-	nonBlockingChan := make(chan interface{}, numberOfMessagesSent+1)
-	consume(nonBlockingChan, numberOfMessagesSent, finished)
-
-	err = b.Register(blockingChan, backpressureOptionForConsumer(blockingConsumerName, blockingClientChan))
-	failIfError(err, t)
-	b.Register(nonBlockingChan, backpressureOptionForConsumer("non-blocking", nonBlockingClientChan))
-	failIfError(err, t)
-	fmt.Println("submitting messages")
-	for i := 0; i < numberOfMessagesSent; i++ {
-		b.SubmitBlocking(fmt.Sprintf("value %d", i))
+	b, err := NewNonBlockingBroadcaster(toSend)
+	if err != nil {
+		panic(err)
 	}
-	fmt.Println("wait until the non blocking consumer consumes everything ")
-	<-finished
-	close(blockingClientChan)
 
-	fmt.Println("counting the number of times backpressure was invoked ")
+	fastConsumerChan := make(chan interface{})
+	go func() {
+		for range fastConsumerChan {
+			// poll as fast as possible
+		}
+	}()
 
-	backpressureCount := 0
-	for bc := range blockingClientChan {
-		assert.Equal(t, blockingConsumerName, bc)
-		backpressureCount++
+	slowConsumerChan := make(chan interface{})
+	go func() {
+		// only consume 5 messages and stop working to simulate slow consumption after 5 messages
+		for i := 0; i < 5; i++ {
+			<-slowConsumerChan
+		}
+	}()
+
+	var backPressureChan = make(chan string, 2*toSend+1)
+
+	b.Register(fastConsumerChan, backpressureOptionForConsumer("fast", backPressureChan))
+	b.Register(slowConsumerChan, backpressureOptionForConsumer("slow", backPressureChan))
+
+	for i := 0; i < toSend; i++ {
+		b.SubmitBlocking(i)
+		// make sure the fast consumer can actually consume it fast enough
+		time.Sleep(time.Millisecond * 20)
 	}
-	assert.True(t, backpressureCount >= 5) // since it has a small buffer, the blocking consumer might be blocking even before it starts to sleep
-	t.Log(fmt.Sprintf("backpressure count = %d", backpressureCount))
+	b.Close()
+
+	time.Sleep(time.Second)
+	close(backPressureChan)
+
+	backPressureCount := 0
+	for backPressMsg := range backPressureChan {
+		backPressureCount++
+		if backPressMsg != "slow" {
+			t.Errorf("expected only slow consumer to have backpressure, but it also applies to %s", backPressMsg)
+		}
+	}
+	if backPressureCount != toSend-5 {
+		t.Errorf("expected %d backpressure events but got %d", toSend-5, backPressureCount)
+	}
 }
 
 func failIfError(err error, t *testing.T) {

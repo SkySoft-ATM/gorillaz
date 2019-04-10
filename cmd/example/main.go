@@ -6,6 +6,7 @@ import (
 
 func main() {
 	gaz := gorillaz.New(nil)
+	gaz.Run()
 
 	// write your application code here
 

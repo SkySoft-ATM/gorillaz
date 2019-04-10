@@ -13,16 +13,29 @@ import (
 	"github.com/spf13/viper"
 )
 
+const multilineSeparator = "\\"
+
 func parseProperties(reader io.Reader) map[string]string {
 	scanner := bufio.NewScanner(reader)
 	m := make(map[string]string)
-
+	var multiline string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		// Comments
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
+
+		if strings.HasSuffix(line, multilineSeparator) {
+			multiline += strings.TrimSuffix(line, multilineSeparator)
+			continue
+		} else {
+			if len(multiline) > 0 {
+				line = multiline + line
+				multiline = ""
+			}
+		}
+
 		split := strings.Split(line, "=")
 		if len(split) < 2 {
 			log.Printf("WARN: cannot parse config line %s\n", line)
