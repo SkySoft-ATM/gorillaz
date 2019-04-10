@@ -10,7 +10,7 @@ import (
 func TestTimestamp(t *testing.T) {
 	ts := int64(1234567890)
 
-	metadata := &Metadata{
+	metadata := Metadata{
 		StreamTimestamp: ts,
 	}
 	ctx := MetadataToContext(metadata)
@@ -31,7 +31,11 @@ func TestTracingSerialization(t *testing.T) {
 	ctx := opentracing.ContextWithSpan(context.Background(), span)
 	span.Finish()
 
-	metadata, err := ContextToMetadata(ctx)
+	metadata := Metadata{
+		KeyValue: make(map[string]string),
+	}
+
+	err := ContextToMetadata(ctx, &metadata)
 	if err != nil {
 		t.Errorf("unexpected error: %+v", err)
 	}
