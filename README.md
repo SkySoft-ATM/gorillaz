@@ -2,10 +2,69 @@
 
 ## Gorillaz offers:
 
-### Centralized config
+### Opinionated config
 
-in configs/application.properties
-can override with flags
+Setup your project config in configs/application.properties
+You can override values by passing flags on the command line.
+
+### A web server
+A common we server is started for metrics and healthchecks.
+You can configure its port with this property:
+```
+http.port=12347
+```
+
+### Health check endpoints
+
+2 health check endpoints that can be used for example in Kubernetes are provided:
+
+/live
+/ready
+
+You can control them in the application with:
+```go
+gaz.SetLive(true)
+gaz.SetReady(true)
+```
+
+They can be enabled or disabled with this property:
+```
+healtheck.enabled=false
+```
+
+### Prometheus integration
+
+Running gorillaz starts a prometheus endpoint to collect metrics:
+/metrics
+
+You can disable this endpoint with this property:
+```
+prometheus.enabled=false
+```
+
+### Logging
+
+Gorillaz offers 2 loggers:
+
+gorillaz.Log is a [zap.Logger](https://github.com/uber-go/zap)  that offers good performance but requires a bit more work when logging variables:
+
+```go
+gorillaz.Log.Error("Error while doing something", zap.Error(err))
+```
+
+
+gorillaz.Sugar is a [zap.SugaredLogger](https://github.com/uber-go/zap) that is slower but more convenient
+
+```go
+gorillaz.Sugar.Error("Error while doing something %v", err)
+```
+
+The log level is configured through this property:
+```
+log.level=info
+```
+
+
 
 ### Easy streaming over gRPC
 
@@ -47,16 +106,13 @@ for evt := range consumer.EvtChan {
 }
 ```
 
-You will find more examples in the cmd folder
 
-### A web server
+You will find more complete examples in the cmd folder
 
-
-
-### Prometheus integration
-
-Running gorillaz starts a prometheus endpoint to collect metrics.
-
+The gRPC port is configured with this property:
+```
+stream.provider.port=9666
+```
 
 
 ### Tracing
@@ -68,19 +124,3 @@ tracing.service.name=testProducer
 tracing.collector.url=http://127.0.0.1:9411/api/v1/spans
 ```
 
-### Logging
-
-Gorillaz offers 2 loggers:
-
-gorillaz.Log is a [zap.Logger](https://github.com/uber-go/zap)  that offers good performance but requires a bit more work when logging variables:
-
-```go
-gorillaz.Log.Error("Error while doing something", zap.Error(err))
-```
-
-
-gorillaz.Sugar is a [zap.SugaredLogger](https://github.com/uber-go/zap) that is slower but more convenient
-
-```go
-gorillaz.Sugar.Error("Error while doing something %v", err)
-```
