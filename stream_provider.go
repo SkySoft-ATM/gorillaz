@@ -39,11 +39,6 @@ func (g *Gaz) NewStreamProvider(streamName string, opts ...ProviderConfigOpt) (*
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(streamName),
-		streamEvent: &stream.StreamEvent{
-			Metadata: &stream.Metadata{
-				KeyValue: make(map[string]string),
-			},
-		},
 	}
 	g.streamRegistry.register(streamName, p)
 
@@ -66,7 +61,6 @@ type StreamProvider struct {
 	config      *ProviderConfig
 	broadcaster *mux.Broadcaster
 	metrics     providerMetricsHolder
-	streamEvent *stream.StreamEvent
 }
 
 var pMetricHolderMu sync.Mutex
@@ -151,17 +145,22 @@ var LazyBroadcast = func(p *ProviderConfig) {
 
 // Submit pushes the event to all subscribers
 func (p *StreamProvider) Submit(evt *stream.Event) {
-	err := stream.ContextToMetadata(evt.Ctx, p.streamEvent.Metadata)
+	streamEvent := &stream.StreamEvent{
+		Metadata:&stream.Metadata{
+			KeyValue: make(map[string]string),
+		},
+	}
+	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata)
 	if err != nil {
 		Log.Error("error while creating Metadata from event.Context", zap.Error(err))
 	}
-	p.streamEvent.Key = evt.Key
-	p.streamEvent.Value = evt.Value
+	streamEvent.Key = evt.Key
+	streamEvent.Value = evt.Value
 
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	b, err := p.streamEvent.Marshal()
+	b, err := streamEvent.Marshal()
 	if err != nil {
 		Log.Error("error while marshaling stream.StreamEvent, cannot send event", zap.Error(err))
 		return
