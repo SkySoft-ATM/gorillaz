@@ -276,7 +276,7 @@ connect:
 		evt := &stream.Event{
 			Key:   streamEvt.Key,
 			Value: streamEvt.Value,
-			Ctx:   stream.MetadataToContext(streamEvt.Metadata),
+			Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
 		}
 
 		nowMs := float64(time.Now().UnixNano()) / 1000000.0

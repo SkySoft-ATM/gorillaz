@@ -145,19 +145,26 @@ var LazyBroadcast = func(p *ProviderConfig) {
 
 // Submit pushes the event to all subscribers
 func (p *StreamProvider) Submit(evt *stream.Event) {
-	metadata, err := stream.ContextToMetadata(evt.Ctx)
+	streamEvent := &stream.StreamEvent{
+		Metadata:&stream.Metadata{
+			KeyValue: make(map[string]string),
+		},
+	}
+	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata)
 	if err != nil {
 		Log.Error("error while creating Metadata from event.Context", zap.Error(err))
 	}
-	streamEvent := &stream.StreamEvent{
-		Key:      evt.Key,
-		Value:    evt.Value,
-		Metadata: metadata,
-	}
+	streamEvent.Key = evt.Key
+	streamEvent.Value = evt.Value
+
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
 	b, err := streamEvent.Marshal()
+	if err != nil {
+		Log.Error("error while marshaling stream.StreamEvent, cannot send event", zap.Error(err))
+		return
+	}
 	p.broadcaster.SubmitBlocking(b)
 }
 
@@ -177,7 +184,7 @@ func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamSe
 		evt := val.([]byte)
 		err := strm.(grpc.ServerStream).SendMsg(evt)
 		if err != nil {
-			Log.Info("consumer disconnected", zap.Error(err))
+			Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName))
 			broadcaster.Unregister(streamCh)
 			break
 		}
@@ -234,16 +241,16 @@ func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_St
 
 // binaryCodec takes the received binary data and directly returns it, without serializing it with proto.
 // the main reason to use this is in case of 100s of subscribers, encode the data only once and just forward it without re-encoding it for each subscriber
-type binaryCodec struct {}
+type binaryCodec struct{}
 
 // Marshal returns the wire format of v.
-func (c *binaryCodec) Marshal(v interface{}) ([]byte, error){
+func (c *binaryCodec) Marshal(v interface{}) ([]byte, error) {
 	var encoded = v.([]byte)
 	return encoded, nil
 }
 
 // Unmarshal parses the wire format into v.
-func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error{
+func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
 	evt := v.(*stream.StreamRequest)
 	return evt.Unmarshal(data)
 }

@@ -23,7 +23,7 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 	return nil
 }
 
-func MetadataToContext(metadata *Metadata) context.Context {
+func MetadataToContext(metadata Metadata) context.Context {
 	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
 	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
 	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
@@ -44,7 +44,7 @@ func MetadataToContext(metadata *Metadata) context.Context {
 }
 
 // contextToMetadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
-func ContextToMetadata(ctx context.Context) (*Metadata, error) {
+func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
 	streamTs := time.Now().UnixNano()
 	var eventTs int64
 	var originStreamTs int64
@@ -60,12 +60,11 @@ func ContextToMetadata(ctx context.Context) (*Metadata, error) {
 	if originStreamTs == 0 {
 		originStreamTs = streamTs
 	}
-
-	metadata := &Metadata{
-		EventTimestamp:        eventTs,
-		OriginStreamTimestamp: originStreamTs,
-		StreamTimestamp:       streamTs,
-		KeyValue:              make(map[string]string),
+	metadata.EventTimestamp = eventTs
+	metadata.OriginStreamTimestamp = originStreamTs
+	metadata.StreamTimestamp = streamTs
+	for key := range metadata.KeyValue{
+		delete(metadata.KeyValue, key)
 	}
 
 	var sp opentracing.Span
@@ -79,5 +78,5 @@ func ContextToMetadata(ctx context.Context) (*Metadata, error) {
 	if err != nil {
 		err = fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)
 	}
-	return metadata, err
+	return err
 }
