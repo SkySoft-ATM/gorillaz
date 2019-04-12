@@ -7,8 +7,10 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"net"
 	"net/http"
+	"time"
 )
 
 var initialized = false
@@ -41,7 +43,15 @@ func New(context map[string]interface{}) *Gaz {
 		gaz.InitTracingFromConfig()
 	}
 
-	gaz.grpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}))
+	// necessary to avoid weird 'transport closing' errors
+	// see https://github.com/grpc/grpc-go/issues/2443
+	// see https://github.com/grpc/grpc-go/issues/2160
+	// https://stackoverflow.com/questions/52993259/problem-with-grpc-setup-getting-an-intermittent-rpc-unavailable-error/54703234#54703234
+	keepalive := grpc.KeepaliveParams(keepalive.ServerParameters{
+		MaxConnectionIdle: 1 * time.Minute,
+	})
+
+	gaz.grpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}), keepalive)
 	gaz.streamRegistry = &streamRegistry{
 		providers: make(map[string]*StreamProvider),
 	}
