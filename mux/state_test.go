@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"sync"
 	"testing"
 	"time"
 )
@@ -10,25 +11,21 @@ import (
 const blockingConsumerName = "blocking"
 
 // this function will consume the given amount of messages and block
-func consumeAndBlockState(t *testing.T, amountToConsume int, channel <-chan interface{}, blocking chan bool) {
+func slowConsumer(t *testing.T, channel <-chan interface{}, wg *sync.WaitGroup) {
 	go func() {
-		for i := 0; i < amountToConsume; i++ {
+		for {
 			<-channel
+			wg.Done()
+			time.Sleep(10 * time.Millisecond)
 		}
-		fmt.Println("consumeAndBlock is now blocking")
-		blocking <- true
 	}()
 }
 
-func consumeState(t *testing.T, channel <-chan interface{}, numberOfMessages int, finished chan bool) {
+func consumeState(t *testing.T, channel <-chan interface{}, wg *sync.WaitGroup) {
 	go func(c <-chan interface{}) {
-		i := 0
 		for {
 			<-c
-			i++
-			if i == numberOfMessages {
-				finished <- true
-			}
+			wg.Done()
 		}
 	}(channel)
 }
@@ -37,11 +34,21 @@ var keyExtractor = func(f interface{}) interface{} {
 	return f.(string)[0]
 }
 
+func countDownOnBackpressure(consumerName string, consumer chan string, wg *sync.WaitGroup) func(config *ConsumerConfig) error {
+	return func(config *ConsumerConfig) error {
+		config.OnBackpressure(func(value interface{}) {
+			fmt.Println("on back pressure " + consumerName)
+			consumer <- consumerName
+			wg.Done()
+		})
+		return nil
+	}
+}
+
 func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	const numberOfStateMessagesSent = 20
 	var blockingClientChan = make(chan string, numberOfStateMessagesSent)
 	var nonBlockingClientChan = make(chan string, numberOfStateMessagesSent)
-	var finished = make(chan bool, 2)
 
 	b, err := NewNonBlockingStateBroadcaster(50, 0)
 
@@ -49,21 +56,24 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 		t.Fail()
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(2 * numberOfStateMessagesSent)
 	blockingChan := make(chan interface{}, 10)
-	consumeAndBlockState(t, 5, blockingChan, finished)
+	slowConsumer(t, blockingChan, &wg)
 
 	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent)
-	consumeState(t, nonBlockingChan, numberOfStateMessagesSent, finished)
+	consumeState(t, nonBlockingChan, &wg)
 
-	b.Register(blockingChan, backpressureOptionForConsumer(blockingConsumerName, blockingClientChan))
-	b.Register(nonBlockingChan, backpressureOptionForConsumer("non-blocking", nonBlockingClientChan))
+	b.Register(blockingChan, countDownOnBackpressure(blockingConsumerName, blockingClientChan, &wg))
+	b.Register(nonBlockingChan, countDownOnBackpressure("non-blocking", nonBlockingClientChan, &wg))
 
 	for i := 0; i < numberOfStateMessagesSent; i++ {
 		b.Submit("key", fmt.Sprintf("value %d", i))
 	}
 
-	<-finished
-	<-finished
+	fmt.Println("Waiting for all messages to be consumed")
+	wg.Wait()
+	fmt.Println("Waiting for all messages to be consumed --> DONE")
 	close(blockingClientChan)
 
 	fmt.Println("counting the number of times backpressure was invoked ")
@@ -73,7 +83,7 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 		assert.Equal(t, blockingConsumerName, bc)
 		backpressureCount++
 	}
-	assert.True(t, backpressureCount >= 5) // since it has a small buffer, the blocking consumer might be blocking even before it starts to sleep
+	assert.True(t, backpressureCount >= 1) // since it has a small buffer, the blocking consumer might be blocking even before it starts to sleep
 	t.Log(fmt.Sprintf("backpressure count = %d", backpressureCount))
 }
 
