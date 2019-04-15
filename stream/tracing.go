@@ -27,7 +27,7 @@ func MetadataToContext(metadata Metadata) context.Context {
 	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
 	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
 	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
-	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
+	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, &metadata)
 	op := "gorillaz.stream.received"
 	var span opentracing.Span
 
@@ -63,7 +63,7 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
 	metadata.EventTimestamp = eventTs
 	metadata.OriginStreamTimestamp = originStreamTs
 	metadata.StreamTimestamp = streamTs
-	for key := range metadata.KeyValue{
+	for key := range metadata.KeyValue {
 		delete(metadata.KeyValue, key)
 	}
 

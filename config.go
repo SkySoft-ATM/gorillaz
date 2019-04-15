@@ -77,7 +77,7 @@ func parseConfiguration(context map[string]interface{}) {
 
 	flag.String("log.level", "", "Log level")
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
-	flag.Bool("healthcheck.enabled", false, "Healthcheck enabled")
+	flag.Bool("healthcheck.enabled", true, "Healthcheck enabled")
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
 	flag.Int("pprof.port", 8081, "pprof port")
 	flag.String("prometheus.endpoint", "/metrics", "Prometheus endpoint")
