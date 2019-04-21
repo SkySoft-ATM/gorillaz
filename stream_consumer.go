@@ -223,7 +223,7 @@ func (c *Consumer) run() {
 
 	var monitoringHolder = consumerMonitoring(c.StreamName, c.endpoints)
 
-	var streamClient stream.Stream_StreamClient
+	var streamClient *streamWrapper
 	var err error
 	var connAttempt uint64
 
@@ -260,6 +260,10 @@ connect:
 			if !firstEvent && c.config.onDisconnected != nil {
 				c.config.onDisconnected(c.StreamName)
 			}
+			if cerr := streamClient.conn.Close(); cerr != nil {
+				Log.Warn("Error while closing connection", zap.String("stream", c.StreamName), zap.Error(cerr))
+			}
+
 			goto connect
 		}
 
@@ -298,7 +302,7 @@ connect:
 	}
 }
 
-func (c *Consumer) initConn() (stream.Stream_StreamClient, error) {
+func (c *Consumer) initConn() (*streamWrapper, error) {
 	mu.RLock()
 	//TODO : make grpc.WithInsecure an option
 	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})))
@@ -314,20 +318,32 @@ func (c *Consumer) initConn() (stream.Stream_StreamClient, error) {
 		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 	}
 	callOpts = append(callOpts)
-	return client.Stream(context.Background(), req, callOpts...)
+	st, err := client.Stream(context.Background(), req, callOpts...)
+	if err != nil {
+		if cerr := conn.Close(); cerr != nil {
+			Log.Warn("Error while closing connection", zap.String("stream", c.StreamName), zap.Error(cerr))
+		}
+		return nil, err
+	}
+	wrapper := streamWrapper{st, conn}
+	return &wrapper, nil
 }
 
+type streamWrapper struct {
+	stream.Stream_StreamClient
+	conn *grpc.ClientConn
+}
 
-type gogoCodec struct {}
+type gogoCodec struct{}
 
 // Marshal returns the wire format of v.
-func (c *gogoCodec) Marshal(v interface{}) ([]byte, error){
+func (c *gogoCodec) Marshal(v interface{}) ([]byte, error) {
 	var req = v.(*stream.StreamRequest)
 	return req.Marshal()
 }
 
 // Unmarshal parses the wire format into v.
-func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error{
+func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error {
 	evt := v.(*stream.StreamEvent)
 	return evt.Unmarshal(data)
 }

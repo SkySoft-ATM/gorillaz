@@ -146,7 +146,7 @@ var LazyBroadcast = func(p *ProviderConfig) {
 // Submit pushes the event to all subscribers
 func (p *StreamProvider) Submit(evt *stream.Event) {
 	streamEvent := &stream.StreamEvent{
-		Metadata:&stream.Metadata{
+		Metadata: &stream.Metadata{
 			KeyValue: make(map[string]string),
 		},
 	}
@@ -180,13 +180,24 @@ func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamSe
 		return nil
 	})
 
-	for val := range streamCh {
-		evt := val.([]byte)
-		err := strm.(grpc.ServerStream).SendMsg(evt)
-		if err != nil {
-			Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName))
+forloop:
+	for {
+		select {
+		case val, ok := <-streamCh:
+			if !ok {
+				break forloop //channel closed
+			}
+			evt := val.([]byte)
+			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
+				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName))
+				broadcaster.Unregister(streamCh)
+				break forloop
+			}
+		case _ = <-strm.Context().Done():
+			Log.Info("consumer disconnected", zap.String("stream", streamName))
 			broadcaster.Unregister(streamCh)
-			break
+			break forloop
+
 		}
 	}
 	p.metrics.clientCounter.Dec()
