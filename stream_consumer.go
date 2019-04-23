@@ -148,8 +148,8 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				if se.conn.GetState() == connectivity.Ready {
 					//weird, let's wait before recreating the stream
 					time.Sleep(5 * time.Second)
-					continue
 				}
+				continue
 			}
 			if config.onConnected != nil {
 				config.onConnected(streamName)
