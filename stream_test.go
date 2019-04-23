@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-var g *Gaz
-
 func newGaz() (gaz *Gaz, addr string, shutdown func()) {
 	return newGazOnAddr(":0")
 }
@@ -49,11 +47,14 @@ func TestStreamLazy(t *testing.T) {
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 	provider.Submit(&stream.Event{Value: []byte("value2")})
 
-	consumer, err := NewStreamConsumer("stream", IPEndpoint, []string{addr})
+	endpoint, err := NewStreamEndpoint(IPEndpoint, []string{addr})
 	if err != nil {
 		t.Errorf("cannot start consumer, %+v", err)
 		return
 	}
+
+	consumer := endpoint.ConsumeStream("stream")
+
 	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
 	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value2")})
 }
@@ -204,11 +205,13 @@ func createConsumer(t *testing.T, streamName string, endpoint string) *Consumer 
 		}
 	}
 
-	consumer, err := NewStreamConsumer(streamName, IPEndpoint, []string{endpoint}, opt)
+	streamEndpoint, err := NewStreamEndpoint(IPEndpoint, []string{endpoint})
 	if err != nil {
 		t.Errorf("cannot create consumer for stream %s,, %+v", streamName, err)
 		t.FailNow()
 	}
+
+	consumer := streamEndpoint.ConsumeStream(streamName, opt)
 
 	select {
 	case <-connected:

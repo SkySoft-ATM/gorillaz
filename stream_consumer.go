@@ -8,11 +8,13 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer/roundrobin"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
+	"google.golang.org/grpc/status"
 	"math"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,48 +24,51 @@ var mu sync.RWMutex
 var authority string
 
 type ConsumerConfig struct {
-	BufferLen         int                                     // BufferLen is the size of the channel of the consumer
-	onConnectionRetry func(streamName string, retryNb uint64) // onConnectionRetry is called before trying to reconnect to a stream provider
-	onConnected       func(streamName string)
-	onDisconnected    func(streamName string)
-	UseGzip           bool
+	BufferLen      int // BufferLen is the size of the channel of the consumer
+	onConnected    func(streamName string)
+	onDisconnected func(streamName string)
+	UseGzip        bool
+}
+
+type StreamEndpointConfig struct {
+	backoffMaxDelay time.Duration
 }
 
 type Consumer struct {
 	StreamName string
 	EvtChan    chan *stream.Event
-	target     string
-	endpoints  []string
 	config     *ConsumerConfig
+}
+
+type StreamEndpoint struct {
+	target    string
+	endpoints []string
+	config    *StreamEndpointConfig
+	conn      *grpc.ClientConn
 }
 
 func defaultConsumerConfig() *ConsumerConfig {
 	return &ConsumerConfig{
 		BufferLen: 256,
-		onConnectionRetry: func(streamName string, attemptNb uint64) {
-			wait := time.Second * 0
-			switch attemptNb {
-			case 0:
-				// just try to connect directly on the first attempt
-				break
-			case 1:
-				wait = time.Second * 1
-			case 2:
-				wait = time.Second * 2
-			case 3:
-				wait = time.Second * 3
-			default:
-				wait = time.Second * 5
-			}
-			if wait > 0 {
-				Log.Info("waiting before making another connection attempt", zap.String("streamName", streamName), zap.Int("wait_sec", int(wait.Seconds())))
-				time.Sleep(wait)
-			}
-		},
 	}
 }
 
+func defaultStreamEndpointConfig() *StreamEndpointConfig {
+	return &StreamEndpointConfig{
+		backoffMaxDelay: 5 * time.Second,
+	}
+}
+
+func BackoffMaxDelay(duration time.Duration) StreamEndpointConfigOpt {
+	return func(config *StreamEndpointConfig) {
+		config.backoffMaxDelay = duration
+	}
+
+}
+
 type ConsumerConfigOpt func(*ConsumerConfig)
+
+type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
@@ -72,7 +77,7 @@ const (
 	IPEndpoint
 )
 
-func NewStreamConsumer(streamName string, endpointType EndpointType, endpoints []string, opts ...ConsumerConfigOpt) (*Consumer, error) {
+func NewStreamEndpoint(endpointType EndpointType, endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
 	// TODO: hacky hack to create a resolver to use with round robin
 	mu.Lock()
 	r, _ := manual.GenerateAndRegisterManualResolver()
@@ -85,56 +90,165 @@ func NewStreamConsumer(streamName string, endpointType EndpointType, endpoints [
 	r.InitialAddrs(addresses)
 	target := r.Scheme() + ":///stream"
 
+	config := defaultStreamEndpointConfig()
+	for _, opt := range opts {
+		opt(config)
+	}
+	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
+		grpc.WithBackoffMaxDelay(config.backoffMaxDelay))
+	if err != nil {
+		return nil, err
+	}
+	endpoint := &StreamEndpoint{
+		config:    config,
+		endpoints: endpoints,
+		target:    target,
+		conn:      conn,
+	}
+
+	return endpoint, nil
+}
+
+func (se *StreamEndpoint) Close() error {
+	return se.conn.Close()
+}
+
+func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) *Consumer {
+
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)
 	}
 
 	ch := make(chan *stream.Event, config.BufferLen)
-	consumer := &Consumer{
+	c := &Consumer{
 		StreamName: streamName,
 		EvtChan:    ch,
 		config:     config,
-		endpoints:  endpoints,
-		target:     target,
 	}
+
+	var monitoringHolder = consumerMonitoring(streamName, se.endpoints)
+
 	go func() {
-		consumer.run()
+		for se.conn.GetState() != connectivity.Shutdown {
+			waitTillReadyOrShutdown(se)
+			if se.conn.GetState() == connectivity.Shutdown {
+				break
+			}
+
+			client := stream.NewStreamClient(se.conn)
+			req := &stream.StreamRequest{Name: streamName}
+
+			var callOpts []grpc.CallOption
+			if config.UseGzip {
+				callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
+			}
+			st, err := client.Stream(context.Background(), req, callOpts...)
+			if err != nil {
+				Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
+				continue
+			}
+			if config.onConnected != nil {
+				config.onConnected(streamName)
+			}
+
+			// at this point, the GRPC connection is established with the server
+			for {
+				monitoringHolder.conGauge.Set(1)
+				streamEvt, err := st.Recv()
+
+				if err != nil {
+					Log.Warn("received error on stream", zap.String("stream", c.StreamName), zap.Error(err))
+					if e, ok := status.FromError(err); ok {
+						switch e.Code() {
+						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
+							codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
+							time.Sleep(5 * time.Second)
+						}
+					}
+					break
+				}
+
+				Log.Debug("event received", zap.String("stream", streamName))
+				monitorDelays(monitoringHolder, streamEvt)
+
+				evt := &stream.Event{
+					Key:   streamEvt.Key,
+					Value: streamEvt.Value,
+					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+				}
+				c.EvtChan <- evt
+			}
+			monitoringHolder.conGauge.Set(0)
+			if config.onDisconnected != nil {
+				config.onDisconnected(streamName)
+			}
+
+		}
+		Log.Info("Stream closed", zap.String("stream", c.StreamName))
+		close(c.EvtChan)
+
 	}()
-	return consumer, nil
+	return c
 }
 
-// SetDNSAddr be used to define the DNS server to use for DNS endpoint type, in format "IP:PORT"
-func SetDNSAddr(addr string) {
-	mu.Lock()
-	defer mu.Unlock()
-	authority = addr
-}
-
-func grpcTarget(endpointType EndpointType, endpoints []string) string {
-	switch endpointType {
-	case IPEndpoint:
-		// TODO: hacky hack to create a resolver for list of IP addresses
-		mu.Lock()
-		r, _ := manual.GenerateAndRegisterManualResolver()
-		mu.Unlock()
-
-		addresses := make([]resolver.Address, len(endpoints))
-		for i := 0; i < len(endpoints); i++ {
-			addresses[i] = resolver.Address{Addr: endpoints[i]}
-		}
-		r.InitialAddrs(addresses)
-		return r.Scheme() + ":///stream"
-	case DNSEndpoint:
-		if len(endpoints) != 1 {
-			panic("DNS Grpc endpointType expect only 1 endpoint address, but got " + strconv.Itoa(len(endpoints)))
-		}
-		return "dns://" + authority + "/" + endpoints[0]
-	default:
-		panic("unknown Grpc EndpointType " + strconv.Itoa(int(endpointType)))
+func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.StreamEvent) {
+	monitoringHolder.receivedCounter.Inc()
+	nowMs := float64(time.Now().UnixNano()) / 1000000.0
+	streamTimestamp := streamEvt.Metadata.StreamTimestamp
+	if streamTimestamp > 0 {
+		// convert from ns to ms
+		monitoringHolder.delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
 	}
-	return ""
+	eventTimestamp := streamEvt.Metadata.EventTimestamp
+	if eventTimestamp > 0 {
+		monitoringHolder.eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
+	}
+	originTimestamp := streamEvt.Metadata.OriginStreamTimestamp
+	if originTimestamp > 0 {
+		monitoringHolder.originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
+	}
 }
+
+func waitTillReadyOrShutdown(se *StreamEndpoint) {
+	for state := se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
+		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints))
+		se.conn.WaitForStateChange(context.Background(), state)
+	}
+}
+
+//// SetDNSAddr be used to define the DNS server to use for DNS endpoint type, in format "IP:PORT"
+//func SetDNSAddr(addr string) {
+//	mu.Lock()
+//	defer mu.Unlock()
+//	authority = addr
+//}
+//
+//func grpcTarget(endpointType EndpointType, endpoints []string) string {
+//	switch endpointType {
+//	case IPEndpoint:
+//		// TODO: hacky hack to create a resolver for list of IP addresses
+//		mu.Lock()
+//		r, _ := manual.GenerateAndRegisterManualResolver()
+//		mu.Unlock()
+//
+//		addresses := make([]resolver.Address, len(endpoints))
+//		for i := 0; i < len(endpoints); i++ {
+//			addresses[i] = resolver.Address{Addr: endpoints[i]}
+//		}
+//		r.InitialAddrs(addresses)
+//		return r.Scheme() + ":///stream"
+//	case DNSEndpoint:
+//		if len(endpoints) != 1 {
+//			panic("DNS Grpc endpointType expect only 1 endpoint address, but got " + strconv.Itoa(len(endpoints)))
+//		}
+//		return "dns://" + authority + "/" + endpoints[0]
+//	default:
+//		panic("unknown Grpc EndpointType " + strconv.Itoa(int(endpointType)))
+//	}
+//	return ""
+//}
 
 type consumerMonitoringHolder struct {
 	receivedCounter    prometheus.Counter
@@ -219,115 +333,16 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 	return m
 }
 
-func (c *Consumer) run() {
-
-	var monitoringHolder = consumerMonitoring(c.StreamName, c.endpoints)
-
-	var streamClient stream.Stream_StreamClient
-	var err error
-	var connAttempt uint64
-
-connect:
-	for {
-		// if it's not the first connection attempt, call onConnectionRetry
-		if connAttempt != 0 {
-			c.config.onConnectionRetry(c.StreamName, connAttempt)
-		}
-		monitoringHolder.conGauge.Set(0)
-		Log.Info("trying to connect to stream", zap.String("stream", c.StreamName), zap.Uint64("attempt_number", connAttempt))
-		streamClient, err = c.initConn()
-		connAttempt++
-		monitoringHolder.conCounter.Inc()
-
-		if err == nil {
-			Log.Info("successful connection attempt to stream", zap.String("stream", c.StreamName))
-			if c.config.onConnected != nil {
-				c.config.onConnected(c.StreamName)
-			}
-			break
-		} else {
-			Log.Error("connection attempt to stream failed", zap.String("stream", c.StreamName), zap.Error(err))
-		}
-	}
-
-	// at this point, the GRPC connection is established with the server
-	firstEvent := true
-	for {
-		streamEvt, err := streamClient.Recv()
-
-		if err != nil {
-			Log.Error("stream is unavailable", zap.String("stream", c.StreamName), zap.Error(err))
-			if !firstEvent && c.config.onDisconnected != nil {
-				c.config.onDisconnected(c.StreamName)
-			}
-			goto connect
-		}
-
-		// if first event received successfully, set the status to connected.
-		// we need to do it here because setting up a GRPC connection is not enough, the server can still return us an error
-		if firstEvent {
-			firstEvent = false
-			connAttempt = 0
-			monitoringHolder.conGauge.Set(1)
-		}
-
-		Log.Debug("event received", zap.String("stream", c.StreamName))
-		monitoringHolder.receivedCounter.Inc()
-		evt := &stream.Event{
-			Key:   streamEvt.Key,
-			Value: streamEvt.Value,
-			Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
-		}
-
-		nowMs := float64(time.Now().UnixNano()) / 1000000.0
-
-		streamTimestamp := streamEvt.Metadata.StreamTimestamp
-		if streamTimestamp > 0 {
-			// convert from ns to ms
-			monitoringHolder.delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
-		}
-		eventTimestamp := streamEvt.Metadata.EventTimestamp
-		if eventTimestamp > 0 {
-			monitoringHolder.eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
-		}
-		originTimestamp := streamEvt.Metadata.OriginStreamTimestamp
-		if originTimestamp > 0 {
-			monitoringHolder.originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
-		}
-		c.EvtChan <- evt
-	}
-}
-
-func (c *Consumer) initConn() (stream.Stream_StreamClient, error) {
-	mu.RLock()
-	//TODO : make grpc.WithInsecure an option
-	conn, err := grpc.Dial(c.target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})))
-	mu.RUnlock()
-	if err != nil {
-		return nil, err
-	}
-	client := stream.NewStreamClient(conn)
-	req := &stream.StreamRequest{Name: c.StreamName}
-
-	var callOpts []grpc.CallOption
-	if c.config.UseGzip {
-		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
-	}
-	callOpts = append(callOpts)
-	return client.Stream(context.Background(), req, callOpts...)
-}
-
-
-type gogoCodec struct {}
+type gogoCodec struct{}
 
 // Marshal returns the wire format of v.
-func (c *gogoCodec) Marshal(v interface{}) ([]byte, error){
+func (c *gogoCodec) Marshal(v interface{}) ([]byte, error) {
 	var req = v.(*stream.StreamRequest)
 	return req.Marshal()
 }
 
 // Unmarshal parses the wire format into v.
-func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error{
+func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error {
 	evt := v.(*stream.StreamEvent)
 	return evt.Unmarshal(data)
 }

@@ -95,10 +95,13 @@ Consumer:
 g := gorillaz.New(nil)
 g.Run()
 
-consumer, err := g.NewStreamConsumer("myNiceStream", gaz.IPEndpoint, strings.Split("localhost:8080", ","))
+endpoint, err := gaz.NewStreamEndpoint(gaz.IPEndpoint, strings.Split("localhost:8080", ","))
+
 if err != nil {
     panic(err)
 }
+
+consumer := endpoint.ConsumeStream(streamName)
 
 
 for evt := range consumer.EvtChan {
