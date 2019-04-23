@@ -30,10 +30,13 @@ func main() {
 	var worstLatency int64
 	var totalLatency int64
 
-	consumer, err := gaz.NewStreamConsumer(streamName, gaz.IPEndpoint, strings.Split(endpoints, ","))
+	endpoint, err := gaz.NewStreamEndpoint(gaz.IPEndpoint, strings.Split(endpoints, ","))
+
 	if err != nil {
 		panic(err)
 	}
+
+	consumer := endpoint.ConsumeStream(streamName)
 
 	fmt.Println("client created")
 

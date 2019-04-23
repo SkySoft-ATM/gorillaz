@@ -39,10 +39,13 @@ func main() {
 		config.UseGzip = true
 	}
 
-	consumer, err := gaz.NewStreamConsumer(streamName, gaz.IPEndpoint, strings.Split(endpoints, ","), opt)
+	endpoint, err := gaz.NewStreamEndpoint(gaz.IPEndpoint, strings.Split(endpoints, ","))
+
 	if err != nil {
 		panic(err)
 	}
+
+	consumer := endpoint.ConsumeStream(streamName, opt)
 
 	fmt.Println("client created")
 
