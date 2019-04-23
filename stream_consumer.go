@@ -132,7 +132,10 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 
 	go func() {
 		for se.conn.GetState() != connectivity.Shutdown {
-			waitTillReady(se)
+			waitTillReadyOrShutdown(se)
+			if se.conn.GetState() == connectivity.Shutdown {
+				break
+			}
 
 			client := stream.NewStreamClient(se.conn)
 			req := &stream.StreamRequest{Name: streamName}
@@ -141,14 +144,9 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 			if config.UseGzip {
 				callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 			}
-			callOpts = append(callOpts)
 			st, err := client.Stream(context.Background(), req, callOpts...)
 			if err != nil {
 				Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
-				if se.conn.GetState() == connectivity.Ready {
-					//weird, let's wait before recreating the stream
-					time.Sleep(5 * time.Second)
-				}
 				continue
 			}
 			if config.onConnected != nil {
@@ -156,33 +154,22 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 			}
 
 			// at this point, the GRPC connection is established with the server
-			firstEvent := true
 			for {
+				monitoringHolder.conGauge.Set(1)
 				streamEvt, err := st.Recv()
 
 				if err != nil {
 					Log.Warn("received error on stream", zap.String("stream", c.StreamName), zap.Error(err))
 					if e, ok := status.FromError(err); ok {
 						switch e.Code() {
-						case codes.PermissionDenied:
-						case codes.ResourceExhausted:
-						case codes.Unavailable:
-						case codes.Unimplemented:
-						case codes.NotFound:
-						case codes.Unauthenticated:
-						case codes.Unknown: // stream name probably does not exists
+						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
+							codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
 							time.Sleep(5 * time.Second)
 						}
 					}
 					break
 				}
 
-				// if first event received successfully, set the status to connected.
-				// we need to do it here because setting up a GRPC connection is not enough, the server can still return us an error
-				if firstEvent {
-					firstEvent = false
-					monitoringHolder.conGauge.Set(1)
-				}
 				Log.Debug("event received", zap.String("stream", streamName))
 				monitorDelays(monitoringHolder, streamEvt)
 
@@ -224,8 +211,8 @@ func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.
 	}
 }
 
-func waitTillReady(se *StreamEndpoint) {
-	for state := se.conn.GetState(); state != connectivity.Ready; state = se.conn.GetState() {
+func waitTillReadyOrShutdown(se *StreamEndpoint) {
+	for state := se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
 		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints))
 		se.conn.WaitForStateChange(context.Background(), state)
 	}
