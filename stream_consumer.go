@@ -132,7 +132,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 
 	go func() {
 		for se.conn.GetState() != connectivity.Shutdown {
-			waitTillReadyOrShutdown(se)
+			waitTillReadyOrShutdown(streamName, se)
 			if se.conn.GetState() == connectivity.Shutdown {
 				break
 			}
@@ -151,6 +151,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 			}
 			if config.onConnected != nil {
 				config.onConnected(streamName)
+				Log.Debug("Stream connected", zap.String("streamName", streamName))
 			}
 
 			// at this point, the GRPC connection is established with the server
@@ -211,9 +212,9 @@ func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.
 	}
 }
 
-func waitTillReadyOrShutdown(se *StreamEndpoint) {
+func waitTillReadyOrShutdown(streamName string, se *StreamEndpoint) {
 	for state := se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
-		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints))
+		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
 		se.conn.WaitForStateChange(context.Background(), state)
 	}
 }
