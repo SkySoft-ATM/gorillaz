@@ -195,7 +195,7 @@ func createConsumer(t *testing.T, streamName string, endpoint string) *Consumer 
 	connected := make(chan bool, 1)
 
 	opt := func(config *ConsumerConfig) {
-		config.onConnected = func(string) {
+		config.OnConnected = func(string) {
 			select {
 			case connected <- true:
 				// ok
