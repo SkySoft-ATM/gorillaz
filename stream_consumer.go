@@ -25,8 +25,8 @@ var authority string
 
 type ConsumerConfig struct {
 	BufferLen      int // BufferLen is the size of the channel of the consumer
-	onConnected    func(streamName string)
-	onDisconnected func(streamName string)
+	OnConnected    func(streamName string)
+	OnDisconnected func(streamName string)
 	UseGzip        bool
 }
 
@@ -149,8 +149,8 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
 				continue
 			}
-			if config.onConnected != nil {
-				config.onConnected(streamName)
+			if config.OnConnected != nil {
+				config.OnConnected(streamName)
 				Log.Debug("Stream connected", zap.String("streamName", streamName))
 			}
 
@@ -182,8 +182,8 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				c.EvtChan <- evt
 			}
 			monitoringHolder.conGauge.Set(0)
-			if config.onDisconnected != nil {
-				config.onDisconnected(streamName)
+			if config.OnDisconnected != nil {
+				config.OnDisconnected(streamName)
 			}
 
 		}
@@ -213,10 +213,18 @@ func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.
 }
 
 func waitTillReadyOrShutdown(streamName string, se *StreamEndpoint) {
-	for state := se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
+	var state connectivity.State
+	for state = se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
 		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
 		se.conn.WaitForStateChange(context.Background(), state)
 	}
+	if state == connectivity.Ready {
+		Log.Debug("Stream endpoint is ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
+	}
+	if state == connectivity.Shutdown {
+		Log.Debug("Stream endpoint is in shutdown state", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
+	}
+
 }
 
 //// SetDNSAddr be used to define the DNS server to use for DNS endpoint type, in format "IP:PORT"
