@@ -94,7 +94,7 @@ func NewStreamEndpoint(endpointType EndpointType, endpoints []string, opts ...St
 	for _, opt := range opts {
 		opt(config)
 	}
-	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name), grpc.WithInsecure(),
+	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
 		grpc.WithBackoffMaxDelay(config.backoffMaxDelay))
 	if err != nil {
