@@ -9,6 +9,7 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"sync"
 )
 
@@ -39,6 +40,7 @@ func (g *Gaz) NewStreamProvider(streamName string, opts ...ProviderConfigOpt) (*
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(streamName),
+		gaz:         g,
 	}
 	g.streamRegistry.register(streamName, p)
 
@@ -61,6 +63,7 @@ type StreamProvider struct {
 	config      *ProviderConfig
 	broadcaster *mux.Broadcaster
 	metrics     providerMetricsHolder
+	gaz         *Gaz
 }
 
 var pMetricHolderMu sync.Mutex
@@ -203,6 +206,10 @@ forloop:
 	p.metrics.clientCounter.Dec()
 }
 
+func (p *StreamProvider) CloseStream() error {
+	return p.gaz.CloseStream(p.streamName)
+}
+
 func (p *StreamProvider) close() {
 	p.broadcaster.Close()
 }
@@ -222,7 +229,7 @@ func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
 func (r *streamRegistry) register(streamName string, p *StreamProvider) {
 	r.Lock()
 	if _, found := r.providers[streamName]; found {
-		panic("cannot register 2 providers with the same streamName")
+		panic("cannot register 2 providers with the same streamName: " + streamName)
 	}
 	r.providers[streamName] = p
 	r.Unlock()
@@ -245,6 +252,13 @@ func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_St
 	if !ok {
 		Log.Error("unknown stream %s", zap.String("stream", streamName))
 		return fmt.Errorf("unknown stream %s", streamName)
+	}
+	// we need to send some data because right now it is the only way to check on the client side if the stream connection is really established
+	header := metadata.Pairs("name", streamName)
+	err := strm.SendHeader(header)
+	if err != nil {
+		Log.Error("client might be disconnected %s", zap.Error(err))
+		return nil
 	}
 	provider.sendLoop(streamName, strm)
 	return nil
