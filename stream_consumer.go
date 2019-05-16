@@ -149,37 +149,46 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
 				continue
 			}
-			if config.OnConnected != nil {
-				config.OnConnected(streamName)
+
+			//without this hack we do not know if the stream is really connected
+			mds, err := st.Header()
+			if err == nil && mds != nil {
+
+				if config.OnConnected != nil {
+					config.OnConnected(streamName)
+				}
 				Log.Debug("Stream connected", zap.String("streamName", streamName))
-			}
 
-			// at this point, the GRPC connection is established with the server
-			for {
-				monitoringHolder.conGauge.Set(1)
-				streamEvt, err := st.Recv()
+				// at this point, the GRPC connection is established with the server
+				for {
+					monitoringHolder.conGauge.Set(1)
+					streamEvt, err := st.Recv()
 
-				if err != nil {
-					Log.Warn("received error on stream", zap.String("stream", c.StreamName), zap.Error(err))
-					if e, ok := status.FromError(err); ok {
-						switch e.Code() {
-						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
-							codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
-							time.Sleep(5 * time.Second)
+					if err != nil {
+						Log.Warn("received error on stream", zap.String("stream", c.StreamName), zap.Error(err))
+						if e, ok := status.FromError(err); ok {
+							switch e.Code() {
+							case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
+								codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
+								time.Sleep(5 * time.Second)
+							}
 						}
+						break
 					}
-					break
-				}
 
-				Log.Debug("event received", zap.String("stream", streamName))
-				monitorDelays(monitoringHolder, streamEvt)
+					Log.Debug("event received", zap.String("stream", streamName))
+					monitorDelays(monitoringHolder, streamEvt)
 
-				evt := &stream.Event{
-					Key:   streamEvt.Key,
-					Value: streamEvt.Value,
-					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+					evt := &stream.Event{
+						Key:   streamEvt.Key,
+						Value: streamEvt.Value,
+						Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+					}
+					c.EvtChan <- evt
 				}
-				c.EvtChan <- evt
+			} else {
+				Log.Warn("Stream created but not connected", zap.String("stream", streamName))
+				time.Sleep(5 * time.Second)
 			}
 			monitoringHolder.conGauge.Set(0)
 			if config.OnDisconnected != nil {
