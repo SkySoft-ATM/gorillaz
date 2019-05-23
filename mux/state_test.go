@@ -215,7 +215,7 @@ func TestStateCleared(t *testing.T) {
 	assert.Equal(t, 1, len(result))
 	assert.Contains(t, result, "A1")
 
-	b.clearState()
+	b.ClearState()
 	b.Register(chan2)
 	result2 := consumeAvailableMessages(chan2)
 
