@@ -82,7 +82,7 @@ func (b *StateBroadcaster) Delete(k interface{}) {
 }
 
 // Deletes all entries from the state
-func (b *StateBroadcaster) clearState() {
+func (b *StateBroadcaster) ClearState() {
 	if b != nil {
 		b.delete <- clearAllValues
 	}
