@@ -11,7 +11,7 @@ import (
 const blockingConsumerName = "blocking"
 
 // this function will consume the given amount of messages and block
-func slowConsumer(t *testing.T, channel <-chan interface{}, wg *sync.WaitGroup) {
+func slowConsumer(channel <-chan interface{}, wg *sync.WaitGroup) {
 	go func() {
 		for {
 			<-channel
@@ -21,7 +21,7 @@ func slowConsumer(t *testing.T, channel <-chan interface{}, wg *sync.WaitGroup) 
 	}()
 }
 
-func consumeState(t *testing.T, channel <-chan interface{}, wg *sync.WaitGroup) {
+func consumeState(channel <-chan interface{}, wg *sync.WaitGroup) {
 	go func(c <-chan interface{}) {
 		for {
 			<-c
@@ -59,10 +59,10 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2 * numberOfStateMessagesSent)
 	blockingChan := make(chan interface{}, 10)
-	slowConsumer(t, blockingChan, &wg)
+	slowConsumer(blockingChan, &wg)
 
 	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent)
-	consumeState(t, nonBlockingChan, &wg)
+	consumeState(nonBlockingChan, &wg)
 
 	b.Register(blockingChan, countDownOnBackpressure(blockingConsumerName, blockingClientChan, &wg))
 	b.Register(nonBlockingChan, countDownOnBackpressure("non-blocking", nonBlockingClientChan, &wg))
@@ -169,5 +169,56 @@ func TestTtl(t *testing.T) {
 	result2 := consumeAvailableMessages(chan2)
 
 	assert.Equal(t, 0, len(result2)) // state has expired
+
+}
+
+func TestDelete(t *testing.T) {
+
+	b, _ := NewNonBlockingStateBroadcaster(50, 0)
+
+	chan1 := make(chan interface{}, 20)
+	chan2 := make(chan interface{}, 20)
+
+	b.Submit("A", "A1")
+	b.Submit("B", "B1")
+	time.Sleep(50 * time.Millisecond)
+
+	b.Register(chan1)
+	result := consumeAvailableMessages(chan1)
+
+	assert.Equal(t, 2, len(result))
+	assert.Contains(t, result, "A1")
+	assert.Contains(t, result, "B1")
+
+	b.Delete("A")
+	b.Register(chan2)
+	result2 := consumeAvailableMessages(chan2)
+
+	assert.Equal(t, 1, len(result2))
+	assert.Contains(t, result, "B1")
+
+}
+
+func TestStateCleared(t *testing.T) {
+
+	b, _ := NewNonBlockingStateBroadcaster(50, 0)
+
+	chan1 := make(chan interface{}, 20)
+	chan2 := make(chan interface{}, 20)
+
+	b.Submit("A", "A1")
+	time.Sleep(50 * time.Millisecond)
+
+	b.Register(chan1)
+	result := consumeAvailableMessages(chan1)
+
+	assert.Equal(t, 1, len(result))
+	assert.Contains(t, result, "A1")
+
+	b.clearState()
+	b.Register(chan2)
+	result2 := consumeAvailableMessages(chan2)
+
+	assert.Equal(t, 0, len(result2))
 
 }
