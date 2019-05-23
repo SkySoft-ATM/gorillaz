@@ -24,6 +24,10 @@ type keyValue struct {
 	value interface{}
 }
 
+type clearAll string
+
+const clearAllValues clearAll = "ALL"
+
 type StateBroadcaster struct {
 	input   chan keyValue
 	delete  chan interface{}
@@ -77,6 +81,13 @@ func (b *StateBroadcaster) Delete(k interface{}) {
 	}
 }
 
+// Deletes all entries from the state
+func (b *StateBroadcaster) clearState() {
+	if b != nil {
+		b.delete <- clearAllValues
+	}
+}
+
 func (b *StateBroadcaster) broadcast(m interface{}) {
 	for ch := range b.outputs {
 		select {
@@ -92,7 +103,6 @@ func (b *StateBroadcaster) broadcast(m interface{}) {
 	}
 }
 
-// onBackPressureState can be nil
 func (b *StateBroadcaster) run(ttl time.Duration) {
 	var ticker time.Ticker
 	if ttl > 0 {
@@ -107,7 +117,11 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				}
 			}
 		case k := <-b.delete:
-			delete(b.state, k)
+			if _, isClearAll := k.(clearAll); isClearAll {
+				b.state = make(map[interface{}]ttlValue)
+			} else {
+				delete(b.state, k)
+			}
 		case r, ok := <-b.reg:
 			if ok {
 				b.outputs[r.consumer.channel] = r.consumer.config
@@ -147,11 +161,12 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 }
 
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
-// onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
+// ttl defines a time to live for values sent to the state broadcaster, 0 means no expiry
 func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) (*StateBroadcaster, error) {
 	b := &StateBroadcaster{
 		input:             make(chan keyValue, bufLen),
 		reg:               make(chan registration),
+		delete:            make(chan interface{}),
 		unreg:             make(chan unregistration),
 		outputs:           make(map[chan<- interface{}]ConsumerConfig),
 		state:             make(map[interface{}]ttlValue),
