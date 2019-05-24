@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"google.golang.org/grpc/status"
@@ -94,9 +95,14 @@ func NewStreamEndpoint(endpointType EndpointType, endpoints []string, opts ...St
 	for _, opt := range opts {
 		opt(config)
 	}
+	ka := grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time:                15 * time.Second,
+		PermitWithoutStream: true,
+	})
+
 	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
-		grpc.WithBackoffMaxDelay(config.backoffMaxDelay))
+		grpc.WithBackoffMaxDelay(config.backoffMaxDelay), ka)
 	if err != nil {
 		return nil, err
 	}
