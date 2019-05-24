@@ -47,11 +47,17 @@ func New(context map[string]interface{}) *Gaz {
 	// see https://github.com/grpc/grpc-go/issues/2443
 	// see https://github.com/grpc/grpc-go/issues/2160
 	// https://stackoverflow.com/questions/52993259/problem-with-grpc-setup-getting-an-intermittent-rpc-unavailable-error/54703234#54703234
-	keepalive := grpc.KeepaliveParams(keepalive.ServerParameters{
+	ka := grpc.KeepaliveParams(keepalive.ServerParameters{
 		MaxConnectionIdle: 1 * time.Minute,
+		Time:              20 * time.Second, // ping client connection every 20 seconds
 	})
 
-	gaz.grpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}), keepalive)
+	keepalivePolicy := grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+		MinTime:             10 * time.Second, // Allow the client to send ping every 10 seconds max
+		PermitWithoutStream: true,             // Allow the client to send pings when no streams are created
+	})
+
+	gaz.grpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}), ka, keepalivePolicy)
 	gaz.streamRegistry = &streamRegistry{
 		providers: make(map[string]*StreamProvider),
 	}
