@@ -88,7 +88,13 @@ func NewStreamEndpoint(endpointType EndpointType, endpoints []string, opts ...St
 	for i := 0; i < len(endpoints); i++ {
 		addresses[i] = resolver.Address{Addr: endpoints[i]}
 	}
-	r.InitialAddrs(addresses)
+
+	var resolvedAddrs []resolver.Address
+	for _, endpoint := range endpoints {
+		resolvedAddrs = append(resolvedAddrs, resolver.Address{Addr: endpoint})
+	}
+	r.InitialState(resolver.State{Addresses: resolvedAddrs})
+
 	target := r.Scheme() + ":///stream"
 
 	config := defaultStreamEndpointConfig()
