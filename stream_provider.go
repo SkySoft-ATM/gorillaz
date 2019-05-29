@@ -1,6 +1,7 @@
 package gorillaz
 
 import (
+	"context"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -10,6 +11,8 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
+	"net"
 	"sync"
 )
 
@@ -171,7 +174,7 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.broadcaster.SubmitBlocking(b)
 }
 
-func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamServer) {
+func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamServer, peer string) {
 	p.metrics.clientCounter.Inc()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
@@ -192,12 +195,12 @@ forloop:
 			}
 			evt := val.([]byte)
 			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
-				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName))
+				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer))
 				broadcaster.Unregister(streamCh)
 				break forloop
 			}
 		case _ = <-strm.Context().Done():
-			Log.Info("consumer disconnected", zap.String("stream", streamName))
+			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer))
 			broadcaster.Unregister(streamCh)
 			break forloop
 
@@ -244,24 +247,36 @@ func (r *streamRegistry) unregister(streamName string) {
 // Stream implements streaming.proto Stream.
 // should not be called by the client
 func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_StreamServer) error {
-	Log.Info("new stream consumer", zap.String("stream", req.Name))
+	peer := GetGrpcClientAddress(strm.Context())
+	Log.Info("new stream consumer", zap.String("stream", req.Name), zap.String("peer", peer))
 	streamName := req.Name
 	r.RLock()
 	provider, ok := r.providers[req.Name]
 	r.RUnlock()
 	if !ok {
-		Log.Error("unknown stream %s", zap.String("stream", streamName))
+		Log.Error("unknown stream %s", zap.String("stream", streamName), zap.String("peer", peer))
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
 	// we need to send some data because right now it is the only way to check on the client side if the stream connection is really established
 	header := metadata.Pairs("name", streamName)
 	err := strm.SendHeader(header)
 	if err != nil {
-		Log.Error("client might be disconnected %s", zap.Error(err))
+		Log.Error("client might be disconnected %s", zap.Error(err), zap.String("peer", peer))
 		return nil
 	}
-	provider.sendLoop(streamName, strm)
+	provider.sendLoop(streamName, strm, peer)
 	return nil
+}
+
+func GetGrpcClientAddress(ctx context.Context) string {
+	pr, ok := peer.FromContext(ctx)
+	if !ok {
+		return "no peer in context"
+	}
+	if pr.Addr == net.Addr(nil) {
+		return "no address found"
+	}
+	return pr.Addr.String()
 }
 
 // binaryCodec takes the received binary data and directly returns it, without serializing it with proto.

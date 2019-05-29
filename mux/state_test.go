@@ -11,7 +11,7 @@ import (
 const blockingConsumerName = "blocking"
 
 // this function will consume the given amount of messages and block
-func slowConsumer(channel <-chan interface{}, wg *sync.WaitGroup) {
+func slowConsumer(channel chan *StateUpdate, wg *sync.WaitGroup) {
 	go func() {
 		for {
 			<-channel
@@ -21,8 +21,8 @@ func slowConsumer(channel <-chan interface{}, wg *sync.WaitGroup) {
 	}()
 }
 
-func consumeState(channel <-chan interface{}, wg *sync.WaitGroup) {
-	go func(c <-chan interface{}) {
+func consumeState(channel <-chan *StateUpdate, wg *sync.WaitGroup) {
+	go func(c <-chan *StateUpdate) {
 		for {
 			<-c
 			wg.Done()
@@ -58,10 +58,10 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(2 * numberOfStateMessagesSent)
-	blockingChan := make(chan interface{}, 10)
+	blockingChan := make(chan *StateUpdate, 10)
 	slowConsumer(blockingChan, &wg)
 
-	nonBlockingChan := make(chan interface{}, numberOfStateMessagesSent)
+	nonBlockingChan := make(chan *StateUpdate, numberOfStateMessagesSent)
 	consumeState(nonBlockingChan, &wg)
 
 	b.Register(blockingChan, countDownOnBackpressure(blockingConsumerName, blockingClientChan, &wg))
@@ -91,8 +91,8 @@ func TestFullStateSentToSubscriber(t *testing.T) {
 
 	b, _ := NewNonBlockingStateBroadcaster(50, 0)
 
-	chan1 := make(chan interface{}, 20)
-	chan2 := make(chan interface{}, 20)
+	chan1 := make(chan *StateUpdate, 20)
+	chan2 := make(chan *StateUpdate, 20)
 
 	b.Submit("A", "A1")
 	b.Submit("A", "A2")
@@ -107,35 +107,35 @@ func TestFullStateSentToSubscriber(t *testing.T) {
 	result := consumeAvailableMessages(chan1)
 
 	assert.Equal(t, 3, len(result))
-	assert.Contains(t, result, "A3")
-	assert.Contains(t, result, "B2")
-	assert.Contains(t, result, "C1")
+	assert.Contains(t, result, &StateUpdate{InitialState, "A3"})
+	assert.Contains(t, result, &StateUpdate{InitialState, "B2"})
+	assert.Contains(t, result, &StateUpdate{InitialState, "C1"})
 
 	b.Submit("C", "C2")
-	assert.Equal(t, "C2", <-chan1)
+	assert.Equal(t, &StateUpdate{Update, "C2"}, <-chan1)
 
 	b.Register(chan2)
 
 	result2 := consumeAvailableMessages(chan2)
 
 	assert.Equal(t, 3, len(result2))
-	assert.Contains(t, result2, "A3")
-	assert.Contains(t, result2, "B2")
-	assert.Contains(t, result2, "C2")
+	assert.Contains(t, result2, &StateUpdate{InitialState, "A3"})
+	assert.Contains(t, result2, &StateUpdate{InitialState, "B2"})
+	assert.Contains(t, result2, &StateUpdate{InitialState, "C2"})
 
 	b.Submit("B", "B3")
-	assert.Equal(t, "B3", <-chan1)
-	assert.Equal(t, "B3", <-chan2)
+	assert.Equal(t, &StateUpdate{Update, "B3"}, <-chan1)
+	assert.Equal(t, &StateUpdate{Update, "B3"}, <-chan2)
 
 }
 
-func consumeAvailableMessages(input chan interface{}) []string {
-	result := make([]string, 0, 10)
+func consumeAvailableMessages(input chan *StateUpdate) []*StateUpdate {
+	result := make([]*StateUpdate, 0, 10)
 loop:
 	for {
 		select {
 		case i := <-input:
-			result = append(result, i.(string))
+			result = append(result, i)
 		default:
 			break loop
 		}
@@ -146,8 +146,8 @@ loop:
 func TestTtl(t *testing.T) {
 	b, _ := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond)
 
-	chan1 := make(chan interface{}, 20)
-	chan2 := make(chan interface{}, 20)
+	chan1 := make(chan *StateUpdate, 20)
+	chan2 := make(chan *StateUpdate, 20)
 
 	b.Register(chan1)
 
@@ -160,9 +160,9 @@ func TestTtl(t *testing.T) {
 	result := consumeAvailableMessages(chan1)
 
 	assert.Equal(t, 3, len(result))
-	assert.Contains(t, result, "A1")
-	assert.Contains(t, result, "A2")
-	assert.Contains(t, result, "B1")
+	assert.Contains(t, result, &StateUpdate{Update, "A1"})
+	assert.Contains(t, result, &StateUpdate{Update, "A2"})
+	assert.Contains(t, result, &StateUpdate{Update, "B1"})
 
 	b.Register(chan2)
 
@@ -176,8 +176,8 @@ func TestDelete(t *testing.T) {
 
 	b, _ := NewNonBlockingStateBroadcaster(50, 0)
 
-	chan1 := make(chan interface{}, 20)
-	chan2 := make(chan interface{}, 20)
+	chan1 := make(chan *StateUpdate, 20)
+	chan2 := make(chan *StateUpdate, 20)
 
 	b.Submit("A", "A1")
 	b.Submit("B", "B1")
@@ -187,15 +187,19 @@ func TestDelete(t *testing.T) {
 	result := consumeAvailableMessages(chan1)
 
 	assert.Equal(t, 2, len(result))
-	assert.Contains(t, result, "A1")
-	assert.Contains(t, result, "B1")
+	assert.Contains(t, result, &StateUpdate{InitialState, "A1"})
+	assert.Contains(t, result, &StateUpdate{InitialState, "B1"})
 
 	b.Delete("A")
+	time.Sleep(50 * time.Millisecond)
+	result = consumeAvailableMessages(chan1)
+	assert.Equal(t, 1, len(result))
+	assert.Contains(t, result, &StateUpdate{Delete, "A"})
 	b.Register(chan2)
 	result2 := consumeAvailableMessages(chan2)
 
 	assert.Equal(t, 1, len(result2))
-	assert.Contains(t, result, "B1")
+	assert.Contains(t, result2, &StateUpdate{InitialState, "B1"})
 
 }
 
@@ -203,8 +207,8 @@ func TestStateCleared(t *testing.T) {
 
 	b, _ := NewNonBlockingStateBroadcaster(50, 0)
 
-	chan1 := make(chan interface{}, 20)
-	chan2 := make(chan interface{}, 20)
+	chan1 := make(chan *StateUpdate, 20)
+	chan2 := make(chan *StateUpdate, 20)
 
 	b.Submit("A", "A1")
 	time.Sleep(50 * time.Millisecond)
@@ -213,7 +217,7 @@ func TestStateCleared(t *testing.T) {
 	result := consumeAvailableMessages(chan1)
 
 	assert.Equal(t, 1, len(result))
-	assert.Contains(t, result, "A1")
+	assert.Contains(t, result, &StateUpdate{InitialState, "A1"})
 
 	b.ClearState()
 	b.Register(chan2)

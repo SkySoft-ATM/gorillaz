@@ -24,6 +24,8 @@ type keyValue struct {
 	value interface{}
 }
 
+type StateUpdateChan chan<- *StateUpdate
+
 type clearAll string
 
 const clearAllValues clearAll = "ALL"
@@ -31,15 +33,32 @@ const clearAllValues clearAll = "ALL"
 type StateBroadcaster struct {
 	input   chan keyValue
 	delete  chan interface{}
-	reg     chan registration
-	unreg   chan unregistration
-	outputs map[chan<- interface{}]ConsumerConfig
+	reg     chan stateRegistration
+	unreg   chan stateUnregistration
+	outputs map[StateUpdateChan]ConsumerConfig
 	state   map[interface{}]ttlValue
 	*BroadcasterConfig
 }
 
+type UpdateType int
+
+const (
+	Update UpdateType = iota
+	InitialState
+	Delete
+)
+
+type StateUpdate struct {
+	UpdateType UpdateType
+	Value      interface{}
+}
+
+func (su *StateUpdate) IsDelete() bool {
+	return su.UpdateType == Delete
+}
+
 // Register a new channel to receive broadcasts
-func (b *StateBroadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) error {
+func (b *StateBroadcaster) Register(newch StateUpdateChan, options ...ConsumerOptionFunc) error {
 	done := make(chan bool)
 	config := &ConsumerConfig{}
 	for _, option := range options {
@@ -47,15 +66,30 @@ func (b *StateBroadcaster) Register(newch chan<- interface{}, options ...Consume
 			return err
 		}
 	}
-	b.reg <- registration{consumer{*config, newch}, done}
+	b.reg <- stateRegistration{stateConsumer{*config, newch}, done}
 	<-done
 	return nil
 }
 
+type stateRegistration struct {
+	consumer stateConsumer
+	done     chan<- bool
+}
+
+type stateUnregistration struct {
+	channel StateUpdateChan
+	done    chan<- bool
+}
+
+type stateConsumer struct {
+	config  ConsumerConfig
+	channel StateUpdateChan
+}
+
 // Unregister a channel so that it no longer receives broadcasts.
-func (b *StateBroadcaster) Unregister(newch chan<- interface{}) {
+func (b *StateBroadcaster) Unregister(newch StateUpdateChan) {
 	done := make(chan bool)
-	b.unreg <- unregistration{newch, done}
+	b.unreg <- stateUnregistration{newch, done}
 	<-done
 }
 
@@ -88,7 +122,7 @@ func (b *StateBroadcaster) ClearState() {
 	}
 }
 
-func (b *StateBroadcaster) broadcast(m interface{}) {
+func (b *StateBroadcaster) broadcast(m *StateUpdate) {
 	for ch := range b.outputs {
 		select {
 		case ch <- m:
@@ -118,16 +152,20 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 			}
 		case k := <-b.delete:
 			if _, isClearAll := k.(clearAll); isClearAll {
+				for k := range b.state {
+					b.broadcast(&StateUpdate{Delete, k})
+				}
 				b.state = make(map[interface{}]ttlValue)
 			} else {
 				delete(b.state, k)
+				b.broadcast(&StateUpdate{Delete, k})
 			}
 		case r, ok := <-b.reg:
 			if ok {
 				b.outputs[r.consumer.channel] = r.consumer.config
 				for _, v := range b.state {
 					select {
-					case r.consumer.channel <- v.value:
+					case r.consumer.channel <- &StateUpdate{InitialState, v.value}:
 					//sent
 					default:
 						if r.consumer.config.onBackpressure != nil {
@@ -154,8 +192,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				expiresAt = time.Now().Add(ttl)
 			}
 			b.state[key] = ttlValue{expiresAt: expiresAt, value: m.value}
-			b.broadcast(m.value)
-
+			b.broadcast(&StateUpdate{Update, m.value})
 		}
 	}
 }
@@ -165,10 +202,10 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) (*StateBroadcaster, error) {
 	b := &StateBroadcaster{
 		input:             make(chan keyValue, bufLen),
-		reg:               make(chan registration),
+		reg:               make(chan stateRegistration),
 		delete:            make(chan interface{}),
-		unreg:             make(chan unregistration),
-		outputs:           make(map[chan<- interface{}]ConsumerConfig),
+		unreg:             make(chan stateUnregistration),
+		outputs:           make(map[StateUpdateChan]ConsumerConfig),
 		state:             make(map[interface{}]ttlValue),
 		BroadcasterConfig: &BroadcasterConfig{},
 	}
