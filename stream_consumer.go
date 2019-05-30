@@ -236,7 +236,7 @@ func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.
 func waitTillReadyOrShutdown(streamName string, se *StreamEndpoint) {
 	var state connectivity.State
 	for state = se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
-		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
+		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
 		se.conn.WaitForStateChange(context.Background(), state)
 	}
 	if state == connectivity.Ready {
