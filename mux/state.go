@@ -25,6 +25,12 @@ type keyValue struct {
 }
 
 type StateUpdateChan chan<- *StateUpdate
+type updateFunc func(interface{}) interface{}
+
+type update struct {
+	key        interface{}
+	updateFunc updateFunc
+}
 
 type clearAll string
 
@@ -37,6 +43,7 @@ type StateBroadcaster struct {
 	unreg   chan stateUnregistration
 	outputs map[StateUpdateChan]ConsumerConfig
 	state   map[interface{}]ttlValue
+	update  chan update
 	*BroadcasterConfig
 }
 
@@ -106,6 +113,12 @@ func (b *StateBroadcaster) Submit(k interface{}, v interface{}) error {
 		return nil
 	}
 	return fmt.Errorf("nil key")
+}
+
+func (b *StateBroadcaster) Update(key interface{}, uf func(interface{}) interface{}) {
+	if b != nil && uf != nil && key != nil {
+		b.update <- update{key, uf}
+	}
 }
 
 // Deletes the object associated with the given key from the state
@@ -193,6 +206,11 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 			}
 			b.state[key] = ttlValue{expiresAt: expiresAt, value: m.value}
 			b.broadcast(&StateUpdate{Update, m.value})
+		case u := <-b.update:
+			currentVal := b.state[u.key]
+			newVal := u.updateFunc(currentVal)
+			b.state[u.key] = ttlValue{expiresAt: currentVal.expiresAt, value: newVal}
+			b.broadcast(&StateUpdate{Update, newVal})
 		}
 	}
 }
@@ -207,6 +225,7 @@ func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...Br
 		unreg:             make(chan stateUnregistration),
 		outputs:           make(map[StateUpdateChan]ConsumerConfig),
 		state:             make(map[interface{}]ttlValue),
+		update:            make(chan update, bufLen),
 		BroadcasterConfig: &BroadcasterConfig{},
 	}
 	for _, option := range options {
