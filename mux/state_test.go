@@ -128,6 +128,7 @@ func TestFullStateSentToSubscriber(t *testing.T) {
 	assert.Equal(t, &StateUpdate{Update, "B3"}, <-chan2)
 
 	b.Update("B", func(i interface{}) interface{} {
+		assert.Equal(t, "B3", i.(string))
 		return "B5"
 	})
 	assert.Equal(t, &StateUpdate{Update, "B5"}, <-chan1)
