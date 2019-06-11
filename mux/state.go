@@ -208,7 +208,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 			b.broadcast(&StateUpdate{Update, m.value})
 		case u := <-b.update:
 			currentVal := b.state[u.key]
-			newVal := u.updateFunc(currentVal)
+			newVal := u.updateFunc(currentVal.value)
 			b.state[u.key] = ttlValue{expiresAt: currentVal.expiresAt, value: newVal}
 			b.broadcast(&StateUpdate{Update, newVal})
 		}
