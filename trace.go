@@ -7,7 +7,7 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
-	"github.com/openzipkin/zipkin-go-opentracing"
+	"github.com/skysoft-atm/zipkin-go-light-opentracing"
 	"go.uber.org/zap"
 )
 
