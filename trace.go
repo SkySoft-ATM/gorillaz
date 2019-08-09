@@ -17,8 +17,8 @@ const traceIdKey = "x-b3-traceid"
 const spanIdKey = "x-b3-spanid"
 
 type TracingConfig struct {
-	collectorUrl          string
-	tracingName           string
+	collectorUrl string
+	tracingName  string
 }
 
 // InitTracingFromConfig initializes either an HTTP connection to a Zipkin Collector
@@ -33,8 +33,8 @@ func (g *Gaz) InitTracingFromConfig() {
 
 	g.InitTracing(
 		TracingConfig{
-			collectorUrl:          collectorUrl,
-			tracingName:           tracingName,
+			collectorUrl: collectorUrl,
+			tracingName:  tracingName,
 		})
 }
 
@@ -48,11 +48,11 @@ func (g *Gaz) InitTracing(conf TracingConfig) {
 	var collector zipkintracer.Collector
 	var err error
 
-	// TODO: should we crash the service at start time if the Zipkin collector is not available?
+	// TODO: should we crash the service at updater time if the Zipkin collector is not available?
 	Log.Info("connecting to Zipkin collector", zap.String("url", conf.collectorUrl), zap.String("tracing name", conf.tracingName))
 	collector, err = zipkintracer.NewHTTPCollector(conf.collectorUrl)
 	if err != nil {
-		log.Fatal("cannot start connection to Zipkin collector endpoint", zap.Error(err))
+		log.Fatal("cannot updater connection to Zipkin collector endpoint", zap.Error(err))
 		panic(err)
 	}
 
@@ -63,7 +63,7 @@ func (g *Gaz) InitTracing(conf TracingConfig) {
 		zipkintracer.TraceID128Bit(true),
 	)
 	if err != nil {
-		log.Fatalf("Unable to start Zipkin tracer: %s", err)
+		log.Fatalf("Unable to updater Zipkin tracer: %s", err)
 		panic(err)
 	}
 	opentracing.SetGlobalTracer(tracer)

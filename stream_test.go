@@ -39,7 +39,7 @@ func TestStreamLazy(t *testing.T) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
-		t.Errorf("cannot start provider, %+v", err)
+		t.Errorf("cannot updater provider, %+v", err)
 		return
 	}
 
@@ -49,7 +49,7 @@ func TestStreamLazy(t *testing.T) {
 
 	endpoint, err := NewStreamEndpoint(IPEndpoint, []string{addr})
 	if err != nil {
-		t.Errorf("cannot start consumer, %+v", err)
+		t.Errorf("cannot updater consumer, %+v", err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func TestMultipleConsumers(t *testing.T) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
-		t.Errorf("cannot start provider, %+v", err)
+		t.Errorf("cannot updater provider, %+v", err)
 		return
 	}
 
@@ -146,7 +146,7 @@ func TestProducerReconnect(t *testing.T) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
-		t.Errorf("cannot start provider, %+v", err)
+		t.Errorf("cannot updater provider, %+v", err)
 		return
 	}
 
@@ -166,7 +166,7 @@ func TestProducerReconnect(t *testing.T) {
 	g, _, shutdown = newGazOnAddr(addr)
 	provider2, err := g.NewStreamProvider(streamName)
 	if err != nil {
-		t.Errorf("cannot start provider, %+v", err)
+		t.Errorf("cannot updater provider, %+v", err)
 		return
 	}
 
