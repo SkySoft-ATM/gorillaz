@@ -38,7 +38,9 @@ func parseProperties(reader io.Reader) map[string]string {
 
 		split := strings.Split(line, "=")
 		if len(split) < 2 {
-			log.Printf("WARN: cannot parse config line %s\n", line)
+			if len(line) > 0 {
+				log.Printf("WARN: cannot parse config line %s\n", line)
+			}
 			continue
 		}
 		m[split[0]] = split[1]
@@ -79,10 +81,10 @@ func parseConfiguration(context map[string]interface{}) {
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
 	flag.Bool("healthcheck.enabled", true, "Healthcheck enabled")
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
-	flag.Int("pprof.port", 8081, "pprof port")
+	flag.Int("pprof.port", 0, "pprof port")
 	flag.String("prometheus.endpoint", "/metrics", "Prometheus endpoint")
 	flag.Bool("prometheus.enabled", true, "Prometheus enabled")
-	flag.Int("http.port", 9000, "http port")
+	flag.Int("http.port", 0, "http port")
 
 	err := parsePropertyFileAndSetFlags(path.Join(conf, "application.properties"))
 	if err != nil {

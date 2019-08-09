@@ -1,6 +1,7 @@
 package gorillaz
 
 import (
+	"errors"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -16,12 +17,15 @@ import (
 var initialized = false
 
 type Gaz struct {
-	Router *mux.Router
+	Router          *mux.Router
+	ServiceRegistry ServiceRegistry
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady        *int32
 	isLive         *int32
 	grpcServer     *grpc.Server
 	streamRegistry *streamRegistry
+	httpListener   *net.Listener
+	httpPort       int
 }
 
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
@@ -63,6 +67,13 @@ func New(context map[string]interface{}) *Gaz {
 	}
 	stream.RegisterStreamServer(gaz.grpcServer, gaz.streamRegistry)
 
+	port := viper.GetInt("http.port")
+	httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		panic(err)
+	}
+	gaz.httpPort = httpListener.Addr().(*net.TCPAddr).Port
+	gaz.httpListener = &httpListener
 	return &gaz
 }
 
@@ -95,13 +106,26 @@ func (g Gaz) Run() {
 
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
-
-		port := viper.GetInt("http.port")
-		Sugar.Infof("Starting http server on port %d", port)
-		err := http.ListenAndServe(fmt.Sprintf(":%d", port), g.Router)
+		Sugar.Infof("Starting HTTP server on :%d", g.httpPort)
+		err := http.Serve(*g.httpListener, g.Router)
 		if err != nil {
-			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", port, err)
+			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", g.httpPort, err)
 			panic(err)
 		}
 	}()
+}
+
+func (g Gaz) Register(d *ServiceDefinition) (string, error) {
+	if g.ServiceRegistry == nil {
+		return "", errors.New("no service registry configured")
+	}
+	return g.ServiceRegistry.Register(d, g.httpPort)
+}
+
+func (g Gaz) DeRegister(serviceId string) error {
+	return g.ServiceRegistry.DeRegister(serviceId)
+}
+
+func (g Gaz) Resolve(serviceName string) ([]ServiceEndpoint, error) {
+	return g.ServiceRegistry.Resolve(serviceName)
 }
