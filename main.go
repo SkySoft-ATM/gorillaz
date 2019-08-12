@@ -29,7 +29,7 @@ type Gaz struct {
 	isLive         *int32
 	grpcServer     *grpc.Server
 	streamRegistry *streamRegistry
-	httpListener   *net.Listener
+	httpListener   net.Listener
 	httpPort       int
 	context        map[string]interface{}
 }
@@ -94,7 +94,7 @@ func New(options ...Option) *Gaz {
 		panic(err)
 	}
 	gaz.httpPort = httpListener.Addr().(*net.TCPAddr).Port
-	gaz.httpListener = &httpListener
+	gaz.httpListener = httpListener
 
 	Log.Info("Registering gorillaz gRPC resolver")
 	resolver.Register(&gorillazResolverBuilder{gaz: &gaz})
@@ -137,7 +137,7 @@ func (g *Gaz) Run() {
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
 		Sugar.Infof("Starting HTTP server on :%d", g.httpPort)
-		err := http.Serve(*g.httpListener, g.Router)
+		err := http.Serve(g.httpListener, g.Router)
 		if err != nil {
 			Sugar.Errorf("Cannot updater HTTP server on :%d, %+v", g.httpPort, err)
 			panic(err)
