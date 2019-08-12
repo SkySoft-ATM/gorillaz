@@ -9,29 +9,28 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer/roundrobin"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/resolver"
 	"net"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 )
 
 var initialized = false
 
 type Gaz struct {
-	Router             *mux.Router
-	ServiceDiscovery   ServiceDiscovery
-	StreamProviderPort int
+	Router           *mux.Router
+	ServiceDiscovery ServiceDiscovery
+	GrpcServer       *grpc.Server
+	ServiceName      string
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady        *int32
 	isLive         *int32
-	grpcServer     *grpc.Server
 	streamRegistry *streamRegistry
-	httpListener   net.Listener
-	httpPort       int
 	context        map[string]interface{}
+	grpcListener   net.Listener
 }
 
 type Option func(*Gaz) error
@@ -68,6 +67,12 @@ func New(options ...Option) *Gaz {
 		gaz.InitTracingFromConfig()
 	}
 
+	serviceName := viper.GetString("service.name")
+	if serviceName == "" {
+		panic(errors.New("please provide a service name with the \"service.name\" configuration key"))
+	}
+	gaz.ServiceName = serviceName
+
 	// necessary to avoid weird 'transport closing' errors
 	// see https://github.com/grpc/grpc-go/issues/2443
 	// see https://github.com/grpc/grpc-go/issues/2160
@@ -82,45 +87,38 @@ func New(options ...Option) *Gaz {
 		PermitWithoutStream: true,             // Allow the client to send pings when no streams are created
 	})
 
-	gaz.grpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}), ka, keepalivePolicy)
+	gaz.GrpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}), ka, keepalivePolicy)
 	gaz.streamRegistry = &streamRegistry{
-		providers: make(map[string]*StreamProvider),
+		providers:  make(map[string]*StreamProvider),
+		serviceIds: make(map[string]string),
 	}
-	stream.RegisterStreamServer(gaz.grpcServer, gaz.streamRegistry)
+	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
 
-	port := viper.GetInt("http.port")
-	httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		panic(err)
-	}
-	gaz.httpPort = httpListener.Addr().(*net.TCPAddr).Port
-	gaz.httpListener = httpListener
+	Log.Info("Registering gRPC health server")
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("Stream", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(gaz.GrpcServer, healthServer)
 
 	Log.Info("Registering gorillaz gRPC resolver")
 	resolver.Register(&gorillazResolverBuilder{gaz: &gaz})
+
+	grpcPort := viper.GetInt("grpc.port")
+	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort))
+	if err != nil {
+		panic(err)
+	}
+	gaz.grpcListener = grpcListener
 
 	return &gaz
 }
 
 // Starts the router, once Run is launched, you should no longer add new handlers on the router
-func (g *Gaz) Run() {
-	streamPort := viper.GetInt("stream.provider.port")
+func (g Gaz) Run() {
 
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", streamPort))
-	if err != nil {
-		panic(err)
-	}
-	split := strings.Split(l.Addr().String(), ":")
-	port, err := strconv.Atoi(split[len(split)-1])
-	if err != nil {
-		panic(err)
-	}
-	Log.Info("Listening for streaming request on port", zap.Int("port", port))
-	g.StreamProviderPort = port
-	go g.grpcServer.Serve(l)
+	go g.serveGrpc()
 
 	go func() {
-		if health := viper.GetBool("healthcheck.enabled"); health {
+		if he := viper.GetBool("healthcheck.enabled"); he {
 			Sugar.Info("Activating health check")
 			g.InitHealthcheck()
 		}
@@ -136,27 +134,48 @@ func (g *Gaz) Run() {
 
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
-		Sugar.Infof("Starting HTTP server on :%d", g.httpPort)
-		err := http.Serve(g.httpListener, g.Router)
+		port := viper.GetInt("http.port")
+		httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
-			Sugar.Errorf("Cannot updater HTTP server on :%d, %+v", g.httpPort, err)
+			panic(err)
+		}
+		httpPort := httpListener.Addr().(*net.TCPAddr).Port
+		Sugar.Infof("Starting HTTP server on :%d", httpPort)
+		err = http.Serve(httpListener, g.Router)
+		if err != nil {
+			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", httpPort, err)
 			panic(err)
 		}
 	}()
+}
+
+func (g Gaz) serveGrpc() {
+	port := g.grpcListener.Addr().(*net.TCPAddr).Port
+	Log.Info("Starting gRPC server on port", zap.Int("port", port))
+
+	sid, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName, Port: port})
+	if err != nil {
+		panic(err)
+	}
+
+	defer g.DeRegister(sid)
+
+	err = g.GrpcServer.Serve(g.grpcListener)
+	Log.Warn("gRPC server stopper", zap.Error(err))
 }
 
 func (g Gaz) Register(d *ServiceDefinition) (string, error) {
 	if g.ServiceDiscovery == nil {
 		return "", errors.New("no service registry configured")
 	}
-	return g.ServiceDiscovery.Register(d, g.httpPort)
+	return g.ServiceDiscovery.Register(d)
 }
 
 func (g Gaz) DeRegister(serviceId string) error {
 	return g.ServiceDiscovery.DeRegister(serviceId)
 }
 
-func (g Gaz) Resolve(serviceName string) ([]ServiceEndpoint, error) {
+func (g Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
 	return g.ServiceDiscovery.Resolve(serviceName)
 }
 

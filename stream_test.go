@@ -15,19 +15,20 @@ func newGaz() (gaz *Gaz, addr string, shutdown func()) {
 
 func newGazOnAddr(conAddr string) (gaz *Gaz, addr string, shutdown func()) {
 	g := &Gaz{
-		grpcServer: grpc.NewServer(grpc.CustomCodec(&binaryCodec{})),
+		GrpcServer: grpc.NewServer(grpc.CustomCodec(&binaryCodec{})),
 		streamRegistry: &streamRegistry{
-			providers: make(map[string]*StreamProvider),
+			providers:  make(map[string]*StreamProvider),
+			serviceIds: make(map[string]string),
 		},
 	}
 	l, err := net.Listen("tcp", conAddr)
 	if err != nil {
 		panic(err)
 	}
-	stream.RegisterStreamServer(g.grpcServer, g.streamRegistry)
-	go g.grpcServer.Serve(l)
+	stream.RegisterStreamServer(g.GrpcServer, g.streamRegistry)
+	go g.GrpcServer.Serve(l)
 	return g, l.Addr().String(), func() {
-		g.grpcServer.Stop()
+		g.GrpcServer.Stop()
 	}
 }
 
@@ -39,7 +40,7 @@ func TestStreamLazy(t *testing.T) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
-		t.Errorf("cannot updater provider, %+v", err)
+		t.Errorf("cannot start provider, %+v", err)
 		return
 	}
 
@@ -49,7 +50,7 @@ func TestStreamLazy(t *testing.T) {
 
 	endpoint, err := NewStreamEndpoint(IPEndpoint, []string{addr})
 	if err != nil {
-		t.Errorf("cannot updater consumer, %+v", err)
+		t.Errorf("cannot start consumer, %+v", err)
 		return
 	}
 
@@ -112,7 +113,7 @@ func TestMultipleConsumers(t *testing.T) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
-		t.Errorf("cannot updater provider, %+v", err)
+		t.Errorf("cannot start provider, %+v", err)
 		return
 	}
 
@@ -146,7 +147,7 @@ func TestProducerReconnect(t *testing.T) {
 		conf.LazyBroadcast = true
 	})
 	if err != nil {
-		t.Errorf("cannot updater provider, %+v", err)
+		t.Errorf("cannot start provider, %+v", err)
 		return
 	}
 
@@ -166,7 +167,7 @@ func TestProducerReconnect(t *testing.T) {
 	g, _, shutdown = newGazOnAddr(addr)
 	provider2, err := g.NewStreamProvider(streamName)
 	if err != nil {
-		t.Errorf("cannot updater provider, %+v", err)
+		t.Errorf("cannot start provider, %+v", err)
 		return
 	}
 

@@ -10,31 +10,23 @@ import (
 	"time"
 )
 
+const SdPrefix = "sd://"
+
 type AgentServiceRegistrationOpt func(sd *api.AgentServiceRegistration)
 
 type ServiceDefinition struct {
-	ServiceName                    string
-	Addr                           string
-	Port                           int
-	Tags                           []string
-	Meta                           map[string]string
-	Opt                            AgentServiceRegistrationOpt
-	DeregisterCriticalServiceAfter time.Duration
-	CheckInterval                  time.Duration
-	CheckTimeout                   time.Duration
-}
-
-type ServiceEndpoint struct {
-	Addr string
-	Port int
-	Tags []string
-	Meta map[string]string
+	ServiceName string
+	Addr        string
+	Port        int
+	Tags        []string
+	Meta        map[string]string
 }
 
 type ServiceDiscovery interface {
-	Register(d *ServiceDefinition, httpPort int) (string, error)
+	Register(d *ServiceDefinition) (string, error)
 	DeRegister(serviceId string) error
-	Resolve(serviceName string) ([]ServiceEndpoint, error)
+	Resolve(serviceName string) ([]ServiceDefinition, error)
+	ResolveTags(tag string) (map[string][]ServiceDefinition, error)
 }
 
 // gorillazResolverBuilder is a
@@ -45,13 +37,14 @@ type gorillazResolverBuilder struct {
 
 func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOption) (resolver.Resolver, error) {
 	var result resolver.Resolver
-	if strings.HasPrefix(target.Endpoint, "sd://") {
+
+	if strings.HasPrefix(target.Endpoint, SdPrefix) {
 		if g.gaz.ServiceDiscovery == nil {
 			return nil, errors.New("service discovery not initialized in gorillaz")
 		}
 		r := &serviceDiscoveryResolver{
 			serviceDiscovery: g.gaz.ServiceDiscovery,
-			name:             strings.TrimPrefix(target.Endpoint, "sd://"),
+			name:             strings.TrimPrefix(target.Endpoint, SdPrefix),
 			cc:               cc,
 			tick:             time.NewTicker(1 * time.Second),
 		}
