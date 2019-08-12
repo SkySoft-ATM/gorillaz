@@ -26,25 +26,33 @@ type Gaz struct {
 	GrpcServer       *grpc.Server
 	ServiceName      string
 	// use int32 because sync.atomic package doesn't support boolean out of the box
-	isReady        *int32
-	isLive         *int32
-	streamRegistry *streamRegistry
-	context        map[string]interface{}
-	grpcListener   net.Listener
+	isReady           *int32
+	isLive            *int32
+	streamRegistry    *streamRegistry
+	grpcListener      net.Listener
+	grpcServerOptions []grpc.ServerOption
+	configPath        string
 }
 
 type Option func(*Gaz) error
 
-func WithContext(context map[string]interface{}) Option {
+func WithConfigPath(configPath string) Option {
 	return func(g *Gaz) error {
-		g.context = context
+		g.configPath = configPath
+		return nil
+	}
+}
+
+func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
+	return func(g *Gaz) error {
+		g.grpcServerOptions = o
 		return nil
 	}
 }
 
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
-func New(options ...Option) *Gaz {
+func New(options ...Option) Gaz {
 	if initialized {
 		panic("gorillaz is already initialized")
 	}
@@ -57,7 +65,7 @@ func New(options ...Option) *Gaz {
 		}
 	}
 
-	parseConfiguration(gaz.context)
+	parseConfiguration(gaz.configPath)
 	err := gaz.InitLogs(viper.GetString("log.level"))
 	if err != nil {
 		panic(err)
@@ -87,7 +95,16 @@ func New(options ...Option) *Gaz {
 		PermitWithoutStream: true,             // Allow the client to send pings when no streams are created
 	})
 
-	gaz.GrpcServer = grpc.NewServer(grpc.CustomCodec(&binaryCodec{}), ka, keepalivePolicy)
+	serverOptions := make([]grpc.ServerOption, 3+len(gaz.grpcServerOptions))
+	serverOptions[0] = grpc.CustomCodec(&binaryCodec{})
+	serverOptions[1] = ka
+	serverOptions[2] = keepalivePolicy
+
+	for i, o := range gaz.grpcServerOptions {
+		serverOptions[3+i] = o
+	}
+
+	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	gaz.streamRegistry = &streamRegistry{
 		providers:  make(map[string]*StreamProvider),
 		serviceIds: make(map[string]string),
@@ -109,7 +126,7 @@ func New(options ...Option) *Gaz {
 	}
 	gaz.grpcListener = grpcListener
 
-	return &gaz
+	return gaz
 }
 
 // Starts the router, once Run is launched, you should no longer add new handlers on the router

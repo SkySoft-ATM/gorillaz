@@ -73,9 +73,9 @@ func parsePropertyFileAndSetFlags(filename string) error {
 	return nil
 }
 
-func parseConfiguration(context map[string]interface{}) {
+func parseConfiguration(configPath string) {
 	// If parsing already done
-	conf := GetConfigPath(context)
+	conf := GetConfigPath(configPath)
 
 	flag.String("log.level", "", "Log level")
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
@@ -102,16 +102,11 @@ func parseConfiguration(context map[string]interface{}) {
 	if err != nil {
 		log.Fatalf("Unable to load configuration: %s", err)
 	}
-
-	for k, v := range context {
-		viper.Set(k, v)
-	}
 }
 
-func GetConfigPath(context map[string]interface{}) string {
-	if v, contains := context["conf"]; contains {
-		conf := v.(string)
-		return conf
+func GetConfigPath(configPath string) string {
+	if configPath != "" {
+		return configPath
 	}
 	if f := flag.Lookup("conf"); f != nil {
 		return f.Value.String()
