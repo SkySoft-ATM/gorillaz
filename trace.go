@@ -4,7 +4,7 @@ import (
 	"errors"
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
-	"github.com/openzipkin/zipkin-go-opentracing"
+	"github.com/skysoft-atm/zipkin-go-light-opentracing"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"log"
