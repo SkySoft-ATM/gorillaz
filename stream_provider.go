@@ -49,14 +49,14 @@ func (g Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConf
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(streamName),
-		gaz:         g,
+		gaz:         &g,
 	}
 	g.streamRegistry.register(streamName, dataType, p)
 
 	return p, nil
 }
 
-func (g *Gaz) CloseStream(streamName string) error {
+func (g Gaz) CloseStream(streamName string) error {
 	log.Info("closing stream", zap.String("stream", streamName))
 	provider, ok := g.streamRegistry.find(streamName)
 	if !ok {

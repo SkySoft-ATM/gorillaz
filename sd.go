@@ -3,7 +3,6 @@ package gorillaz
 import (
 	"errors"
 	"fmt"
-	"github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/resolver"
 	"strings"
@@ -11,8 +10,6 @@ import (
 )
 
 const SdPrefix = "sd://"
-
-type AgentServiceRegistrationOpt func(sd *api.AgentServiceRegistration)
 
 type ServiceDefinition struct {
 	ServiceName string
@@ -26,6 +23,7 @@ type ServiceDiscovery interface {
 	Register(d *ServiceDefinition) (string, error)
 	DeRegister(serviceId string) error
 	Resolve(serviceName string) ([]ServiceDefinition, error)
+	ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error)
 	ResolveTags(tag string) (map[string][]ServiceDefinition, error)
 }
 
@@ -47,6 +45,7 @@ func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 			name:             strings.TrimPrefix(target.Endpoint, SdPrefix),
 			cc:               cc,
 			tick:             time.NewTicker(1 * time.Second),
+			env:              g.gaz.Env,
 		}
 		go r.updater()
 
@@ -76,6 +75,7 @@ type serviceDiscoveryResolver struct {
 	name             string
 	cc               resolver.ClientConn
 	tick             *time.Ticker
+	env              string
 }
 
 func (r *serviceDiscoveryResolver) updater() {
@@ -90,7 +90,7 @@ func (r *serviceDiscoveryResolver) updater() {
 }
 
 func (r *serviceDiscoveryResolver) sendUpdate() {
-	endpoints, err := r.serviceDiscovery.Resolve(r.name)
+	endpoints, err := r.serviceDiscovery.ResolveWithTag(r.name, r.env)
 	if err != nil {
 		Log.Warn("Error while resolving ", zap.String("name", r.name), zap.Error(err))
 		return
@@ -119,3 +119,23 @@ func (r *gorillazDefaultResolver) start() {
 }
 func (*gorillazDefaultResolver) ResolveNow(o resolver.ResolveNowOption) {}
 func (*gorillazDefaultResolver) Close()                                 {}
+
+func (g Gaz) Register(d *ServiceDefinition) (string, error) {
+	if g.ServiceDiscovery == nil {
+		return "", errors.New("no service registry configured")
+	}
+	d.Tags = append(d.Tags, g.Env)
+	return g.ServiceDiscovery.Register(d)
+}
+
+func (g Gaz) DeRegister(serviceId string) error {
+	return g.ServiceDiscovery.DeRegister(serviceId)
+}
+
+func (g Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
+	return g.ServiceDiscovery.Resolve(serviceName)
+}
+
+func (g Gaz) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
+	return g.ServiceDiscovery.ResolveWithTag(serviceName, tag)
+}

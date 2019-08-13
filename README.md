@@ -7,6 +7,12 @@
 Setup your project config in configs/application.properties
 You can override values by passing flags on the command line.
 
+A service name and an environment must be provided in the configuration
+```
+service.name=testProducer
+env=uat
+```
+
 ### A web server
 A common we server is started for metrics and healthchecks.
 You can configure its port with this property:
@@ -121,9 +127,8 @@ stream.provider.port=9666
 ### Tracing
 
 Tracing is done through zipkin, it can be configured with these properties:
-```go
+```
 tracing.enabled=true
-tracing.service.name=testProducer
-tracing.collector.url=http://127.0.0.1:9411/api/v1/spans
+tracingCollectorUrl=http://127.0.0.1:9411/api/v1/spans
 ```
 

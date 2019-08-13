@@ -21,10 +21,12 @@ import (
 var initialized = false
 
 type Gaz struct {
-	Router           *mux.Router
-	ServiceDiscovery ServiceDiscovery
-	GrpcServer       *grpc.Server
-	ServiceName      string
+	Router            *mux.Router
+	ServiceDiscovery  ServiceDiscovery
+	GrpcServer        *grpc.Server
+	ServiceName       string
+	ViperRemoteConfig bool
+	Env               string
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady           *int32
 	isLive            *int32
@@ -65,6 +67,13 @@ func New(options ...Option) Gaz {
 		}
 	}
 
+	if gaz.ViperRemoteConfig {
+		err := viper.ReadRemoteConfig()
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	parseConfiguration(gaz.configPath)
 
 	serviceName := viper.GetString("service.name")
@@ -72,6 +81,12 @@ func New(options ...Option) Gaz {
 		panic(errors.New("please provide a service name with the \"service.name\" configuration key"))
 	}
 	gaz.ServiceName = serviceName
+
+	env := viper.GetString("env")
+	if env == "" {
+		panic(errors.New("please provide an environment with the \"env\" configuration key"))
+	}
+	gaz.Env = env
 
 	err := gaz.InitLogs(viper.GetString("log.level"))
 	if err != nil {
@@ -180,21 +195,6 @@ func (g Gaz) serveGrpc() {
 
 	err = g.GrpcServer.Serve(g.grpcListener)
 	Log.Warn("gRPC server stopper", zap.Error(err))
-}
-
-func (g Gaz) Register(d *ServiceDefinition) (string, error) {
-	if g.ServiceDiscovery == nil {
-		return "", errors.New("no service registry configured")
-	}
-	return g.ServiceDiscovery.Register(d)
-}
-
-func (g Gaz) DeRegister(serviceId string) error {
-	return g.ServiceDiscovery.DeRegister(serviceId)
-}
-
-func (g Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
-	return g.ServiceDiscovery.Resolve(serviceName)
 }
 
 func (g Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {

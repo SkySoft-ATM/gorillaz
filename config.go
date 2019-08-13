@@ -77,6 +77,7 @@ func parseConfiguration(configPath string) {
 	// If parsing already done
 	conf := GetConfigPath(configPath)
 
+	flag.String("env", "dev", "Environment")
 	flag.String("log.level", "", "Log level")
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
 	flag.Bool("healthcheck.enabled", true, "Healthcheck enabled")
@@ -97,10 +98,6 @@ func parseConfiguration(configPath string) {
 	err = viper.BindPFlags(pflag.CommandLine)
 	if err != nil {
 		log.Fatalf("unable to bind flags: %v", err)
-	}
-
-	if err != nil {
-		log.Fatalf("Unable to load configuration: %s", err)
 	}
 }
 

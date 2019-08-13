@@ -1,6 +1,7 @@
 package gorillaz
 
 import (
+	"errors"
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
 	"github.com/openzipkin/zipkin-go-opentracing"
@@ -24,14 +25,36 @@ type TracingConfig struct {
 // zipkin.collector.url
 func (g Gaz) InitTracingFromConfig() {
 	var collectorUrl string
-
-	collectorUrl = viper.GetString("tracing.collector.url")
+	if g.ServiceDiscovery != nil {
+		var err error
+		collectorUrl, err = g.resolveZipkinUrlFromServiceDiscovery()
+		if err != nil {
+			Log.Info("Error while resolving zipkin from service discovery", zap.Error(err))
+			collectorUrl = viper.GetString("tracing.collector.url")
+		} else if err != nil {
+			Log.Info("No zipkin instance found in service discovery")
+			collectorUrl = viper.GetString("tracing.collector.url")
+		}
+	} else {
+		collectorUrl = viper.GetString("tracing.collector.url")
+	}
 
 	g.InitTracing(
 		TracingConfig{
 			collectorUrl: collectorUrl,
 			tracingName:  g.ServiceName,
 		})
+}
+
+func (g Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
+	tracingEndpoints, err := g.ResolveWithTag("zipkin", g.Env)
+	if err != nil {
+		return "", err
+	}
+	if len(tracingEndpoints) == 0 {
+		return "", errors.New("No zipkin service found for env" + g.Env)
+	}
+	return tracingEndpoints[0].Meta["url"], nil
 }
 
 // InitTracing initializes connection to feed Zipkin
