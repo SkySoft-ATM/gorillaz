@@ -98,7 +98,6 @@ func (se *StreamEndpoint) Close() error {
 }
 
 func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) *Consumer {
-
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)

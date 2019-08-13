@@ -245,18 +245,20 @@ func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider
 
 	port := p.gaz.grpcListener.Addr().(*net.TCPAddr).Port
 
-	sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName, Port: port,
-		Tags: []string{StreamTag},
-		Meta: map[string]string{
-			StreamName:  streamName,
-			DataType:    dataType,
-			ServiceName: p.gaz.ServiceName,
-		},
-	})
-	if err != nil {
-		Log.Warn("Could not register stream on service discovery", zap.String("streamName", streamName))
+	if p.gaz.ServiceDiscovery != nil {
+		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName, Port: port,
+			Tags: []string{StreamTag},
+			Meta: map[string]string{
+				StreamName:  streamName,
+				DataType:    dataType,
+				ServiceName: p.gaz.ServiceName,
+			},
+		})
+		if err != nil {
+			Log.Warn("Could not register stream on service discovery", zap.String("streamName", streamName))
+		}
+		r.serviceIds[streamName] = sid
 	}
-	r.serviceIds[streamName] = sid
 	r.Unlock()
 }
 
@@ -265,10 +267,12 @@ func (r *streamRegistry) unregister(streamName string) {
 	p, ok := r.providers[streamName]
 	if ok {
 		delete(r.providers, streamName)
-		sid := r.serviceIds[streamName]
-		err := p.gaz.DeRegister(sid)
-		if err != nil {
-			Log.Warn("Could not deregister stream on service discovery", zap.String("streamName", streamName))
+		sid, ok := r.serviceIds[streamName]
+		if ok {
+			err := p.gaz.DeRegister(sid)
+			if err != nil {
+				Log.Warn("Could not deregister stream on service discovery", zap.String("streamName", streamName))
+			}
 		}
 	}
 	r.Unlock()
