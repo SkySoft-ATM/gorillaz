@@ -186,14 +186,15 @@ func (g Gaz) serveGrpc() {
 	port := g.grpcListener.Addr().(*net.TCPAddr).Port
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
-	sid, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName, Port: port})
-	if err != nil {
-		panic(err)
+	if g.ServiceDiscovery != nil {
+		sid, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName, Port: port})
+		if err != nil {
+			panic(err)
+		}
+		defer g.DeRegister(sid)
 	}
 
-	defer g.DeRegister(sid)
-
-	err = g.GrpcServer.Serve(g.grpcListener)
+	err := g.GrpcServer.Serve(g.grpcListener)
 	Log.Warn("gRPC server stopper", zap.Error(err))
 }
 
