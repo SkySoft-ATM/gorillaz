@@ -23,14 +23,14 @@ func main() {
 	flag.IntVar(&port, "port", 0, "GRPC server")
 	flag.Parse()
 
-	g := gaz.New(nil)
+	g := gaz.New()
 	g.Run()
 
 	var worstLatency int64
 	var totalLatency int64
 
 	// starting Grpc server
-	p, err := g.NewStreamProvider(streamName)
+	p, err := g.NewStreamProvider(streamName, "replace.with.proper.protobuf.type")
 	if err != nil {
 		panic(err)
 	}
@@ -39,7 +39,7 @@ func main() {
 		config.UseGzip = true
 	}
 
-	endpoint, err := gaz.NewStreamEndpoint(gaz.IPEndpoint, strings.Split(endpoints, ","))
+	endpoint, err := g.NewStreamEndpoint(strings.Split(endpoints, ","))
 
 	if err != nil {
 		panic(err)

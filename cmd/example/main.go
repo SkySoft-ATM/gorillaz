@@ -5,7 +5,7 @@ import (
 )
 
 func main() {
-	gaz := gorillaz.New(nil)
+	gaz := gorillaz.New()
 	gaz.Run()
 
 	// write your application code here

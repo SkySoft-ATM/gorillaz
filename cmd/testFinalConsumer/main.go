@@ -21,7 +21,7 @@ func main() {
 	flag.StringVar(&endpoints, "endpoints", "", "endpoint to connect to")
 	flag.Parse()
 
-	g := gaz.New(nil)
+	g := gaz.New()
 	g.Run()
 
 	var wg sync.WaitGroup
@@ -30,7 +30,7 @@ func main() {
 	var worstLatency int64
 	var totalLatency int64
 
-	endpoint, err := gaz.NewStreamEndpoint(gaz.IPEndpoint, strings.Split(endpoints, ","))
+	endpoint, err := g.NewStreamEndpoint(strings.Split(endpoints, ","))
 
 	if err != nil {
 		panic(err)
@@ -43,9 +43,12 @@ func main() {
 	var i int64
 
 	var start time.Time
-	for i = 0; i < 200000; i++ {
+	for i = 0; i < 100000; i++ {
 		if i == 0 {
 			start = time.Now()
+		}
+		if i%1000 == 0 {
+			fmt.Println(fmt.Sprintf("consumed %d messages", i))
 		}
 		evt := <-consumer.EvtChan
 		sp, _ := opentracing.StartSpanFromContext(evt.Ctx, "computing latency")

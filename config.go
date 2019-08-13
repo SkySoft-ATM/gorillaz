@@ -38,7 +38,9 @@ func parseProperties(reader io.Reader) map[string]string {
 
 		split := strings.Split(line, "=")
 		if len(split) < 2 {
-			log.Printf("WARN: cannot parse config line %s\n", line)
+			if len(line) > 0 {
+				log.Printf("WARN: cannot parse config line %s\n", line)
+			}
 			continue
 		}
 		m[split[0]] = split[1]
@@ -71,18 +73,19 @@ func parsePropertyFileAndSetFlags(filename string) error {
 	return nil
 }
 
-func parseConfiguration(context map[string]interface{}) {
+func parseConfiguration(configPath string) {
 	// If parsing already done
-	conf := GetConfigPath(context)
+	conf := GetConfigPath(configPath)
 
+	flag.String("env", "dev", "Environment")
 	flag.String("log.level", "", "Log level")
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
 	flag.Bool("healthcheck.enabled", true, "Healthcheck enabled")
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
-	flag.Int("pprof.port", 8081, "pprof port")
+	flag.Int("pprof.port", 0, "pprof port")
 	flag.String("prometheus.endpoint", "/metrics", "Prometheus endpoint")
 	flag.Bool("prometheus.enabled", true, "Prometheus enabled")
-	flag.Int("http.port", 9000, "http port")
+	flag.Int("http.port", 0, "http port")
 
 	err := parsePropertyFileAndSetFlags(path.Join(conf, "application.properties"))
 	if err != nil {
@@ -96,20 +99,11 @@ func parseConfiguration(context map[string]interface{}) {
 	if err != nil {
 		log.Fatalf("unable to bind flags: %v", err)
 	}
-
-	if err != nil {
-		log.Fatalf("Unable to load configuration: %s", err)
-	}
-
-	for k, v := range context {
-		viper.Set(k, v)
-	}
 }
 
-func GetConfigPath(context map[string]interface{}) string {
-	if v, contains := context["conf"]; contains {
-		conf := v.(string)
-		return conf
+func GetConfigPath(configPath string) string {
+	if configPath != "" {
+		return configPath
 	}
 	if f := flag.Lookup("conf"); f != nil {
 		return f.Value.String()

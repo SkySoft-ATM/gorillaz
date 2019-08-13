@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"context"
 	"fmt"
+	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
@@ -16,9 +17,14 @@ import (
 	"sync"
 )
 
+const StreamTag = "gorillazStream"
+const StreamName = "streamName"
+const DataType = "dataType"
+const ServiceName = "serviceName"
+
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
-func (g *Gaz) NewStreamProvider(streamName string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
+func (g Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
 	Log.Info("creating stream", zap.String("stream", streamName))
 
 	config := defaultProviderConfig()
@@ -43,14 +49,14 @@ func (g *Gaz) NewStreamProvider(streamName string, opts ...ProviderConfigOpt) (*
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(streamName),
-		gaz:         g,
+		gaz:         &g,
 	}
-	g.streamRegistry.register(streamName, p)
+	g.streamRegistry.register(streamName, dataType, p)
 
 	return p, nil
 }
 
-func (g *Gaz) CloseStream(streamName string) error {
+func (g Gaz) CloseStream(streamName string) error {
 	log.Info("closing stream", zap.String("stream", streamName))
 	provider, ok := g.streamRegistry.find(streamName)
 	if !ok {
@@ -219,7 +225,8 @@ func (p *StreamProvider) close() {
 
 type streamRegistry struct {
 	sync.RWMutex
-	providers map[string]*StreamProvider
+	providers  map[string]*StreamProvider
+	serviceIds map[string]string // for each stream a service is registered in the service discovery
 }
 
 func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
@@ -229,18 +236,45 @@ func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
 	return p, ok
 }
 
-func (r *streamRegistry) register(streamName string, p *StreamProvider) {
+func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider) {
 	r.Lock()
 	if _, found := r.providers[streamName]; found {
 		panic("cannot register 2 providers with the same streamName: " + streamName)
 	}
 	r.providers[streamName] = p
+
+	port := p.gaz.grpcListener.Addr().(*net.TCPAddr).Port
+
+	if p.gaz.ServiceDiscovery != nil {
+		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName, Port: port,
+			Tags: []string{StreamTag},
+			Meta: map[string]string{
+				StreamName:  streamName,
+				DataType:    dataType,
+				ServiceName: p.gaz.ServiceName,
+			},
+		})
+		if err != nil {
+			Log.Warn("Could not register stream on service discovery", zap.String("streamName", streamName))
+		}
+		r.serviceIds[streamName] = sid
+	}
 	r.Unlock()
 }
 
 func (r *streamRegistry) unregister(streamName string) {
 	r.Lock()
-	delete(r.providers, streamName)
+	p, ok := r.providers[streamName]
+	if ok {
+		delete(r.providers, streamName)
+		sid, ok := r.serviceIds[streamName]
+		if ok {
+			err := p.gaz.DeRegister(sid)
+			if err != nil {
+				Log.Warn("Could not deregister stream on service discovery", zap.String("streamName", streamName))
+			}
+		}
+	}
 	r.Unlock()
 }
 
@@ -285,14 +319,20 @@ type binaryCodec struct{}
 
 // Marshal returns the wire format of v.
 func (c *binaryCodec) Marshal(v interface{}) ([]byte, error) {
-	var encoded = v.([]byte)
-	return encoded, nil
+	var encoded, ok = v.([]byte)
+	if ok {
+		return encoded, nil
+	}
+	return proto.Marshal(v.(proto.Message))
 }
 
 // Unmarshal parses the wire format into v.
 func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
-	evt := v.(*stream.StreamRequest)
-	return evt.Unmarshal(data)
+	evt, ok := v.(*stream.StreamRequest)
+	if ok {
+		return evt.Unmarshal(data)
+	}
+	return proto.Unmarshal(data, v.(proto.Message))
 }
 
 // Name returns the name of the Codec implementation. The returned string

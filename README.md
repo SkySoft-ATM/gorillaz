@@ -7,6 +7,12 @@
 Setup your project config in configs/application.properties
 You can override values by passing flags on the command line.
 
+A service name and an environment must be provided in the configuration
+```
+service.name=testProducer
+env=uat
+```
+
 ### A web server
 A common we server is started for metrics and healthchecks.
 You can configure its port with this property:
@@ -70,9 +76,9 @@ log.level=info
 
 Producer: 
 ```go
-g := gorillaz.New(nil)
+g := gorillaz.New()
 
-p, err := g.NewStreamProvider("myNiceStream")
+p, err := g.NewStreamProvider("myNiceStream", "my stream type")
 if err != nil {
     panic(err)
 }
@@ -92,11 +98,10 @@ for {
 
 Consumer:
 ```go
-g := gorillaz.New(nil)
+g := gorillaz.New()
 g.Run()
 
-endpoint, err := gaz.NewStreamEndpoint(gaz.IPEndpoint, strings.Split("localhost:8080", ","))
-
+endpoint, err := g.NewStreamEndpoint(strings.Split("localhost:8080", ","))
 if err != nil {
     panic(err)
 }
@@ -112,18 +117,17 @@ for evt := range consumer.EvtChan {
 
 You will find more complete examples in the cmd folder
 
-The gRPC port is configured with this property:
+The gRPC port is configured with this property, it assigns a random port by default:
 ```
-stream.provider.port=9666
+grpc.port=9666
 ```
 
 
 ### Tracing
 
 Tracing is done through zipkin, it can be configured with these properties:
-```go
+```
 tracing.enabled=true
-tracing.service.name=testProducer
-tracing.collector.url=http://127.0.0.1:9411/api/v1/spans
+tracing.collector.url=http://127.0.0.1:9411/api/v1/spans // if you do not configure zipkin with the service discovery
 ```
 

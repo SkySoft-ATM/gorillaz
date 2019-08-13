@@ -17,6 +17,7 @@ require (
 	go.uber.org/atomic v1.3.2 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.9.1
+	golang.org/x/sys v0.0.0-20190403152447-81d4e9dc473e // indirect
 	google.golang.org/grpc v1.21.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 )
