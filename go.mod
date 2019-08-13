@@ -3,7 +3,6 @@ module github.com/skysoft-atm/gorillaz
 require (
 	github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc // indirect
 	github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf // indirect
-	github.com/gogo/protobuf v1.2.1
 	github.com/golang/protobuf v1.3.1
 	github.com/gorilla/mux v1.7.0
 	github.com/opentracing/opentracing-go v1.1.0
