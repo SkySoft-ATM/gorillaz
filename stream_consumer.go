@@ -69,7 +69,7 @@ type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
-func (g *Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
+func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {
 		opt(config)
