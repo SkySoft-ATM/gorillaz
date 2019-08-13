@@ -66,6 +66,13 @@ func New(options ...Option) Gaz {
 	}
 
 	parseConfiguration(gaz.configPath)
+
+	serviceName := viper.GetString("service.name")
+	if serviceName == "" {
+		panic(errors.New("please provide a service name with the \"service.name\" configuration key"))
+	}
+	gaz.ServiceName = serviceName
+
 	err := gaz.InitLogs(viper.GetString("log.level"))
 	if err != nil {
 		panic(err)
@@ -74,12 +81,6 @@ func New(options ...Option) Gaz {
 	if viper.GetBool("tracing.enabled") {
 		gaz.InitTracingFromConfig()
 	}
-
-	serviceName := viper.GetString("service.name")
-	if serviceName == "" {
-		panic(errors.New("please provide a service name with the \"service.name\" configuration key"))
-	}
-	gaz.ServiceName = serviceName
 
 	// necessary to avoid weird 'transport closing' errors
 	// see https://github.com/grpc/grpc-go/issues/2443

@@ -1,14 +1,12 @@
 package gorillaz
 
 import (
-	"github.com/spf13/viper"
-	"log"
-	"strings"
-
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
 	"github.com/openzipkin/zipkin-go-opentracing"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"log"
 )
 
 var tracer opentracing.Tracer
@@ -24,22 +22,20 @@ type TracingConfig struct {
 // InitTracingFromConfig initializes either an HTTP connection to a Zipkin Collector
 // You should have provided the following configurations, either in the config file or with flags:
 // zipkin.collector.url
-// tracing.service.name
-func (g *Gaz) InitTracingFromConfig() {
+func (g Gaz) InitTracingFromConfig() {
 	var collectorUrl string
 
 	collectorUrl = viper.GetString("tracing.collector.url")
-	tracingName := strings.TrimSpace(viper.GetString("tracing.service.name"))
 
 	g.InitTracing(
 		TracingConfig{
 			collectorUrl: collectorUrl,
-			tracingName:  tracingName,
+			tracingName:  g.ServiceName,
 		})
 }
 
 // InitTracing initializes connection to feed Zipkin
-func (g *Gaz) InitTracing(conf TracingConfig) {
+func (g Gaz) InitTracing(conf TracingConfig) {
 
 	if conf.collectorUrl == "" {
 		panic("zipkin TracingConfig is invalid, collectorUrl is not set")
@@ -53,7 +49,6 @@ func (g *Gaz) InitTracing(conf TracingConfig) {
 	collector, err = zipkintracer.NewHTTPCollector(conf.collectorUrl)
 	if err != nil {
 		log.Fatal("cannot start connection to Zipkin collector endpoint", zap.Error(err))
-		panic(err)
 	}
 
 	recorder := zipkintracer.NewRecorder(collector, false, "", conf.tracingName)
@@ -64,7 +59,6 @@ func (g *Gaz) InitTracing(conf TracingConfig) {
 	)
 	if err != nil {
 		log.Fatalf("Unable to start Zipkin tracer: %s", err)
-		panic(err)
 	}
 	opentracing.SetGlobalTracer(tracer)
 }
