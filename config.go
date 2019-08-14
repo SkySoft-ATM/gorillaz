@@ -79,13 +79,17 @@ func parseConfiguration(configPath string) {
 
 	flag.String("env", "dev", "Environment")
 	flag.String("log.level", "", "Log level")
+	flag.String("service.name", "", "Service name")
+	flag.String("service.address", "", "Service address")
 	flag.Bool("tracing.enabled", false, "Tracing enabled")
+	flag.String("tracing.collector.url", "", "URL of the tracing service")
 	flag.Bool("healthcheck.enabled", true, "Healthcheck enabled")
 	flag.Bool("pprof.enabled", false, "Pprof enabled")
 	flag.Int("pprof.port", 0, "pprof port")
 	flag.String("prometheus.endpoint", "/metrics", "Prometheus endpoint")
 	flag.Bool("prometheus.enabled", true, "Prometheus enabled")
 	flag.Int("http.port", 0, "http port")
+	flag.Int("grpc.port", 0, "grpc port")
 
 	err := parsePropertyFileAndSetFlags(path.Join(conf, "application.properties"))
 	if err != nil {
