@@ -52,7 +52,7 @@ func (g Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
 		return "", err
 	}
 	if len(tracingEndpoints) == 0 {
-		return "", errors.New("No zipkin service found for env" + g.Env)
+		return "", errors.New("No zipkin service found for env " + g.Env)
 	}
 	return tracingEndpoints[0].Meta["url"], nil
 }
