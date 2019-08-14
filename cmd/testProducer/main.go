@@ -6,7 +6,6 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/log"
 	"github.com/skysoft-atm/gorillaz"
-	"net/http"
 	_ "net/http/pprof"
 	"time"
 )
@@ -18,18 +17,14 @@ func main() {
 	flag.StringVar(&streamName, "stream", "", "stream to receive")
 	flag.Parse()
 
-	g := gorillaz.New(nil)
+	g := gorillaz.New()
 	g.Run()
-
-	go func() {
-		http.ListenAndServe(":6060", nil)
-	}()
 
 	opt := func(config *gorillaz.ProviderConfig) {
 		config.SubscriberInputBufferLen = 1024
 	}
 
-	p, err := g.NewStreamProvider(streamName, opt)
+	p, err := g.NewStreamProvider(streamName, "replace.with.proper.protobuf.type", opt)
 	if err != nil {
 		panic(err)
 	}
@@ -47,7 +42,7 @@ func main() {
 		p.Submit(event)
 		sp.Finish()
 		message++
-		time.Sleep(time.Nanosecond * 30)
+		time.Sleep(time.Nanosecond * 500)
 	}
 
 	g.CloseStream(streamName)

@@ -7,13 +7,9 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/resolver"
-	"google.golang.org/grpc/resolver/manual"
 	"google.golang.org/grpc/status"
 	"math"
 	"strings"
@@ -73,42 +69,18 @@ type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
-const (
-	DNSEndpoint = EndpointType(iota)
-	IPEndpoint
-)
-
-func NewStreamEndpoint(endpointType EndpointType, endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
-	// TODO: hacky hack to create a resolver to use with round robin
-	mu.Lock()
-	r, _ := manual.GenerateAndRegisterManualResolver()
-	mu.Unlock()
-
-	addresses := make([]resolver.Address, len(endpoints))
-	for i := 0; i < len(endpoints); i++ {
-		addresses[i] = resolver.Address{Addr: endpoints[i]}
-	}
-
-	var resolvedAddrs []resolver.Address
-	for _, endpoint := range endpoints {
-		resolvedAddrs = append(resolvedAddrs, resolver.Address{Addr: endpoint})
-	}
-	r.InitialState(resolver.State{Addresses: resolvedAddrs})
-
-	target := r.Scheme() + ":///stream"
-
+func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {
 		opt(config)
 	}
-	ka := grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		Time:                15 * time.Second,
-		PermitWithoutStream: true,
-	})
 
-	conn, err := grpc.Dial(target, grpc.WithInsecure(), grpc.WithBalancerName(roundrobin.Name),
+	target := strings.Join(endpoints, ",")
+	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
-		grpc.WithBackoffMaxDelay(config.backoffMaxDelay), ka)
+		grpc.WithBackoffMaxDelay(config.backoffMaxDelay),
+	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +90,6 @@ func NewStreamEndpoint(endpointType EndpointType, endpoints []string, opts ...St
 		target:    target,
 		conn:      conn,
 	}
-
 	return endpoint, nil
 }
 
@@ -127,7 +98,6 @@ func (se *StreamEndpoint) Close() error {
 }
 
 func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) *Consumer {
-
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)
@@ -245,40 +215,7 @@ func waitTillReadyOrShutdown(streamName string, se *StreamEndpoint) {
 	if state == connectivity.Shutdown {
 		Log.Debug("Stream endpoint is in shutdown state", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
 	}
-
 }
-
-//// SetDNSAddr be used to define the DNS server to use for DNS endpoint type, in format "IP:PORT"
-//func SetDNSAddr(addr string) {
-//	mu.Lock()
-//	defer mu.Unlock()
-//	authority = addr
-//}
-//
-//func grpcTarget(endpointType EndpointType, endpoints []string) string {
-//	switch endpointType {
-//	case IPEndpoint:
-//		// TODO: hacky hack to create a resolver for list of IP addresses
-//		mu.Lock()
-//		r, _ := manual.GenerateAndRegisterManualResolver()
-//		mu.Unlock()
-//
-//		addresses := make([]resolver.Address, len(endpoints))
-//		for i := 0; i < len(endpoints); i++ {
-//			addresses[i] = resolver.Address{Addr: endpoints[i]}
-//		}
-//		r.InitialAddrs(addresses)
-//		return r.Scheme() + ":///stream"
-//	case DNSEndpoint:
-//		if len(endpoints) != 1 {
-//			panic("DNS Grpc endpointType expect only 1 endpoint address, but got " + strconv.Itoa(len(endpoints)))
-//		}
-//		return "dns://" + authority + "/" + endpoints[0]
-//	default:
-//		panic("unknown Grpc EndpointType " + strconv.Itoa(int(endpointType)))
-//	}
-//	return ""
-//}
 
 type consumerMonitoringHolder struct {
 	receivedCounter    prometheus.Counter
