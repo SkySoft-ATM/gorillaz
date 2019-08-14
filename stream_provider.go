@@ -246,7 +246,9 @@ func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider
 	port := p.gaz.grpcListener.Addr().(*net.TCPAddr).Port
 
 	if p.gaz.ServiceDiscovery != nil {
-		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName, Port: port,
+		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName,
+			Addr: p.gaz.serviceAddress,
+			Port: port,
 			Tags: []string{StreamTag},
 			Meta: map[string]string{
 				StreamName:  streamName,

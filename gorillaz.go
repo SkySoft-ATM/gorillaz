@@ -34,6 +34,7 @@ type Gaz struct {
 	grpcListener      net.Listener
 	grpcServerOptions []grpc.ServerOption
 	configPath        string
+	serviceAddress    string // optional address of the service that will be used for service discovery
 }
 
 type Option func(*Gaz) error
@@ -87,6 +88,9 @@ func New(options ...Option) Gaz {
 		panic(errors.New("please provide an environment with the \"env\" configuration key"))
 	}
 	gaz.Env = env
+
+	serviceAddress := viper.GetString("service.address")
+	gaz.serviceAddress = serviceAddress
 
 	err := gaz.InitLogs(viper.GetString("log.level"))
 	if err != nil {
@@ -187,7 +191,9 @@ func (g Gaz) serveGrpc() {
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
 	if g.ServiceDiscovery != nil {
-		sid, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName, Port: port})
+		sid, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
+			Addr: g.serviceAddress,
+			Port: port})
 		if err != nil {
 			panic(err)
 		}
