@@ -37,45 +37,79 @@ type Gaz struct {
 	serviceAddress    string // optional address of the service that will be used for service discovery
 }
 
-type Option func(*Gaz) error
+type GazOption interface {
+	apply(*Gaz) error
+}
 
-func WithConfigPath(configPath string) Option {
-	return func(g *Gaz) error {
+type InitOption struct {
+	Init func(g *Gaz) error
+}
+
+func (i InitOption) apply(g *Gaz) error {
+	return i.Init(g)
+}
+
+type Option struct {
+	Opt func(g *Gaz) error
+}
+
+func (i Option) apply(g *Gaz) error {
+	return i.Opt(g)
+}
+
+func WithConfigPath(configPath string) InitOption {
+	return InitOption{func(g *Gaz) error {
 		g.configPath = configPath
 		return nil
-	}
+	}}
 }
 
 func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
-	return func(g *Gaz) error {
+	return Option{func(g *Gaz) error {
 		g.grpcServerOptions = o
 		return nil
-	}
+	}}
 }
 
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
-func New(options ...Option) Gaz {
+func New(options ...GazOption) Gaz {
 	if initialized {
 		panic("gorillaz is already initialized")
 	}
 	initialized = true
 	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32)}
+
+	// first apply only init options
 	for _, o := range options {
-		err := o(&gaz)
-		if err != nil {
-			panic(err)
+		_, ok := o.(InitOption)
+		if ok {
+			err := o.apply(&gaz)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 
+	// then parse configuration
 	if gaz.ViperRemoteConfig {
 		err := viper.ReadRemoteConfig()
 		if err != nil {
 			panic(err)
 		}
 	}
-
 	parseConfiguration(gaz.configPath)
+
+	// then apply non-init options
+	for _, o := range options {
+		_, ok := o.(InitOption)
+		if !ok {
+			err := o.apply(&gaz)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 
 	serviceName := viper.GetString("service.name")
 	if serviceName == "" {
