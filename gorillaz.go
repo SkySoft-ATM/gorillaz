@@ -3,6 +3,7 @@ package gorillaz
 import (
 	"errors"
 	"fmt"
+	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
