@@ -20,11 +20,14 @@ type ServiceDefinition struct {
 }
 
 type ServiceDiscovery interface {
-	Register(d *ServiceDefinition) (string, error)
-	DeRegister(serviceId string) error
+	Register(d *ServiceDefinition) (RegistrationHandle, error)
 	Resolve(serviceName string) ([]ServiceDefinition, error)
 	ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error)
 	ResolveTags(tag string) (map[string][]ServiceDefinition, error)
+}
+
+type RegistrationHandle interface {
+	DeRegister() error
 }
 
 // gorillazResolverBuilder is a
@@ -120,16 +123,12 @@ func (r *gorillazDefaultResolver) start() {
 func (*gorillazDefaultResolver) ResolveNow(o resolver.ResolveNowOption) {}
 func (*gorillazDefaultResolver) Close()                                 {}
 
-func (g Gaz) Register(d *ServiceDefinition) (string, error) {
+func (g Gaz) Register(d *ServiceDefinition) (RegistrationHandle, error) {
 	if g.ServiceDiscovery == nil {
-		return "", errors.New("no service registry configured")
+		return nil, errors.New("no service registry configured")
 	}
 	d.Tags = append(d.Tags, g.Env)
 	return g.ServiceDiscovery.Register(d)
-}
-
-func (g Gaz) DeRegister(serviceId string) error {
-	return g.ServiceDiscovery.DeRegister(serviceId)
 }
 
 func (g Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
