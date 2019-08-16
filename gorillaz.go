@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/resolver"
 	"net"
 	"net/http"
@@ -160,6 +161,7 @@ func New(options ...GazOption) Gaz {
 	}
 
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
+	reflection.Register(gaz.GrpcServer)
 	gaz.streamRegistry = &streamRegistry{
 		providers:  make(map[string]*StreamProvider),
 		serviceIds: make(map[string]RegistrationHandle),
