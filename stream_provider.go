@@ -226,7 +226,7 @@ func (p *StreamProvider) close() {
 type streamRegistry struct {
 	sync.RWMutex
 	providers  map[string]*StreamProvider
-	serviceIds map[string]string // for each stream a service is registered in the service discovery
+	serviceIds map[string]RegistrationHandle // for each stream a service is registered in the service discovery
 }
 
 func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
@@ -266,12 +266,12 @@ func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider
 
 func (r *streamRegistry) unregister(streamName string) {
 	r.Lock()
-	p, ok := r.providers[streamName]
+	_, ok := r.providers[streamName]
 	if ok {
 		delete(r.providers, streamName)
-		sid, ok := r.serviceIds[streamName]
+		handle, ok := r.serviceIds[streamName]
 		if ok {
-			err := p.gaz.DeRegister(sid)
+			err := handle.DeRegister()
 			if err != nil {
 				Log.Warn("Could not deregister stream on service discovery", zap.String("streamName", streamName))
 			}

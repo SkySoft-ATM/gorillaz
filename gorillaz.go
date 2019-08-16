@@ -162,7 +162,7 @@ func New(options ...GazOption) Gaz {
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	gaz.streamRegistry = &streamRegistry{
 		providers:  make(map[string]*StreamProvider),
-		serviceIds: make(map[string]string),
+		serviceIds: make(map[string]RegistrationHandle),
 	}
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
 
@@ -226,13 +226,13 @@ func (g Gaz) serveGrpc() {
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
 	if g.ServiceDiscovery != nil {
-		sid, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
+		h, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
 			Addr: g.serviceAddress,
 			Port: port})
 		if err != nil {
 			panic(err)
 		}
-		defer g.DeRegister(sid)
+		defer h.DeRegister()
 	}
 
 	err := g.GrpcServer.Serve(g.grpcListener)
