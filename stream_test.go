@@ -27,7 +27,7 @@ func newGazOnAddr(conAddr string) (gaz *Gaz, addr string, shutdown func()) {
 		Env:          "test",
 		streamRegistry: &streamRegistry{
 			providers:  make(map[string]*StreamProvider),
-			serviceIds: make(map[string]string),
+			serviceIds: make(map[string]RegistrationHandle),
 		},
 	}
 
