@@ -80,6 +80,7 @@ func New(options ...GazOption) Gaz {
 		panic("gorillaz is already initialized")
 	}
 	initialized = true
+	GracefulStop()
 	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32)}
 
 	// first apply only init options
