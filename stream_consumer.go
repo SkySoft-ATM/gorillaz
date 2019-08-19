@@ -69,6 +69,11 @@ type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
+// Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
+func (g Gaz) NewServiceStreamEndpoint(serviceName string) (*StreamEndpoint, error) {
+	return g.NewStreamEndpoint([]string{SdPrefix + serviceName})
+}
+
 func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {
