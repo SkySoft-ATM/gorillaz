@@ -242,6 +242,10 @@ func (g Gaz) serveGrpc() {
 	Log.Warn("gRPC server stopper", zap.Error(err))
 }
 
+func (g Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	return g.GrpcDial(SdPrefix+serviceName, opts...)
+}
+
 func (g Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	clientKeepAlive := grpc.WithKeepaliveParams(keepalive.ClientParameters{
 		Time:                15 * time.Second,
