@@ -236,17 +236,20 @@ func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
 	return p, ok
 }
 
+func GetFullStreamName(serviceName, streamName string) string {
+	return fmt.Sprintf("%s.%s", serviceName, streamName)
+}
+
 func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider) {
 	r.Lock()
 	if _, found := r.providers[streamName]; found {
 		panic("cannot register 2 providers with the same streamName: " + streamName)
 	}
 	r.providers[streamName] = p
-
 	port := p.gaz.grpcListener.Addr().(*net.TCPAddr).Port
 
 	if p.gaz.ServiceDiscovery != nil {
-		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName,
+		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: GetFullStreamName(p.gaz.ServiceName, streamName),
 			Addr: p.gaz.serviceAddress,
 			Port: port,
 			Tags: []string{StreamTag},
