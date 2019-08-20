@@ -10,7 +10,7 @@ import (
 )
 
 // InitPrometheus registers Prometheus handler to path to expose metrics via HTTP
-func (g Gaz) InitPrometheus(path string) {
+func (g *Gaz) InitPrometheus(path string) {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}

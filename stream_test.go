@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"bytes"
+	"github.com/magiconair/properties/assert"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -40,6 +41,18 @@ func newGazOnAddr(conAddr string) (gaz *Gaz, addr string, shutdown func()) {
 	}
 }
 
+func TestFullStreamName(t *testing.T) {
+	const full = "toto.tutu.stream"
+	const srv = "toto.tutu"
+	const str = "stream"
+	serv, stream := ParseStreamName(full)
+	assert.Equal(t, serv, srv, "as service name")
+	assert.Equal(t, stream, str, "as stream")
+
+	name := GetFullStreamName(srv, str)
+	assert.Equal(t, name, full, "as full stream name")
+}
+
 func TestStreamLazy(t *testing.T) {
 	g, addr, shutdown := newGaz()
 	g.InitLogs("debug")
@@ -65,8 +78,8 @@ func TestStreamLazy(t *testing.T) {
 
 	consumer := endpoint.ConsumeStream("stream")
 
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("value2")})
 }
 
 func TestStreamEvents(t *testing.T) {
@@ -108,8 +121,8 @@ func TestStreamEvents(t *testing.T) {
 	provider1.Submit(evt1)
 	provider2.Submit(evt2)
 
-	assertReceived(t, provider1Stream, consumer1.EvtChan, evt1)
-	assertReceived(t, provider2Stream, consumer2.EvtChan, evt2)
+	assertReceived(t, provider1Stream, consumer1.EvtChan(), evt1)
+	assertReceived(t, provider2Stream, consumer2.EvtChan(), evt2)
 }
 
 func TestMultipleConsumers(t *testing.T) {
@@ -136,14 +149,14 @@ func TestMultipleConsumers(t *testing.T) {
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 	provider.Submit(&stream.Event{Value: []byte("value2")})
 
-	assertReceived(t, "stream", consumer1.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer1.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer1.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer1.EvtChan(), &stream.Event{Value: []byte("value2")})
 
-	assertReceived(t, "stream", consumer2.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer2.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer2.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer2.EvtChan(), &stream.Event{Value: []byte("value2")})
 
-	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer3.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer3.EvtChan(), &stream.Event{Value: []byte("value2")})
 }
 
 func TestProducerReconnect(t *testing.T) {
@@ -165,7 +178,7 @@ func TestProducerReconnect(t *testing.T) {
 
 	consumer := createConsumer(t, g, streamName, addr)
 
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("value1")})
 
 	// disconnect the provider
 	shutdown()
@@ -184,7 +197,7 @@ func TestProducerReconnect(t *testing.T) {
 	time.Sleep(time.Second * 6)
 	provider2.Submit(&stream.Event{Value: []byte("newValue")})
 
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("newValue")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("newValue")})
 }
 
 func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, expected *stream.Event) {
@@ -201,7 +214,7 @@ func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, ex
 	}
 }
 
-func createConsumer(t *testing.T, g *Gaz, streamName string, endpoint string) *Consumer {
+func createConsumer(t *testing.T, g *Gaz, streamName string, endpoint string) StreamConsumer {
 	connected := make(chan bool, 1)
 
 	opt := func(config *ConsumerConfig) {

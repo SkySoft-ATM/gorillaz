@@ -123,7 +123,7 @@ func (r *gorillazDefaultResolver) start() {
 func (*gorillazDefaultResolver) ResolveNow(o resolver.ResolveNowOption) {}
 func (*gorillazDefaultResolver) Close()                                 {}
 
-func (g Gaz) Register(d *ServiceDefinition) (RegistrationHandle, error) {
+func (g *Gaz) Register(d *ServiceDefinition) (RegistrationHandle, error) {
 	if g.ServiceDiscovery == nil {
 		return nil, errors.New("no service registry configured")
 	}
@@ -131,10 +131,10 @@ func (g Gaz) Register(d *ServiceDefinition) (RegistrationHandle, error) {
 	return g.ServiceDiscovery.Register(d)
 }
 
-func (g Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
+func (g *Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
 	return g.ServiceDiscovery.Resolve(serviceName)
 }
 
-func (g Gaz) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
+func (g *Gaz) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
 	return g.ServiceDiscovery.ResolveWithTag(serviceName, tag)
 }

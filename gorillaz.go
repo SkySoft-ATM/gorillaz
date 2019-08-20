@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc/resolver"
 	"net"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,6 +39,59 @@ type Gaz struct {
 	grpcServerOptions []grpc.ServerOption
 	configPath        string
 	serviceAddress    string // optional address of the service that will be used for service discovery
+	streamConsumers   *streamConsumerRegistry
+}
+
+type streamConsumerRegistry struct {
+	sync.Mutex
+	g                 *Gaz
+	endpointsByName   map[string]*StreamEndpoint
+	endpointConsumers map[*StreamEndpoint]map[*registeredConsumer]struct{}
+}
+
+func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	r := g.streamConsumers
+	r.Lock()
+	defer r.Unlock()
+	target := strings.Join(endpoints, ",")
+	e, ok := r.endpointsByName[target]
+	if !ok {
+		//TODO pass options with gorillaz options
+		var err error
+		Log.Debug("Creating stream endpoint", zap.String("target", target))
+		e, err = r.g.NewStreamEndpoint(endpoints)
+		if err != nil {
+			return nil, err
+		}
+		r.endpointsByName[e.target] = e
+	}
+	sc := e.ConsumeStream(streamName, opts...)
+	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
+	consumers := r.endpointConsumers[e]
+	if consumers == nil {
+		consumers = make(map[*registeredConsumer]struct{})
+		r.endpointConsumers[e] = consumers
+	}
+	consumers[&rc] = struct{}{}
+	return &rc, nil
+}
+
+func (g *Gaz) stopConsumer(c *registeredConsumer) {
+	r := g.streamConsumers
+	e := c.StreamConsumer.streamEndpoint()
+	consumers := r.endpointConsumers[e]
+	delete(consumers, c)
+	if len(consumers) == 0 {
+		Log.Debug("Closing endpoint", zap.String("target", e.target))
+		err := e.Close()
+		if err != nil {
+			Log.Debug("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
+		}
+		delete(r.endpointsByName, e.target)
+		delete(r.endpointConsumers, e)
+	} else {
+		r.endpointConsumers[e] = consumers
+	}
 }
 
 type GazOption interface {
@@ -75,13 +130,19 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
-func New(options ...GazOption) Gaz {
+func New(options ...GazOption) *Gaz {
 	if initialized {
 		panic("gorillaz is already initialized")
 	}
 	initialized = true
 	GracefulStop()
 	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32)}
+
+	gaz.streamConsumers = &streamConsumerRegistry{
+		g:                 &gaz,
+		endpointsByName:   make(map[string]*StreamEndpoint),
+		endpointConsumers: make(map[*StreamEndpoint]map[*registeredConsumer]struct{}),
+	}
 
 	// first apply only init options
 	for _, o := range options {
@@ -184,11 +245,11 @@ func New(options ...GazOption) Gaz {
 	}
 	gaz.grpcListener = grpcListener
 
-	return gaz
+	return &gaz
 }
 
 // Starts the router, once Run is launched, you should no longer add new handlers on the router
-func (g Gaz) Run() {
+func (g *Gaz) Run() {
 
 	go g.serveGrpc()
 
@@ -224,7 +285,7 @@ func (g Gaz) Run() {
 	}()
 }
 
-func (g Gaz) serveGrpc() {
+func (g *Gaz) serveGrpc() {
 	port := g.grpcListener.Addr().(*net.TCPAddr).Port
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
@@ -242,11 +303,11 @@ func (g Gaz) serveGrpc() {
 	Log.Warn("gRPC server stopper", zap.Error(err))
 }
 
-func (g Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+func (g *Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	return g.GrpcDial(SdPrefix+serviceName, opts...)
 }
 
-func (g Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	clientKeepAlive := grpc.WithKeepaliveParams(keepalive.ClientParameters{
 		Time:                15 * time.Second,
 		PermitWithoutStream: true,

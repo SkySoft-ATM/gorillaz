@@ -23,7 +23,7 @@ type TracingConfig struct {
 // InitTracingFromConfig initializes either an HTTP connection to a Zipkin Collector
 // You should have provided the following configurations, either in the config file or with flags:
 // zipkin.collector.url
-func (g Gaz) InitTracingFromConfig() {
+func (g *Gaz) InitTracingFromConfig() {
 	var collectorUrl string
 	if g.ServiceDiscovery != nil {
 		var err error
@@ -46,7 +46,7 @@ func (g Gaz) InitTracingFromConfig() {
 		})
 }
 
-func (g Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
+func (g *Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
 	tracingEndpoints, err := g.ResolveWithTag("zipkin", g.Env)
 	if err != nil {
 		return "", err
@@ -58,7 +58,7 @@ func (g Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
 }
 
 // InitTracing initializes connection to feed Zipkin
-func (g Gaz) InitTracing(conf TracingConfig) {
+func (g *Gaz) InitTracing(conf TracingConfig) {
 
 	if conf.collectorUrl == "" {
 		panic("zipkin TracingConfig is invalid, collectorUrl is not set")

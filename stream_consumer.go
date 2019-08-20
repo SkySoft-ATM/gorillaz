@@ -28,21 +28,51 @@ type StreamEndpointConfig struct {
 	backoffMaxDelay time.Duration
 }
 
-type Consumer struct {
-	StreamName string
-	EvtChan    chan *stream.Event
+type StreamConsumer interface {
+	StreamName() string
+	EvtChan() chan *stream.Event
+	Stop()
+	streamEndpoint() *StreamEndpoint
+}
+
+type registeredConsumer struct {
+	StreamConsumer
+	g *Gaz
+}
+
+func (c *registeredConsumer) Stop() {
+	c.StreamConsumer.Stop()
+	c.g.stopConsumer(c)
+}
+
+type consumer struct {
+	endpoint   *StreamEndpoint
+	streamName string
+	evtChan    chan *stream.Event
 	config     *ConsumerConfig
 	mu         sync.RWMutex
 	stopped    bool
 }
 
-func (c *Consumer) Stop() {
+func (c *consumer) streamEndpoint() *StreamEndpoint {
+	return c.endpoint
+}
+
+func (c *consumer) StreamName() string {
+	return c.streamName
+}
+
+func (c *consumer) EvtChan() chan *stream.Event {
+	return c.evtChan
+}
+
+func (c *consumer) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stopped = true
 }
 
-func (c *Consumer) isStopped() bool {
+func (c *consumer) isStopped() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.stopped
@@ -80,12 +110,33 @@ type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
+// Call this method to create a stream consumer with the full stream name (pattern: "serviceName.streamName")
+// The service name is resolved via service discovery
+// Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
+func (g *Gaz) DiscoverAndConsumeStream(fullStreamName string) (StreamConsumer, error) {
+	srv, stream := ParseStreamName(fullStreamName)
+	return g.DiscoverAndConsumeServiceStream(srv, stream)
+}
+
+// Call this method to create a stream consumer
+// The service name is resolved via service discovery
+// Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
+func (g *Gaz) DiscoverAndConsumeServiceStream(service, stream string) (StreamConsumer, error) {
+	return g.createConsumer([]string{SdPrefix + service}, stream)
+}
+
+// Call this method to create a stream consumer with the service endpoints and the stream name
+// Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
+func (g *Gaz) ConsumeStream(endpoints []string, stream string) (StreamConsumer, error) {
+	return g.createConsumer(endpoints, stream)
+}
+
 // Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
-func (g Gaz) NewServiceStreamEndpoint(serviceName string) (*StreamEndpoint, error) {
+func (g *Gaz) NewServiceStreamEndpoint(serviceName string) (*StreamEndpoint, error) {
 	return g.NewStreamEndpoint([]string{SdPrefix + serviceName})
 }
 
-func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
+func (g *Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {
 		opt(config)
@@ -113,16 +164,17 @@ func (se *StreamEndpoint) Close() error {
 	return se.conn.Close()
 }
 
-func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) *Consumer {
+func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) StreamConsumer {
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)
 	}
 
 	ch := make(chan *stream.Event, config.BufferLen)
-	c := &Consumer{
-		StreamName: streamName,
-		EvtChan:    ch,
+	c := &consumer{
+		endpoint:   se,
+		streamName: streamName,
+		evtChan:    ch,
 		config:     config,
 	}
 
@@ -163,7 +215,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 					streamEvt, err := st.Recv()
 
 					if err != nil {
-						Log.Warn("received error on stream", zap.String("stream", c.StreamName), zap.Error(err))
+						Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.Error(err))
 						if e, ok := status.FromError(err); ok {
 							switch e.Code() {
 							case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
@@ -182,7 +234,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 						Value: streamEvt.Value,
 						Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
 					}
-					c.EvtChan <- evt
+					c.evtChan <- evt
 				}
 			} else {
 				Log.Warn("Stream created but not connected", zap.String("stream", streamName))
@@ -194,8 +246,8 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 			}
 
 		}
-		Log.Info("Stream closed", zap.String("stream", c.StreamName))
-		close(c.EvtChan)
+		Log.Info("Stream closed", zap.String("stream", c.streamName))
+		close(c.evtChan)
 
 	}()
 	return c

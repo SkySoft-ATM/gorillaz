@@ -5,6 +5,7 @@ require (
 	github.com/golang/protobuf v1.3.1
 	github.com/gorilla/mux v1.7.0
 	github.com/json-iterator/go v1.1.7 // indirect
+	github.com/magiconair/properties v1.8.0
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pkg/errors v0.8.1 // indirect

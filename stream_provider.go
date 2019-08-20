@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -24,7 +25,7 @@ const ServiceName = "serviceName"
 
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
-func (g Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
+func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
 	Log.Info("creating stream", zap.String("stream", streamName))
 
 	config := defaultProviderConfig()
@@ -49,14 +50,14 @@ func (g Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConf
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(streamName),
-		gaz:         &g,
+		gaz:         g,
 	}
 	g.streamRegistry.register(streamName, dataType, p)
 
 	return p, nil
 }
 
-func (g Gaz) CloseStream(streamName string) error {
+func (g *Gaz) CloseStream(streamName string) error {
 	log.Info("closing stream", zap.String("stream", streamName))
 	provider, ok := g.streamRegistry.find(streamName)
 	if !ok {
@@ -238,6 +239,15 @@ func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
 
 func GetFullStreamName(serviceName, streamName string) string {
 	return fmt.Sprintf("%s.%s", serviceName, streamName)
+}
+
+// returns the service name and stream name
+func ParseStreamName(fullStreamName string) (string, string) {
+	li := strings.LastIndex(fullStreamName, ".")
+	if li >= 0 {
+		return fullStreamName[:li], fullStreamName[li+1:]
+	}
+	return fullStreamName, ""
 }
 
 func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider) {
