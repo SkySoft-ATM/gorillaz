@@ -113,26 +113,26 @@ type EndpointType uint8
 // Call this method to create a stream consumer with the full stream name (pattern: "serviceName.streamName")
 // The service name is resolved via service discovery
 // Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
-func (g *Gaz) DiscoverAndConsumeStream(fullStreamName string) (StreamConsumer, error) {
+func (g *Gaz) DiscoverAndConsumeStream(fullStreamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
 	srv, stream := ParseStreamName(fullStreamName)
-	return g.DiscoverAndConsumeServiceStream(srv, stream)
+	return g.DiscoverAndConsumeServiceStream(srv, stream, opts...)
 }
 
 // Call this method to create a stream consumer
 // The service name is resolved via service discovery
 // Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
-func (g *Gaz) DiscoverAndConsumeServiceStream(service, stream string) (StreamConsumer, error) {
-	return g.createConsumer([]string{SdPrefix + service}, stream)
+func (g *Gaz) DiscoverAndConsumeServiceStream(service, stream string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	return g.createConsumer([]string{SdPrefix + service}, stream, opts...)
 }
 
 // Call this method to create a stream consumer with the service endpoints and the stream name
 // Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
-func (g *Gaz) ConsumeStream(endpoints []string, stream string) (StreamConsumer, error) {
-	return g.createConsumer(endpoints, stream)
+func (g *Gaz) ConsumeStream(endpoints []string, stream string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	return g.createConsumer(endpoints, stream, opts...)
 }
 
 // Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
-func (g *Gaz) NewServiceStreamEndpoint(serviceName string) (*StreamEndpoint, error) {
+func (g *Gaz) NewServiceStreamEndpoint(serviceName string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
 	return g.NewStreamEndpoint([]string{SdPrefix + serviceName})
 }
 

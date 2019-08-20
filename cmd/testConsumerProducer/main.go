@@ -39,18 +39,15 @@ func main() {
 		config.UseGzip = true
 	}
 
-	endpoint, err := g.NewStreamEndpoint(strings.Split(endpoints, ","))
-
+	consumer, err := g.ConsumeStream(strings.Split(endpoints, ","), streamName, opt)
 	if err != nil {
 		panic(err)
 	}
 
-	consumer := endpoint.ConsumeStream(streamName, opt)
-
 	fmt.Println("client created")
 
 	for {
-		evt := <-consumer.EvtChan
+		evt := <-consumer.EvtChan()
 		sp, _ := opentracing.StartSpanFromContext(evt.Ctx, "computing latency")
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
 		if latency > worstLatency {
