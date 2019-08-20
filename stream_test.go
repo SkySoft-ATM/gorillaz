@@ -2,7 +2,7 @@ package gorillaz
 
 import (
 	"bytes"
-	"github.com/magiconair/properties/assert"
+	"fmt"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -46,11 +46,17 @@ func TestFullStreamName(t *testing.T) {
 	const srv = "toto.tutu"
 	const str = "stream"
 	serv, stream := ParseStreamName(full)
-	assert.Equal(t, serv, srv, "as service name")
-	assert.Equal(t, stream, str, "as stream")
+	assertEquals(t, serv, srv, "as service name")
+	assertEquals(t, stream, str, "as stream")
 
 	name := GetFullStreamName(srv, str)
-	assert.Equal(t, name, full, "as full stream name")
+	assertEquals(t, name, full, "as full stream name")
+}
+
+func assertEquals(t *testing.T, got, expected, comment string) {
+	if got != expected {
+		t.Error(fmt.Sprintf("%s Got: %s Expected: %s", comment, got, expected))
+	}
 }
 
 func TestStreamLazy(t *testing.T) {
