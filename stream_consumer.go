@@ -17,9 +17,6 @@ import (
 	"time"
 )
 
-var mu sync.RWMutex
-var authority string
-
 type ConsumerConfig struct {
 	BufferLen      int // BufferLen is the size of the channel of the consumer
 	OnConnected    func(streamName string)
@@ -35,6 +32,20 @@ type Consumer struct {
 	StreamName string
 	EvtChan    chan *stream.Event
 	config     *ConsumerConfig
+	mu         sync.RWMutex
+	stopped    bool
+}
+
+func (c *Consumer) Stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stopped = true
+}
+
+func (c *Consumer) isStopped() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.stopped
 }
 
 type StreamEndpoint struct {
@@ -118,7 +129,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 	var monitoringHolder = consumerMonitoring(streamName, se.endpoints)
 
 	go func() {
-		for se.conn.GetState() != connectivity.Shutdown {
+		for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
 			waitTillReadyOrShutdown(streamName, se)
 			if se.conn.GetState() == connectivity.Shutdown {
 				break
@@ -147,7 +158,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				Log.Debug("Stream connected", zap.String("streamName", streamName))
 
 				// at this point, the GRPC connection is established with the server
-				for {
+				for !c.stopped {
 					monitoringHolder.conGauge.Set(1)
 					streamEvt, err := st.Recv()
 
