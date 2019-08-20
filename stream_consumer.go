@@ -110,6 +110,14 @@ type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
+// Add options for the stream endpoint creation, this can be used when stream endpoints are created under the hood by the methods below.
+func WithStreamEndpointOptions(opts ...StreamEndpointConfigOpt) Option {
+	return Option{Opt: func(gaz *Gaz) error {
+		gaz.streamEndpointOptions = opts
+		return nil
+	}}
+}
+
 // Call this method to create a stream consumer with the full stream name (pattern: "serviceName.streamName")
 // The service name is resolved via service discovery
 // Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service

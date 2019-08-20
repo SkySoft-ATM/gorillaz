@@ -32,14 +32,15 @@ type Gaz struct {
 	ViperRemoteConfig bool
 	Env               string
 	// use int32 because sync.atomic package doesn't support boolean out of the box
-	isReady           *int32
-	isLive            *int32
-	streamRegistry    *streamRegistry
-	grpcListener      net.Listener
-	grpcServerOptions []grpc.ServerOption
-	configPath        string
-	serviceAddress    string // optional address of the service that will be used for service discovery
-	streamConsumers   *streamConsumerRegistry
+	isReady               *int32
+	isLive                *int32
+	streamRegistry        *streamRegistry
+	grpcListener          net.Listener
+	grpcServerOptions     []grpc.ServerOption
+	configPath            string
+	serviceAddress        string // optional address of the service that will be used for service discovery
+	streamConsumers       *streamConsumerRegistry
+	streamEndpointOptions []StreamEndpointConfigOpt
 }
 
 type streamConsumerRegistry struct {
@@ -56,10 +57,9 @@ func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...Cons
 	target := strings.Join(endpoints, ",")
 	e, ok := r.endpointsByName[target]
 	if !ok {
-		//TODO pass options with gorillaz options
 		var err error
 		Log.Debug("Creating stream endpoint", zap.String("target", target))
-		e, err = r.g.NewStreamEndpoint(endpoints)
+		e, err = r.g.NewStreamEndpoint(endpoints, g.streamEndpointOptions...)
 		if err != nil {
 			return nil, err
 		}
