@@ -56,7 +56,7 @@ type consumer struct {
 	streamName string
 	evtChan    chan *stream.Event
 	config     *ConsumerConfig
-	stopped    int32
+	stopped    *int32
 }
 
 func (c *consumer) streamEndpoint() *StreamEndpoint {
@@ -72,11 +72,11 @@ func (c *consumer) EvtChan() chan *stream.Event {
 }
 
 func (c *consumer) Stop() bool {
-	return atomic.SwapInt32(&c.stopped, 1) == 1
+	return atomic.SwapInt32(c.stopped, 1) == 1
 }
 
 func (c *consumer) isStopped() bool {
-	return atomic.LoadInt32(&c.stopped) == 1
+	return atomic.LoadInt32(c.stopped) == 1
 }
 
 type StreamEndpoint struct {
@@ -185,6 +185,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 		streamName: streamName,
 		evtChan:    ch,
 		config:     config,
+		stopped:    new(int32),
 	}
 
 	var monitoringHolder = consumerMonitoring(streamName, se.endpoints)
