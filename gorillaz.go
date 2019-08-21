@@ -31,6 +31,7 @@ type Gaz struct {
 	ServiceName       string
 	ViperRemoteConfig bool
 	Env               string
+	Viper             *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady               *int32
 	isLive                *int32
@@ -144,7 +145,7 @@ func New(options ...GazOption) *Gaz {
 	}
 	initialized = true
 	GracefulStop()
-	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32)}
+	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32), Viper: viper.New()}
 
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
