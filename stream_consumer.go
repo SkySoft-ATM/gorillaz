@@ -14,6 +14,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,7 +32,7 @@ type StreamEndpointConfig struct {
 type StreamConsumer interface {
 	StreamName() string
 	EvtChan() chan *stream.Event
-	Stop()
+	Stop() bool //return previous 'stopped' state
 	streamEndpoint() *StreamEndpoint
 }
 
@@ -40,9 +41,14 @@ type registeredConsumer struct {
 	g *Gaz
 }
 
-func (c *registeredConsumer) Stop() {
-	c.StreamConsumer.Stop()
-	c.g.stopConsumer(c)
+func (c *registeredConsumer) Stop() bool {
+	wasAlreadyStopped := c.StreamConsumer.Stop()
+	if wasAlreadyStopped {
+		Log.Warn("Stop called twice", zap.String("stream name", c.StreamName()))
+	} else {
+		c.g.deregister(c)
+	}
+	return wasAlreadyStopped
 }
 
 type consumer struct {
@@ -50,8 +56,7 @@ type consumer struct {
 	streamName string
 	evtChan    chan *stream.Event
 	config     *ConsumerConfig
-	mu         sync.RWMutex
-	stopped    bool
+	stopped    int32
 }
 
 func (c *consumer) streamEndpoint() *StreamEndpoint {
@@ -66,16 +71,12 @@ func (c *consumer) EvtChan() chan *stream.Event {
 	return c.evtChan
 }
 
-func (c *consumer) Stop() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.stopped = true
+func (c *consumer) Stop() bool {
+	return atomic.SwapInt32(&c.stopped, 1) == 1
 }
 
 func (c *consumer) isStopped() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.stopped
+	return atomic.LoadInt32(&c.stopped) == 1
 }
 
 type StreamEndpoint struct {
@@ -218,7 +219,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				Log.Debug("Stream connected", zap.String("streamName", streamName))
 
 				// at this point, the GRPC connection is established with the server
-				for !c.stopped {
+				for !c.isStopped() {
 					monitoringHolder.conGauge.Set(1)
 					streamEvt, err := st.Recv()
 

@@ -1,10 +1,10 @@
 package gorillaz
 
 import (
-	"errors"
 	"fmt"
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
+	"github.com/pkg/errors"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -61,7 +61,7 @@ func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...Cons
 		Log.Debug("Creating stream endpoint", zap.String("target", target))
 		e, err = r.g.NewStreamEndpoint(endpoints, g.streamEndpointOptions...)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "error while creating stream endpoint for target %s", target)
 		}
 		r.endpointsByName[e.target] = e
 	}
@@ -76,16 +76,23 @@ func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...Cons
 	return &rc, nil
 }
 
-func (g *Gaz) stopConsumer(c *registeredConsumer) {
+func (g *Gaz) deregister(c *registeredConsumer) {
 	r := g.streamConsumers
 	e := c.StreamConsumer.streamEndpoint()
-	consumers := r.endpointConsumers[e]
+	r.Lock()
+	defer r.Unlock()
+	consumers, ok := r.endpointConsumers[e]
+	if !ok {
+		Log.Warn("Stream consumers not found", zap.String("stream name", c.StreamName()),
+			zap.String("target", e.target))
+		return
+	}
 	delete(consumers, c)
 	if len(consumers) == 0 {
 		Log.Debug("Closing endpoint", zap.String("target", e.target))
 		err := e.Close()
 		if err != nil {
-			Log.Debug("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
+			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
 		}
 		delete(r.endpointsByName, e.target)
 		delete(r.endpointConsumers, e)
