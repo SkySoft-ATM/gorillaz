@@ -41,6 +41,7 @@ type Gaz struct {
 	serviceAddress        string // optional address of the service that will be used for service discovery
 	streamConsumers       *streamConsumerRegistry
 	streamEndpointOptions []StreamEndpointConfigOpt
+	httpListener          net.Listener
 }
 
 type streamConsumerRegistry struct {
@@ -52,9 +53,9 @@ type streamConsumerRegistry struct {
 
 func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
 	r := g.streamConsumers
+	target := strings.Join(endpoints, ",")
 	r.Lock()
 	defer r.Unlock()
-	target := strings.Join(endpoints, ",")
 	e, ok := r.endpointsByName[target]
 	if !ok {
 		var err error
@@ -139,7 +140,7 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
 	if initialized {
-		panic("gorillaz is already initialized")
+		Log.Warn("gorillaz is already initialized")
 	}
 	initialized = true
 	GracefulStop()
@@ -282,6 +283,7 @@ func (g *Gaz) Run() {
 		if err != nil {
 			panic(err)
 		}
+		g.httpListener = httpListener
 		httpPort := httpListener.Addr().(*net.TCPAddr).Port
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
 		err = http.Serve(httpListener, g.Router)
@@ -327,4 +329,19 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 		options[3+i] = o
 	}
 	return grpc.Dial("gorillaz:///"+target, options...)
+}
+
+func (g *Gaz) Shutdown() {
+	g.GrpcServer.GracefulStop()
+	err := g.grpcListener.Close()
+	if err != nil {
+		Log.Warn("Error while closing gRPC listener", zap.Error(err))
+	}
+	if g.httpListener != nil {
+		err = g.httpListener.Close()
+		if err != nil {
+			Log.Warn("Error while closing http listener", zap.Error(err))
+		}
+	}
+
 }

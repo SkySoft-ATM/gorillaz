@@ -59,6 +59,24 @@ func assertEquals(t *testing.T, got, expected, comment string) {
 	}
 }
 
+func TestTwoGazStreamName(t *testing.T) {
+	gaz1 := New(WithConfigPath("./testConfig"))
+
+	gaz1.Run()
+	fmt.Println("gaz1 started")
+	time.Sleep(1 * time.Second)
+	gaz1.Shutdown()
+	fmt.Println("gaz1 stopped")
+	time.Sleep(1 * time.Second)
+	gaz2 := New(WithConfigPath("./testConfig"))
+	gaz2.Run()
+	time.Sleep(1 * time.Second)
+	fmt.Println("gaz2 started")
+	gaz2.Shutdown()
+	fmt.Println("gaz2 stopped")
+
+}
+
 func TestStreamLazy(t *testing.T) {
 	g, addr, shutdown := newGaz()
 	g.InitLogs("debug")

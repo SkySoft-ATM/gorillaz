@@ -73,10 +73,7 @@ func parsePropertyFileAndSetFlags(filename string) error {
 	return nil
 }
 
-func parseConfiguration(configPath string) {
-	// If parsing already done
-	conf := GetConfigPath(configPath)
-
+func init() {
 	flag.String("env", "dev", "Environment")
 	flag.String("log.level", "", "Log level")
 	flag.String("service.name", "", "Service name")
@@ -90,6 +87,11 @@ func parseConfiguration(configPath string) {
 	flag.Bool("prometheus.enabled", true, "Prometheus enabled")
 	flag.Int("http.port", 0, "http port")
 	flag.Int("grpc.port", 0, "grpc port")
+}
+
+func parseConfiguration(configPath string) {
+	// If parsing already done
+	conf := GetConfigPath(configPath)
 
 	err := parsePropertyFileAndSetFlags(path.Join(conf, "application.properties"))
 	if err != nil {
