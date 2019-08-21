@@ -3,7 +3,6 @@ package gorillaz
 import (
 	"context"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -80,6 +79,7 @@ func (c *consumer) isStopped() bool {
 }
 
 type StreamEndpoint struct {
+	g         *Gaz
 	target    string
 	endpoints []string
 	config    *StreamEndpointConfig
@@ -161,6 +161,7 @@ func (g *Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 		return nil, err
 	}
 	endpoint := &StreamEndpoint{
+		g:         g,
 		config:    config,
 		endpoints: endpoints,
 		target:    target,
@@ -188,7 +189,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 		stopped:    new(int32),
 	}
 
-	var monitoringHolder = consumerMonitoring(streamName, se.endpoints)
+	var monitoringHolder = consumerMonitoring(se.g, streamName, se.endpoints)
 
 	go func() {
 		for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
@@ -310,7 +311,7 @@ type consumerMonitoringHolder struct {
 var consMonitoringMu sync.Mutex
 var consumerMonitorings = make(map[string]consumerMonitoringHolder)
 
-func consumerMonitoring(streamName string, endpoints []string) consumerMonitoringHolder {
+func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerMonitoringHolder {
 	consMonitoringMu.Lock()
 	defer consMonitoringMu.Unlock()
 
@@ -318,7 +319,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 		return m
 	}
 	m := consumerMonitoringHolder{
-		receivedCounter: promauto.NewCounter(prometheus.CounterOpts{
+		receivedCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_received_events",
 			Help: "The total number of events received",
 			ConstLabels: prometheus.Labels{
@@ -327,7 +328,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		conCounter: promauto.NewCounter(prometheus.CounterOpts{
+		conCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_connection_attempts",
 			Help: "The total number of connections to the stream",
 			ConstLabels: prometheus.Labels{
@@ -336,7 +337,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		conGauge: promauto.NewGauge(prometheus.GaugeOpts{
+		conGauge: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "stream_consumer_connected",
 			Help: "1 if connected, otherwise 0",
 			ConstLabels: prometheus.Labels{
@@ -345,7 +346,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		delaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+		delaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "stream_consumer_delay_ms",
 			Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -355,7 +356,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		originDelaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+		originDelaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "stream_consumer_origin_delay_ms",
 			Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -364,7 +365,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 				"endpoints": strings.Join(endpoints, ","),
 			},
 		}),
-		eventDelaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+		eventDelaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "stream_consumer_event_delay_ms",
 			Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -374,6 +375,12 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 	}
+	g.RegisterCollector(m.receivedCounter)
+	g.RegisterCollector(m.conCounter)
+	g.RegisterCollector(m.conGauge)
+	g.RegisterCollector(m.delaySummary)
+	g.RegisterCollector(m.originDelaySummary)
+	g.RegisterCollector(m.eventDelaySummary)
 	consumerMonitorings[streamName] = m
 	return m
 }

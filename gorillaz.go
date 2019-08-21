@@ -1,10 +1,12 @@
 package gorillaz
 
 import (
+	"context"
 	"fmt"
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -43,6 +45,8 @@ type Gaz struct {
 	streamConsumers       *streamConsumerRegistry
 	streamEndpointOptions []StreamEndpointConfigOpt
 	httpListener          net.Listener
+	httpSrv               *http.Server
+	prometheusRegistry    *prometheus.Registry
 }
 
 type streamConsumerRegistry struct {
@@ -146,7 +150,7 @@ func New(options ...GazOption) *Gaz {
 	initialized = true
 	GracefulStop()
 	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32), Viper: viper.New()}
-
+	gaz.httpSrv = &http.Server{Handler: gaz.Router}
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
 		endpointsByName:   make(map[string]*StreamEndpoint),
@@ -166,12 +170,12 @@ func New(options ...GazOption) *Gaz {
 
 	// then parse configuration
 	if gaz.ViperRemoteConfig {
-		err := viper.ReadRemoteConfig()
+		err := gaz.Viper.ReadRemoteConfig()
 		if err != nil {
 			panic(err)
 		}
 	}
-	parseConfiguration(gaz.configPath)
+	parseConfiguration(&gaz, gaz.configPath)
 
 	// then apply non-init options
 	for _, o := range options {
@@ -184,27 +188,27 @@ func New(options ...GazOption) *Gaz {
 		}
 	}
 
-	serviceName := viper.GetString("service.name")
+	serviceName := gaz.Viper.GetString("service.name")
 	if serviceName == "" {
 		panic(errors.New("please provide a service name with the \"service.name\" configuration key"))
 	}
 	gaz.ServiceName = serviceName
 
-	env := viper.GetString("env")
+	env := gaz.Viper.GetString("env")
 	if env == "" {
 		panic(errors.New("please provide an environment with the \"env\" configuration key"))
 	}
 	gaz.Env = env
 
-	serviceAddress := viper.GetString("service.address")
+	serviceAddress := gaz.Viper.GetString("service.address")
 	gaz.serviceAddress = serviceAddress
 
-	err := gaz.InitLogs(viper.GetString("log.level"))
+	err := gaz.InitLogs(gaz.Viper.GetString("log.level"))
 	if err != nil {
 		panic(err)
 	}
 
-	if viper.GetBool("tracing.enabled") {
+	if gaz.Viper.GetBool("tracing.enabled") {
 		gaz.InitTracingFromConfig()
 	}
 
@@ -247,7 +251,7 @@ func New(options ...GazOption) *Gaz {
 	Log.Info("Registering gorillaz gRPC resolver")
 	resolver.Register(&gorillazResolverBuilder{gaz: &gaz})
 
-	grpcPort := viper.GetInt("grpc.port")
+	grpcPort := gaz.Viper.GetInt("grpc.port")
 	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort))
 	if err != nil {
 		panic(err)
@@ -258,45 +262,80 @@ func New(options ...GazOption) *Gaz {
 }
 
 // Starts the router, once Run is launched, you should no longer add new handlers on the router
-func (g *Gaz) Run() {
+func (g *Gaz) Run() <-chan struct{} {
 
-	go g.serveGrpc()
+	if he := g.Viper.GetBool("healthcheck.enabled"); he {
+		Sugar.Info("Activating health check")
+		g.InitHealthcheck()
+	}
 
+	if prom := g.Viper.GetBool("prometheus.enabled"); prom {
+		promPath := g.Viper.GetString("prometheus.endpoint")
+		g.InitPrometheus(promPath)
+	}
+
+	if pprof := g.Viper.GetBool("pprof.enabled"); pprof {
+		g.InitPprof(g.Viper.GetInt("pprof.port"))
+	}
+
+	grpcNotif := make(chan struct{})
+	go g.serveGrpc(grpcNotif)
+
+	httpNotif := make(chan struct{})
 	go func() {
-		if he := viper.GetBool("healthcheck.enabled"); he {
-			Sugar.Info("Activating health check")
-			g.InitHealthcheck()
-		}
-
-		if prom := viper.GetBool("prometheus.enabled"); prom {
-			promPath := viper.GetString("prometheus.endpoint")
-			g.InitPrometheus(promPath)
-		}
-
-		if pprof := viper.GetBool("pprof.enabled"); pprof {
-			g.InitPprof(viper.GetInt("pprof.port"))
-		}
-
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
-		port := viper.GetInt("http.port")
+		port := g.Viper.GetInt("http.port")
 		httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
 			panic(err)
 		}
 		g.httpListener = httpListener
-		httpPort := httpListener.Addr().(*net.TCPAddr).Port
+		httpPort := g.HttpPort()
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
-		err = http.Serve(httpListener, g.Router)
+		httpNotif <- struct{}{}
+
+		err = g.httpSrv.Serve(httpListener)
 		if err != nil {
-			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", httpPort, err)
-			panic(err)
+			if err != http.ErrServerClosed {
+				Sugar.Errorf("HTTP server server stopped on :%d, %v", httpPort, err)
+				panic(err)
+			} else {
+				Sugar.Infof("HTTP server server stopped on :%d", httpPort)
+			}
 		}
 	}()
+	gazReady := make(chan struct{})
+	go g.notifyWhenReady(grpcNotif, httpNotif, gazReady)
+	return gazReady
 }
 
-func (g *Gaz) serveGrpc() {
-	port := g.grpcListener.Addr().(*net.TCPAddr).Port
+func (g *Gaz) notifyWhenReady(grpcNotif, httpNotif <-chan struct{}, gazReady chan<- struct{}) {
+	var grpcReady, httpReady bool
+	for {
+		select {
+		case <-httpNotif:
+			httpReady = true
+		case <-grpcNotif:
+			grpcReady = true
+		}
+		if grpcReady && httpReady {
+			gazReady <- struct{}{}
+			return
+		}
+	}
+}
+
+func (g *Gaz) GrpcPort() int {
+	return g.grpcListener.Addr().(*net.TCPAddr).Port
+}
+
+func (g *Gaz) HttpPort() int {
+	return g.httpListener.Addr().(*net.TCPAddr).Port
+}
+
+func (g *Gaz) serveGrpc(ready chan<- struct{}) {
+	port := g.GrpcPort()
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
 	if g.ServiceDiscovery != nil {
@@ -308,9 +347,11 @@ func (g *Gaz) serveGrpc() {
 		}
 		defer h.DeRegister()
 	}
-
+	ready <- struct{}{}
 	err := g.GrpcServer.Serve(g.grpcListener)
-	Log.Warn("gRPC server stopper", zap.Error(err))
+	if err != nil {
+		Log.Warn("gRPC server stopped", zap.Error(err))
+	}
 }
 
 func (g *Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
@@ -333,12 +374,20 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 }
 
 func (g *Gaz) Shutdown() {
-	g.GrpcServer.GracefulStop()
+	Log.Info("Stopping gRPC server")
+	g.GrpcServer.Stop()
+	Log.Info("Closing gRPC listener")
 	err := g.grpcListener.Close()
 	if err != nil {
 		Log.Warn("Error while closing gRPC listener", zap.Error(err))
 	}
+	Log.Info("Shutting down http server")
+	err = g.httpSrv.Shutdown(context.Background())
+	if err != nil {
+		Log.Warn("Error while shutting down http server", zap.Error(err))
+	}
 	if g.httpListener != nil {
+		Log.Info("Closing http listener")
 		err = g.httpListener.Close()
 		if err != nil {
 			Log.Warn("Error while closing http listener", zap.Error(err))

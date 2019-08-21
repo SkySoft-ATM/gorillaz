@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/resolver"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -137,4 +138,76 @@ func (g *Gaz) Resolve(serviceName string) ([]ServiceDefinition, error) {
 
 func (g *Gaz) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
 	return g.ServiceDiscovery.ResolveWithTag(serviceName, tag)
+}
+
+func NewMockedServiceDiscovery() (*MockedServiceDiscoveryToLocalGrpcServer, Option) {
+	mock := MockedServiceDiscoveryToLocalGrpcServer{}
+	return &mock, Option{Opt: func(gaz *Gaz) error {
+		mock.mu.Lock()
+		mock.g = gaz
+		mock.mu.Unlock()
+		gaz.ServiceDiscovery = &mock
+		return nil
+	}}
+}
+
+type MockedServiceDiscoveryToLocalGrpcServer struct {
+	g  *Gaz
+	mu sync.RWMutex
+}
+
+func (m *MockedServiceDiscoveryToLocalGrpcServer) UpdateGaz(g *Gaz) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.g = g
+}
+
+type MockedRegistrationHandle struct {
+}
+
+func (m MockedRegistrationHandle) DeRegister() error {
+	return nil
+}
+
+func (m *MockedServiceDiscoveryToLocalGrpcServer) Register(d *ServiceDefinition) (RegistrationHandle, error) {
+	return MockedRegistrationHandle{}, nil
+}
+
+func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([]ServiceDefinition, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := ServiceDefinition{
+		ServiceName: serviceName,
+		Addr:        "localhost",
+		Port:        m.g.GrpcPort(),
+		Tags:        []string{},
+		Meta: map[string]string{
+			ServiceName: serviceName,
+		},
+	}
+	return []ServiceDefinition{result}, nil
+}
+
+func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := ServiceDefinition{
+		ServiceName: serviceName,
+		Addr:        "localhost",
+		Port:        m.g.GrpcPort(),
+		Tags:        []string{tag},
+		Meta: map[string]string{
+			ServiceName: serviceName,
+		},
+	}
+	return []ServiceDefinition{result}, nil
+}
+
+func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveTags(tag string) (map[string][]ServiceDefinition, error) {
+	return nil, errors.New("unimplemented")
+}
+
+func WithMockedServiceDiscovery() Option {
+	_, r := NewMockedServiceDiscovery()
+	return r
 }
