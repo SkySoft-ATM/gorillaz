@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
-
-	"github.com/gorilla/mux"
 )
 
 //TestPrometheusInit tests the creation of a prometheus endpoint and the given path
 func TestPrometheusInit(t *testing.T) {
 	SetupLogger()
 	path := "/somemetric"
-	gaz := &Gaz{Router: mux.NewRouter()}
+	gaz := New(WithServiceName("promtest"))
+	defer gaz.Shutdown()
 	gaz.InitPrometheus(path)
 
 	port, shutdown := setupServerHTTP(gaz.Router)
