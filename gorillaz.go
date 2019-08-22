@@ -249,9 +249,8 @@ func (g *Gaz) Run() <-chan struct{} {
 		if err != nil {
 			if err != http.ErrServerClosed {
 				Log.Panic("HTTP serve stopped unexpectedly", zap.Error(err))
-			} else {
-				Sugar.Infof("HTTP server server stopped on :%d", httpPort)
 			}
+			Sugar.Infof("HTTP server server stopped on :%d", httpPort)
 		}
 	}()
 	if g.ServiceDiscovery != nil {
