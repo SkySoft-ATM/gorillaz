@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -49,7 +48,7 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 		streamName:  streamName,
 		config:      config,
 		broadcaster: broadcaster,
-		metrics:     pMetricHolder(streamName),
+		metrics:     pMetricHolder(g, streamName),
 		gaz:         g,
 	}
 	g.streamRegistry.register(streamName, dataType, p)
@@ -79,7 +78,7 @@ type StreamProvider struct {
 var pMetricHolderMu sync.Mutex
 var pMetrics = make(map[string]providerMetricsHolder)
 
-func pMetricHolder(streamName string) providerMetricsHolder {
+func pMetricHolder(g *Gaz, streamName string) providerMetricsHolder {
 	pMetricHolderMu.Lock()
 	defer pMetricHolderMu.Unlock()
 	if h, ok := pMetrics[streamName]; ok {
@@ -87,7 +86,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 	}
 
 	h := providerMetricsHolder{
-		sentCounter: promauto.NewCounter(prometheus.CounterOpts{
+		sentCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_event_sent",
 			Help: "The total number of messages sent",
 			ConstLabels: prometheus.Labels{
@@ -95,7 +94,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 
-		backPressureCounter: promauto.NewCounter(prometheus.CounterOpts{
+		backPressureCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_backpressure_dropped",
 			Help: "The total number of messages dropped due to backpressure",
 			ConstLabels: prometheus.Labels{
@@ -103,7 +102,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 
-		clientCounter: promauto.NewGauge(prometheus.GaugeOpts{
+		clientCounter: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "stream_connected_clients",
 			Help: "The total number of clients connected",
 			ConstLabels: prometheus.Labels{
@@ -111,7 +110,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 
-		lastEventTimestamp: promauto.NewGauge(prometheus.GaugeOpts{
+		lastEventTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "stream_last_evt_timestamp",
 			Help: "Timestamp of the last event produced",
 			ConstLabels: prometheus.Labels{
@@ -119,6 +118,10 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 	}
+	g.RegisterCollector(h.sentCounter)
+	g.RegisterCollector(h.backPressureCounter)
+	g.RegisterCollector(h.clientCounter)
+	g.RegisterCollector(h.lastEventTimestamp)
 	pMetrics[streamName] = h
 	return h
 }

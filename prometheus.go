@@ -1,8 +1,8 @@
 package gorillaz
 
 import (
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"strings"
 	"time"
 
@@ -15,14 +15,17 @@ func (g *Gaz) InitPrometheus(path string) {
 		path = "/" + path
 	}
 	Sugar.Infof("Setup Prometheus handler at %s", path)
-	g.Router.Handle(path, promhttp.Handler()).Methods("GET")
+	handler := promhttp.InstrumentMetricHandler(
+		g.prometheusRegistry, promhttp.HandlerFor(g.prometheusRegistry, promhttp.HandlerOpts{}),
+	)
+	g.Router.Handle(path, handler).Methods("GET")
 
 	// export uptime as a prometheus counter
-	upCounter := promauto.NewCounter(prometheus.CounterOpts{
+	upCounter := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "uptime_sec",
 		Help: "uptime in seconds",
 	})
-
+	g.RegisterCollector(upCounter)
 	go func() {
 		t := time.Tick(time.Second)
 		for {
@@ -30,4 +33,13 @@ func (g *Gaz) InitPrometheus(path string) {
 			upCounter.Inc()
 		}
 	}()
+}
+
+// return true if collector was successfully registered
+func (g *Gaz) RegisterCollector(c prometheus.Collector) error {
+	err := g.prometheusRegistry.Register(c)
+	if err != nil {
+		return errors.Wrap(err, "Could not register prometheus collector")
+	}
+	return nil
 }

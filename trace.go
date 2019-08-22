@@ -5,7 +5,6 @@ import (
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
 	"github.com/skysoft-atm/zipkin-go-light-opentracing"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"log"
 )
@@ -30,13 +29,13 @@ func (g *Gaz) InitTracingFromConfig() {
 		collectorUrl, err = g.resolveZipkinUrlFromServiceDiscovery()
 		if err != nil {
 			Log.Info("Error while resolving zipkin from service discovery", zap.Error(err))
-			collectorUrl = viper.GetString("tracing.collector.url")
+			collectorUrl = g.Viper.GetString("tracing.collector.url")
 		} else if err != nil {
 			Log.Info("No zipkin instance found in service discovery")
-			collectorUrl = viper.GetString("tracing.collector.url")
+			collectorUrl = g.Viper.GetString("tracing.collector.url")
 		}
 	} else {
-		collectorUrl = viper.GetString("tracing.collector.url")
+		collectorUrl = g.Viper.GetString("tracing.collector.url")
 	}
 
 	g.InitTracing(

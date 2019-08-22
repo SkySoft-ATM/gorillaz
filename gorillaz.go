@@ -5,6 +5,7 @@ import (
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -17,12 +18,9 @@ import (
 	"google.golang.org/grpc/resolver"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
-
-var initialized = false
 
 type Gaz struct {
 	Router            *mux.Router
@@ -31,6 +29,7 @@ type Gaz struct {
 	ServiceName       string
 	ViperRemoteConfig bool
 	Env               string
+	Viper             *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady               *int32
 	isLive                *int32
@@ -41,6 +40,9 @@ type Gaz struct {
 	serviceAddress        string // optional address of the service that will be used for service discovery
 	streamConsumers       *streamConsumerRegistry
 	streamEndpointOptions []StreamEndpointConfigOpt
+	httpListener          net.Listener
+	httpSrv               *http.Server
+	prometheusRegistry    *prometheus.Registry
 }
 
 type streamConsumerRegistry struct {
@@ -48,57 +50,6 @@ type streamConsumerRegistry struct {
 	g                 *Gaz
 	endpointsByName   map[string]*StreamEndpoint
 	endpointConsumers map[*StreamEndpoint]map[*registeredConsumer]struct{}
-}
-
-func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
-	r := g.streamConsumers
-	r.Lock()
-	defer r.Unlock()
-	target := strings.Join(endpoints, ",")
-	e, ok := r.endpointsByName[target]
-	if !ok {
-		var err error
-		Log.Debug("Creating stream endpoint", zap.String("target", target))
-		e, err = r.g.NewStreamEndpoint(endpoints, g.streamEndpointOptions...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "error while creating stream endpoint for target %s", target)
-		}
-		r.endpointsByName[e.target] = e
-	}
-	sc := e.ConsumeStream(streamName, opts...)
-	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
-	consumers := r.endpointConsumers[e]
-	if consumers == nil {
-		consumers = make(map[*registeredConsumer]struct{})
-		r.endpointConsumers[e] = consumers
-	}
-	consumers[&rc] = struct{}{}
-	return &rc, nil
-}
-
-func (g *Gaz) deregister(c *registeredConsumer) {
-	r := g.streamConsumers
-	e := c.StreamConsumer.streamEndpoint()
-	r.Lock()
-	defer r.Unlock()
-	consumers, ok := r.endpointConsumers[e]
-	if !ok {
-		Log.Warn("Stream consumers not found", zap.String("stream name", c.StreamName()),
-			zap.String("target", e.target))
-		return
-	}
-	delete(consumers, c)
-	if len(consumers) == 0 {
-		Log.Debug("Closing endpoint", zap.String("target", e.target))
-		err := e.Close()
-		if err != nil {
-			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
-		}
-		delete(r.endpointsByName, e.target)
-		delete(r.endpointConsumers, e)
-	} else {
-		r.endpointConsumers[e] = consumers
-	}
 }
 
 type GazOption interface {
@@ -128,6 +79,13 @@ func WithConfigPath(configPath string) InitOption {
 	}}
 }
 
+func WithServiceName(sn string) InitOption {
+	return InitOption{func(g *Gaz) error {
+		g.Viper.Set("service.name", sn)
+		return nil
+	}}
+}
+
 func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 	return Option{func(g *Gaz) error {
 		g.grpcServerOptions = o
@@ -138,13 +96,9 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
-	if initialized {
-		panic("gorillaz is already initialized")
-	}
-	initialized = true
 	GracefulStop()
-	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32)}
-
+	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32), Viper: viper.New(), prometheusRegistry: prometheus.NewRegistry()}
+	gaz.httpSrv = &http.Server{Handler: gaz.Router}
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
 		endpointsByName:   make(map[string]*StreamEndpoint),
@@ -164,12 +118,12 @@ func New(options ...GazOption) *Gaz {
 
 	// then parse configuration
 	if gaz.ViperRemoteConfig {
-		err := viper.ReadRemoteConfig()
+		err := gaz.Viper.ReadRemoteConfig()
 		if err != nil {
 			panic(err)
 		}
 	}
-	parseConfiguration(gaz.configPath)
+	parseConfiguration(&gaz, gaz.configPath)
 
 	// then apply non-init options
 	for _, o := range options {
@@ -182,27 +136,27 @@ func New(options ...GazOption) *Gaz {
 		}
 	}
 
-	serviceName := viper.GetString("service.name")
+	serviceName := gaz.Viper.GetString("service.name")
 	if serviceName == "" {
 		panic(errors.New("please provide a service name with the \"service.name\" configuration key"))
 	}
 	gaz.ServiceName = serviceName
 
-	env := viper.GetString("env")
+	env := gaz.Viper.GetString("env")
 	if env == "" {
 		panic(errors.New("please provide an environment with the \"env\" configuration key"))
 	}
 	gaz.Env = env
 
-	serviceAddress := viper.GetString("service.address")
+	serviceAddress := gaz.Viper.GetString("service.address")
 	gaz.serviceAddress = serviceAddress
 
-	err := gaz.InitLogs(viper.GetString("log.level"))
+	err := gaz.InitLogs(gaz.Viper.GetString("log.level"))
 	if err != nil {
 		panic(err)
 	}
 
-	if viper.GetBool("tracing.enabled") {
+	if gaz.Viper.GetBool("tracing.enabled") {
 		gaz.InitTracingFromConfig()
 	}
 
@@ -245,7 +199,7 @@ func New(options ...GazOption) *Gaz {
 	Log.Info("Registering gorillaz gRPC resolver")
 	resolver.Register(&gorillazResolverBuilder{gaz: &gaz})
 
-	grpcPort := viper.GetInt("grpc.port")
+	grpcPort := gaz.Viper.GetInt("grpc.port")
 	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort))
 	if err != nil {
 		panic(err)
@@ -255,45 +209,70 @@ func New(options ...GazOption) *Gaz {
 	return &gaz
 }
 
-// Starts the router, once Run is launched, you should no longer add new handlers on the router
-func (g *Gaz) Run() {
+// Starts the router, once Run is launched, you should no longer add new handlers on the router.
+// It returns a channel that will be notified once the gRPC and http servers have been started.
+func (g *Gaz) Run() <-chan struct{} {
+	if he := g.Viper.GetBool("healthcheck.enabled"); he {
+		Sugar.Info("Activating health check")
+		g.InitHealthcheck()
+	}
 
-	go g.serveGrpc()
+	if prom := g.Viper.GetBool("prometheus.enabled"); prom {
+		promPath := g.Viper.GetString("prometheus.endpoint")
+		g.InitPrometheus(promPath)
+	}
+
+	if pprof := g.Viper.GetBool("pprof.enabled"); pprof {
+		g.InitPprof(g.Viper.GetInt("pprof.port"))
+	}
+
+	var waitgroup sync.WaitGroup
+	waitgroup.Add(2) // wait for gRPC + http
+	go g.serveGrpc(&waitgroup)
 
 	go func() {
-		if he := viper.GetBool("healthcheck.enabled"); he {
-			Sugar.Info("Activating health check")
-			g.InitHealthcheck()
-		}
-
-		if prom := viper.GetBool("prometheus.enabled"); prom {
-			promPath := viper.GetString("prometheus.endpoint")
-			g.InitPrometheus(promPath)
-		}
-
-		if pprof := viper.GetBool("pprof.enabled"); pprof {
-			g.InitPprof(viper.GetInt("pprof.port"))
-		}
-
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
-		port := viper.GetInt("http.port")
+		port := g.Viper.GetInt("http.port")
 		httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
 			panic(err)
 		}
-		httpPort := httpListener.Addr().(*net.TCPAddr).Port
+		g.httpListener = httpListener
+		httpPort := g.HttpPort()
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
-		err = http.Serve(httpListener, g.Router)
+		waitgroup.Done()
+
+		err = g.httpSrv.Serve(httpListener)
 		if err != nil {
-			Sugar.Errorf("Cannot start HTTP server on :%d, %+v", httpPort, err)
-			panic(err)
+			if err != http.ErrServerClosed {
+				Sugar.Errorf("HTTP server server stopped on :%d, %v", httpPort, err)
+				panic(err)
+			} else {
+				Sugar.Infof("HTTP server server stopped on :%d", httpPort)
+			}
 		}
 	}()
+	gazReady := make(chan struct{})
+	go g.notifyWhenReady(&waitgroup, gazReady)
+	return gazReady
 }
 
-func (g *Gaz) serveGrpc() {
-	port := g.grpcListener.Addr().(*net.TCPAddr).Port
+func (g *Gaz) notifyWhenReady(waitgroup *sync.WaitGroup, gazReady chan<- struct{}) {
+	waitgroup.Wait()
+	gazReady <- struct{}{}
+}
+
+func (g *Gaz) GrpcPort() int {
+	return g.grpcListener.Addr().(*net.TCPAddr).Port
+}
+
+func (g *Gaz) HttpPort() int {
+	return g.httpListener.Addr().(*net.TCPAddr).Port
+}
+
+func (g *Gaz) serveGrpc(waitgroup *sync.WaitGroup) {
+	port := g.GrpcPort()
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
 	if g.ServiceDiscovery != nil {
@@ -305,9 +284,11 @@ func (g *Gaz) serveGrpc() {
 		}
 		defer h.DeRegister()
 	}
-
+	waitgroup.Done()
 	err := g.GrpcServer.Serve(g.grpcListener)
-	Log.Warn("gRPC server stopper", zap.Error(err))
+	if err != nil {
+		Log.Warn("gRPC server stopped", zap.Error(err))
+	}
 }
 
 func (g *Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
@@ -327,4 +308,15 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 		options[3+i] = o
 	}
 	return grpc.Dial("gorillaz:///"+target, options...)
+}
+
+func (g *Gaz) Shutdown() {
+	Log.Info("Stopping gRPC server")
+	g.GrpcServer.Stop()
+	Log.Info("Closing http server")
+	err := g.httpSrv.Close()
+	if err != nil {
+		Log.Warn("Error while closing http server", zap.Error(err))
+	}
+
 }
