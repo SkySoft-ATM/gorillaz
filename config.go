@@ -30,6 +30,7 @@ func parseConfiguration(g *Gaz, configPath string) {
 	const configFilePrefix = "application"
 	g.Viper.SetConfigName(configFilePrefix) //the suffix ".properties" will be added by viper
 	g.Viper.AddConfigPath(conf)
+	g.Viper.SetConfigType("properties")
 	err := g.Viper.ReadInConfig()
 	if err != nil {
 		Sugar.Warnf("unable to read config in path %s with file prefix %s %v", conf, configFilePrefix, err)
