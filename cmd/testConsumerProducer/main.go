@@ -23,7 +23,7 @@ func main() {
 	flag.IntVar(&port, "port", 0, "GRPC server")
 	flag.Parse()
 
-	g := gaz.New()
+	g := gaz.New(gaz.WithConfigPath("cmd/testConsumerProducer/configs"))
 	g.Run()
 
 	var worstLatency int64
