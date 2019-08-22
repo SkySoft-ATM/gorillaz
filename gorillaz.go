@@ -209,9 +209,9 @@ func New(options ...GazOption) *Gaz {
 	return &gaz
 }
 
-// Starts the router, once Run is launched, you should no longer add new handlers on the router
+// Starts the router, once Run is launched, you should no longer add new handlers on the router.
+// It returns a channel that will be notified once the gRPC and http servers have been started.
 func (g *Gaz) Run() <-chan struct{} {
-
 	if he := g.Viper.GetBool("healthcheck.enabled"); he {
 		Sugar.Info("Activating health check")
 		g.InitHealthcheck()
@@ -226,10 +226,10 @@ func (g *Gaz) Run() <-chan struct{} {
 		g.InitPprof(g.Viper.GetInt("pprof.port"))
 	}
 
-	grpcNotif := make(chan struct{})
-	go g.serveGrpc(grpcNotif)
+	var waitgroup sync.WaitGroup
+	waitgroup.Add(2) // wait for gRPC + http
+	go g.serveGrpc(&waitgroup)
 
-	httpNotif := make(chan struct{})
 	go func() {
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
@@ -241,7 +241,7 @@ func (g *Gaz) Run() <-chan struct{} {
 		g.httpListener = httpListener
 		httpPort := g.HttpPort()
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
-		httpNotif <- struct{}{}
+		waitgroup.Done()
 
 		err = g.httpSrv.Serve(httpListener)
 		if err != nil {
@@ -254,24 +254,13 @@ func (g *Gaz) Run() <-chan struct{} {
 		}
 	}()
 	gazReady := make(chan struct{})
-	go g.notifyWhenReady(grpcNotif, httpNotif, gazReady)
+	go g.notifyWhenReady(&waitgroup, gazReady)
 	return gazReady
 }
 
-func (g *Gaz) notifyWhenReady(grpcNotif, httpNotif <-chan struct{}, gazReady chan<- struct{}) {
-	var grpcReady, httpReady bool
-	for {
-		select {
-		case <-httpNotif:
-			httpReady = true
-		case <-grpcNotif:
-			grpcReady = true
-		}
-		if grpcReady && httpReady {
-			gazReady <- struct{}{}
-			return
-		}
-	}
+func (g *Gaz) notifyWhenReady(waitgroup *sync.WaitGroup, gazReady chan<- struct{}) {
+	waitgroup.Wait()
+	gazReady <- struct{}{}
 }
 
 func (g *Gaz) GrpcPort() int {
@@ -282,7 +271,7 @@ func (g *Gaz) HttpPort() int {
 	return g.httpListener.Addr().(*net.TCPAddr).Port
 }
 
-func (g *Gaz) serveGrpc(ready chan<- struct{}) {
+func (g *Gaz) serveGrpc(waitgroup *sync.WaitGroup) {
 	port := g.GrpcPort()
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
@@ -295,7 +284,7 @@ func (g *Gaz) serveGrpc(ready chan<- struct{}) {
 		}
 		defer h.DeRegister()
 	}
-	ready <- struct{}{}
+	waitgroup.Done()
 	err := g.GrpcServer.Serve(g.grpcListener)
 	if err != nil {
 		Log.Warn("gRPC server stopped", zap.Error(err))
