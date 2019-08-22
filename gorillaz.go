@@ -45,6 +45,7 @@ type Gaz struct {
 	httpListener          net.Listener
 	httpSrv               *http.Server
 	prometheusRegistry    *prometheus.Registry
+	bindConfigKeysAsFlag  bool
 }
 
 type streamConsumerRegistry struct {
@@ -72,6 +73,15 @@ type Option struct {
 
 func (i Option) apply(g *Gaz) error {
 	return i.Opt(g)
+}
+
+// with this option the configuration keys define in the config file will be declared as flags,
+// and the flag default value will be the value from the config file.
+func BindConfigKeysAsFlags() InitOption {
+	return InitOption{func(g *Gaz) error {
+		g.bindConfigKeysAsFlag = true
+		return nil
+	}}
 }
 
 func WithConfigPath(configPath string) InitOption {
