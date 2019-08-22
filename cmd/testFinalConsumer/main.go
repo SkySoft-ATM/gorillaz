@@ -21,7 +21,7 @@ func main() {
 	flag.StringVar(&endpoints, "endpoints", "", "endpoint to connect to")
 	flag.Parse()
 
-	g := gaz.New()
+	g := gaz.New(gaz.WithStreamEndpointOptions(gaz.BackoffMaxDelay(3 * time.Second)))
 	g.Run()
 
 	var wg sync.WaitGroup
@@ -30,13 +30,10 @@ func main() {
 	var worstLatency int64
 	var totalLatency int64
 
-	endpoint, err := g.NewStreamEndpoint(strings.Split(endpoints, ","))
-
+	consumer, err := g.ConsumeStream(strings.Split(endpoints, ","), streamName)
 	if err != nil {
 		panic(err)
 	}
-
-	consumer := endpoint.ConsumeStream(streamName)
 
 	fmt.Println("client created")
 
@@ -50,7 +47,7 @@ func main() {
 		if i%1000 == 0 {
 			fmt.Println(fmt.Sprintf("consumed %d messages", i))
 		}
-		evt := <-consumer.EvtChan
+		evt := <-consumer.EvtChan()
 		sp, _ := opentracing.StartSpanFromContext(evt.Ctx, "computing latency")
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
 		if latency > worstLatency {

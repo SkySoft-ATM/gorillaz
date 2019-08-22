@@ -2,8 +2,8 @@ package gorillaz
 
 import (
 	"context"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -14,11 +14,9 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
-
-var mu sync.RWMutex
-var authority string
 
 type ConsumerConfig struct {
 	BufferLen      int // BufferLen is the size of the channel of the consumer
@@ -31,13 +29,58 @@ type StreamEndpointConfig struct {
 	backoffMaxDelay time.Duration
 }
 
-type Consumer struct {
-	StreamName string
-	EvtChan    chan *stream.Event
-	config     *ConsumerConfig
+type StreamConsumer interface {
+	StreamName() string
+	EvtChan() chan *stream.Event
+	Stop() bool //return previous 'stopped' state
+	streamEndpoint() *streamEndpoint
 }
 
-type StreamEndpoint struct {
+type registeredConsumer struct {
+	StreamConsumer
+	g *Gaz
+}
+
+func (c *registeredConsumer) Stop() bool {
+	wasAlreadyStopped := c.StreamConsumer.Stop()
+	if wasAlreadyStopped {
+		Log.Warn("Stop called twice", zap.String("stream name", c.StreamName()))
+	} else {
+		c.g.deregister(c)
+	}
+	return wasAlreadyStopped
+}
+
+type consumer struct {
+	endpoint   *streamEndpoint
+	streamName string
+	evtChan    chan *stream.Event
+	config     *ConsumerConfig
+	stopped    *int32
+}
+
+func (c *consumer) streamEndpoint() *streamEndpoint {
+	return c.endpoint
+}
+
+func (c *consumer) StreamName() string {
+	return c.streamName
+}
+
+func (c *consumer) EvtChan() chan *stream.Event {
+	return c.evtChan
+}
+
+func (c *consumer) Stop() bool {
+	return atomic.SwapInt32(c.stopped, 1) == 1
+}
+
+func (c *consumer) isStopped() bool {
+	return atomic.LoadInt32(c.stopped) == 1
+}
+
+type streamEndpoint struct {
+	g         *Gaz
 	target    string
 	endpoints []string
 	config    *StreamEndpointConfig
@@ -69,12 +112,92 @@ type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
 
-// Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
-func (g Gaz) NewServiceStreamEndpoint(serviceName string) (*StreamEndpoint, error) {
-	return g.NewStreamEndpoint([]string{SdPrefix + serviceName})
+// Add options for the stream endpoint creation, this can be used when stream endpoints are created under the hood by the methods below.
+func WithStreamEndpointOptions(opts ...StreamEndpointConfigOpt) Option {
+	return Option{Opt: func(gaz *Gaz) error {
+		gaz.streamEndpointOptions = opts
+		return nil
+	}}
 }
 
-func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
+// Call this method to create a stream consumer with the full stream name (pattern: "serviceName.streamName")
+// The service name is resolved via service discovery
+// Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
+func (g *Gaz) DiscoverAndConsumeStream(fullStreamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	srv, stream := ParseStreamName(fullStreamName)
+	return g.DiscoverAndConsumeServiceStream(srv, stream, opts...)
+}
+
+// Call this method to create a stream consumer
+// The service name is resolved via service discovery
+// Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
+func (g *Gaz) DiscoverAndConsumeServiceStream(service, stream string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	return g.createConsumer([]string{SdPrefix + service}, stream, opts...)
+}
+
+// Call this method to create a stream consumer with the service endpoints and the stream name
+// Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
+func (g *Gaz) ConsumeStream(endpoints []string, stream string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	return g.createConsumer(endpoints, stream, opts...)
+}
+
+func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	r := g.streamConsumers
+	target := strings.Join(endpoints, ",")
+	r.Lock()
+	defer r.Unlock()
+	e, ok := r.endpointsByName[target]
+	if !ok {
+		var err error
+		Log.Debug("Creating stream endpoint", zap.String("target", target))
+		e, err = r.g.newStreamEndpoint(endpoints, g.streamEndpointOptions...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error while creating stream endpoint for target %s", target)
+		}
+		r.endpointsByName[e.target] = e
+	}
+	sc := e.consumeStream(streamName, opts...)
+	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
+	consumers := r.endpointConsumers[e]
+	if consumers == nil {
+		consumers = make(map[*registeredConsumer]struct{})
+		r.endpointConsumers[e] = consumers
+	}
+	consumers[&rc] = struct{}{}
+	return &rc, nil
+}
+
+func (g *Gaz) deregister(c *registeredConsumer) {
+	r := g.streamConsumers
+	e := c.StreamConsumer.streamEndpoint()
+	r.Lock()
+	defer r.Unlock()
+	consumers, ok := r.endpointConsumers[e]
+	if !ok {
+		Log.Warn("Stream consumers not found", zap.String("stream name", c.StreamName()),
+			zap.String("target", e.target))
+		return
+	}
+	delete(consumers, c)
+	if len(consumers) == 0 {
+		Log.Debug("Closing endpoint", zap.String("target", e.target))
+		err := e.close()
+		if err != nil {
+			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
+		}
+		delete(r.endpointsByName, e.target)
+		delete(r.endpointConsumers, e)
+	} else {
+		r.endpointConsumers[e] = consumers
+	}
+}
+
+// Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
+func (g *Gaz) newServiceStreamEndpoint(serviceName string, opts ...StreamEndpointConfigOpt) (*streamEndpoint, error) {
+	return g.newStreamEndpoint([]string{SdPrefix + serviceName})
+}
+
+func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*streamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {
 		opt(config)
@@ -89,7 +212,8 @@ func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigO
 	if err != nil {
 		return nil, err
 	}
-	endpoint := &StreamEndpoint{
+	endpoint := &streamEndpoint{
+		g:         g,
 		config:    config,
 		endpoints: endpoints,
 		target:    target,
@@ -98,27 +222,29 @@ func (g Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigO
 	return endpoint, nil
 }
 
-func (se *StreamEndpoint) Close() error {
+func (se *streamEndpoint) close() error {
 	return se.conn.Close()
 }
 
-func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) *Consumer {
+func (se *streamEndpoint) consumeStream(streamName string, opts ...ConsumerConfigOpt) StreamConsumer {
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)
 	}
 
 	ch := make(chan *stream.Event, config.BufferLen)
-	c := &Consumer{
-		StreamName: streamName,
-		EvtChan:    ch,
+	c := &consumer{
+		endpoint:   se,
+		streamName: streamName,
+		evtChan:    ch,
 		config:     config,
+		stopped:    new(int32),
 	}
 
-	var monitoringHolder = consumerMonitoring(streamName, se.endpoints)
+	var monitoringHolder = consumerMonitoring(se.g, streamName, se.endpoints)
 
 	go func() {
-		for se.conn.GetState() != connectivity.Shutdown {
+		for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
 			waitTillReadyOrShutdown(streamName, se)
 			if se.conn.GetState() == connectivity.Shutdown {
 				break
@@ -147,12 +273,12 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 				Log.Debug("Stream connected", zap.String("streamName", streamName))
 
 				// at this point, the GRPC connection is established with the server
-				for {
+				for !c.isStopped() {
 					monitoringHolder.conGauge.Set(1)
 					streamEvt, err := st.Recv()
 
 					if err != nil {
-						Log.Warn("received error on stream", zap.String("stream", c.StreamName), zap.Error(err))
+						Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.Error(err))
 						if e, ok := status.FromError(err); ok {
 							switch e.Code() {
 							case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
@@ -171,7 +297,7 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 						Value: streamEvt.Value,
 						Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
 					}
-					c.EvtChan <- evt
+					c.evtChan <- evt
 				}
 			} else {
 				Log.Warn("Stream created but not connected", zap.String("stream", streamName))
@@ -183,8 +309,8 @@ func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfi
 			}
 
 		}
-		Log.Info("Stream closed", zap.String("stream", c.StreamName))
-		close(c.EvtChan)
+		Log.Info("Stream closed", zap.String("stream", c.streamName))
+		close(c.evtChan)
 
 	}()
 	return c
@@ -208,7 +334,7 @@ func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.
 	}
 }
 
-func waitTillReadyOrShutdown(streamName string, se *StreamEndpoint) {
+func waitTillReadyOrShutdown(streamName string, se *streamEndpoint) {
 	var state connectivity.State
 	for state = se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
 		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
@@ -237,7 +363,7 @@ type consumerMonitoringHolder struct {
 var consMonitoringMu sync.Mutex
 var consumerMonitorings = make(map[string]consumerMonitoringHolder)
 
-func consumerMonitoring(streamName string, endpoints []string) consumerMonitoringHolder {
+func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerMonitoringHolder {
 	consMonitoringMu.Lock()
 	defer consMonitoringMu.Unlock()
 
@@ -245,7 +371,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 		return m
 	}
 	m := consumerMonitoringHolder{
-		receivedCounter: promauto.NewCounter(prometheus.CounterOpts{
+		receivedCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_received_events",
 			Help: "The total number of events received",
 			ConstLabels: prometheus.Labels{
@@ -254,7 +380,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		conCounter: promauto.NewCounter(prometheus.CounterOpts{
+		conCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_connection_attempts",
 			Help: "The total number of connections to the stream",
 			ConstLabels: prometheus.Labels{
@@ -263,7 +389,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		conGauge: promauto.NewGauge(prometheus.GaugeOpts{
+		conGauge: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "stream_consumer_connected",
 			Help: "1 if connected, otherwise 0",
 			ConstLabels: prometheus.Labels{
@@ -272,7 +398,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		delaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+		delaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "stream_consumer_delay_ms",
 			Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -282,7 +408,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 
-		originDelaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+		originDelaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "stream_consumer_origin_delay_ms",
 			Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -291,7 +417,7 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 				"endpoints": strings.Join(endpoints, ","),
 			},
 		}),
-		eventDelaySummary: promauto.NewSummary(prometheus.SummaryOpts{
+		eventDelaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
 			Name:       "stream_consumer_event_delay_ms",
 			Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
@@ -301,6 +427,12 @@ func consumerMonitoring(streamName string, endpoints []string) consumerMonitorin
 			},
 		}),
 	}
+	g.RegisterCollector(m.receivedCounter)
+	g.RegisterCollector(m.conCounter)
+	g.RegisterCollector(m.conGauge)
+	g.RegisterCollector(m.delaySummary)
+	g.RegisterCollector(m.originDelaySummary)
+	g.RegisterCollector(m.eventDelaySummary)
 	consumerMonitorings[streamName] = m
 	return m
 }

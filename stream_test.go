@@ -2,48 +2,34 @@ package gorillaz
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/skysoft-atm/gorillaz/stream"
-	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/resolver"
-	"net"
 	"testing"
 	"time"
 )
 
-func newGaz() (gaz *Gaz, addr string, shutdown func()) {
-	return newGazOnAddr(":0")
+func TestFullStreamName(t *testing.T) {
+	const full = "toto.tutu.stream"
+	const srv = "toto.tutu"
+	const str = "stream"
+	serv, stream := ParseStreamName(full)
+	assertEquals(t, serv, srv, "as service name")
+	assertEquals(t, stream, str, "as stream")
+
+	name := GetFullStreamName(srv, str)
+	assertEquals(t, name, full, "as full stream name")
 }
 
-func newGazOnAddr(conAddr string) (gaz *Gaz, addr string, shutdown func()) {
-	l, err := net.Listen("tcp", conAddr)
-	if err != nil {
-		panic(err)
-	}
-	g := &Gaz{
-		GrpcServer:   grpc.NewServer(grpc.CustomCodec(&binaryCodec{})),
-		grpcListener: l,
-		ServiceName:  "test",
-		Env:          "test",
-		streamRegistry: &streamRegistry{
-			providers:  make(map[string]*StreamProvider),
-			serviceIds: make(map[string]RegistrationHandle),
-		},
-	}
-
-	stream.RegisterStreamServer(g.GrpcServer, g.streamRegistry)
-	go g.GrpcServer.Serve(l)
-	Log.Info("Started gRPC server", zap.String("Address", l.Addr().String()))
-	resolver.Register(&gorillazResolverBuilder{gaz: g})
-	return g, l.Addr().String(), func() {
-		g.GrpcServer.Stop()
+func assertEquals(t *testing.T, got, expected, comment string) {
+	if got != expected {
+		t.Error(fmt.Sprintf("%s Got: %s Expected: %s", comment, got, expected))
 	}
 }
 
 func TestStreamLazy(t *testing.T) {
-	g, addr, shutdown := newGaz()
-	g.InitLogs("debug")
-	defer shutdown()
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
+	defer g.Shutdown()
+	<-g.Run()
 
 	provider, err := g.NewStreamProvider("stream", "dummy.type", func(conf *ProviderConfig) {
 		conf.LazyBroadcast = true
@@ -57,21 +43,19 @@ func TestStreamLazy(t *testing.T) {
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 	provider.Submit(&stream.Event{Value: []byte("value2")})
 
-	endpoint, err := g.NewStreamEndpoint([]string{addr})
+	consumer, err := g.DiscoverAndConsumeServiceStream("does not mater", "stream")
 	if err != nil {
-		t.Errorf("cannot start consumer, %+v", err)
-		return
+		t.Fatal(err)
 	}
 
-	consumer := endpoint.ConsumeStream("stream")
-
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("value2")})
 }
 
 func TestStreamEvents(t *testing.T) {
-	g, addr, shutdown := newGaz()
-	defer shutdown()
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
+	defer g.Shutdown()
+	<-g.Run()
 
 	provider1Stream := "testy"
 	provider2Stream := "testoo"
@@ -88,8 +72,8 @@ func TestStreamEvents(t *testing.T) {
 		return
 	}
 
-	consumer1 := createConsumer(t, g, provider1Stream, addr)
-	consumer2 := createConsumer(t, g, provider2Stream, addr)
+	consumer1 := createConsumer(t, g, provider1Stream)
+	consumer2 := createConsumer(t, g, provider2Stream)
 
 	evt1 := &stream.Event{
 		Key:   []byte("testyKey"),
@@ -108,13 +92,14 @@ func TestStreamEvents(t *testing.T) {
 	provider1.Submit(evt1)
 	provider2.Submit(evt2)
 
-	assertReceived(t, provider1Stream, consumer1.EvtChan, evt1)
-	assertReceived(t, provider2Stream, consumer2.EvtChan, evt2)
+	assertReceived(t, provider1Stream, consumer1.EvtChan(), evt1)
+	assertReceived(t, provider2Stream, consumer2.EvtChan(), evt2)
 }
 
 func TestMultipleConsumers(t *testing.T) {
-	g, addr, shutdown := newGaz()
-	defer shutdown()
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
+	defer g.Shutdown()
+	<-g.Run()
 
 	streamName := "testaa"
 
@@ -126,9 +111,9 @@ func TestMultipleConsumers(t *testing.T) {
 		return
 	}
 
-	consumer1 := createConsumer(t, g, streamName, addr)
-	consumer2 := createConsumer(t, g, streamName, addr)
-	consumer3 := createConsumer(t, g, streamName, addr)
+	consumer1 := createConsumer(t, g, streamName)
+	consumer2 := createConsumer(t, g, streamName)
+	consumer3 := createConsumer(t, g, streamName)
 
 	// give time to the consumers to be properly subscribed
 	time.Sleep(time.Second * 3)
@@ -136,19 +121,20 @@ func TestMultipleConsumers(t *testing.T) {
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 	provider.Submit(&stream.Event{Value: []byte("value2")})
 
-	assertReceived(t, "stream", consumer1.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer1.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer1.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer1.EvtChan(), &stream.Event{Value: []byte("value2")})
 
-	assertReceived(t, "stream", consumer2.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer2.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer2.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer2.EvtChan(), &stream.Event{Value: []byte("value2")})
 
-	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value1")})
-	assertReceived(t, "stream", consumer3.EvtChan, &stream.Event{Value: []byte("value2")})
+	assertReceived(t, "stream", consumer3.EvtChan(), &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer3.EvtChan(), &stream.Event{Value: []byte("value2")})
 }
 
 func TestProducerReconnect(t *testing.T) {
-	g, addr, shutdown := newGaz()
-	defer shutdown()
+	mock, sdOption := NewMockedServiceDiscovery()
+	g := New(WithServiceName("test"), sdOption)
+	<-g.Run()
 
 	streamName := "testaa"
 
@@ -163,17 +149,23 @@ func TestProducerReconnect(t *testing.T) {
 	// as this is a lazy provider, it should wait for a first consumer to send events
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 
-	consumer := createConsumer(t, g, streamName, addr)
+	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("value1")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("value1")})
 
 	// disconnect the provider
-	shutdown()
+	g.Shutdown()
 
 	// wait a bit to be sure the consumer has seen it
 	time.Sleep(time.Second)
 
-	g, _, shutdown = newGazOnAddr(addr)
+	g = New(WithServiceName("test"))
+	<-g.Run()
+	mock.UpdateGaz(g)
+	defer g.Shutdown()
 	provider2, err := g.NewStreamProvider(streamName, "dummy.type")
 	if err != nil {
 		t.Errorf("cannot start provider, %+v", err)
@@ -184,7 +176,7 @@ func TestProducerReconnect(t *testing.T) {
 	time.Sleep(time.Second * 6)
 	provider2.Submit(&stream.Event{Value: []byte("newValue")})
 
-	assertReceived(t, "stream", consumer.EvtChan, &stream.Event{Value: []byte("newValue")})
+	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("newValue")})
 }
 
 func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, expected *stream.Event) {
@@ -201,7 +193,7 @@ func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, ex
 	}
 }
 
-func createConsumer(t *testing.T, g *Gaz, streamName string, endpoint string) *Consumer {
+func createConsumer(t *testing.T, g *Gaz, streamName string) StreamConsumer {
 	connected := make(chan bool, 1)
 
 	opt := func(config *ConsumerConfig) {
@@ -215,13 +207,10 @@ func createConsumer(t *testing.T, g *Gaz, streamName string, endpoint string) *C
 		}
 	}
 
-	streamEndpoint, err := g.NewStreamEndpoint([]string{endpoint})
+	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, opt)
 	if err != nil {
-		t.Errorf("cannot create consumer for stream %s,, %+v", streamName, err)
-		t.FailNow()
+		t.Fatal(err)
 	}
-
-	consumer := streamEndpoint.ConsumeStream(streamName, opt)
 
 	select {
 	case <-connected:

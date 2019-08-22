@@ -5,7 +5,6 @@ import (
 	"github.com/opentracing/opentracing-go"
 	zlog "github.com/opentracing/opentracing-go/log"
 	"github.com/skysoft-atm/zipkin-go-light-opentracing"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"log"
 )
@@ -23,20 +22,20 @@ type TracingConfig struct {
 // InitTracingFromConfig initializes either an HTTP connection to a Zipkin Collector
 // You should have provided the following configurations, either in the config file or with flags:
 // zipkin.collector.url
-func (g Gaz) InitTracingFromConfig() {
+func (g *Gaz) InitTracingFromConfig() {
 	var collectorUrl string
 	if g.ServiceDiscovery != nil {
 		var err error
 		collectorUrl, err = g.resolveZipkinUrlFromServiceDiscovery()
 		if err != nil {
 			Log.Info("Error while resolving zipkin from service discovery", zap.Error(err))
-			collectorUrl = viper.GetString("tracing.collector.url")
+			collectorUrl = g.Viper.GetString("tracing.collector.url")
 		} else if err != nil {
 			Log.Info("No zipkin instance found in service discovery")
-			collectorUrl = viper.GetString("tracing.collector.url")
+			collectorUrl = g.Viper.GetString("tracing.collector.url")
 		}
 	} else {
-		collectorUrl = viper.GetString("tracing.collector.url")
+		collectorUrl = g.Viper.GetString("tracing.collector.url")
 	}
 
 	g.InitTracing(
@@ -46,7 +45,7 @@ func (g Gaz) InitTracingFromConfig() {
 		})
 }
 
-func (g Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
+func (g *Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
 	tracingEndpoints, err := g.ResolveWithTag("zipkin", g.Env)
 	if err != nil {
 		return "", err
@@ -58,7 +57,7 @@ func (g Gaz) resolveZipkinUrlFromServiceDiscovery() (string, error) {
 }
 
 // InitTracing initializes connection to feed Zipkin
-func (g Gaz) InitTracing(conf TracingConfig) {
+func (g *Gaz) InitTracing(conf TracingConfig) {
 
 	if conf.collectorUrl == "" {
 		panic("zipkin TracingConfig is invalid, collectorUrl is not set")

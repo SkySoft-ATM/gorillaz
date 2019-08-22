@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -24,7 +24,7 @@ const ServiceName = "serviceName"
 
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
-func (g Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
+func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
 	Log.Info("creating stream", zap.String("stream", streamName))
 
 	config := defaultProviderConfig()
@@ -48,15 +48,15 @@ func (g Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConf
 		streamName:  streamName,
 		config:      config,
 		broadcaster: broadcaster,
-		metrics:     pMetricHolder(streamName),
-		gaz:         &g,
+		metrics:     pMetricHolder(g, streamName),
+		gaz:         g,
 	}
 	g.streamRegistry.register(streamName, dataType, p)
 
 	return p, nil
 }
 
-func (g Gaz) CloseStream(streamName string) error {
+func (g *Gaz) CloseStream(streamName string) error {
 	log.Info("closing stream", zap.String("stream", streamName))
 	provider, ok := g.streamRegistry.find(streamName)
 	if !ok {
@@ -78,7 +78,7 @@ type StreamProvider struct {
 var pMetricHolderMu sync.Mutex
 var pMetrics = make(map[string]providerMetricsHolder)
 
-func pMetricHolder(streamName string) providerMetricsHolder {
+func pMetricHolder(g *Gaz, streamName string) providerMetricsHolder {
 	pMetricHolderMu.Lock()
 	defer pMetricHolderMu.Unlock()
 	if h, ok := pMetrics[streamName]; ok {
@@ -86,7 +86,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 	}
 
 	h := providerMetricsHolder{
-		sentCounter: promauto.NewCounter(prometheus.CounterOpts{
+		sentCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_event_sent",
 			Help: "The total number of messages sent",
 			ConstLabels: prometheus.Labels{
@@ -94,7 +94,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 
-		backPressureCounter: promauto.NewCounter(prometheus.CounterOpts{
+		backPressureCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_backpressure_dropped",
 			Help: "The total number of messages dropped due to backpressure",
 			ConstLabels: prometheus.Labels{
@@ -102,7 +102,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 
-		clientCounter: promauto.NewGauge(prometheus.GaugeOpts{
+		clientCounter: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "stream_connected_clients",
 			Help: "The total number of clients connected",
 			ConstLabels: prometheus.Labels{
@@ -110,7 +110,7 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 
-		lastEventTimestamp: promauto.NewGauge(prometheus.GaugeOpts{
+		lastEventTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "stream_last_evt_timestamp",
 			Help: "Timestamp of the last event produced",
 			ConstLabels: prometheus.Labels{
@@ -118,6 +118,10 @@ func pMetricHolder(streamName string) providerMetricsHolder {
 			},
 		}),
 	}
+	g.RegisterCollector(h.sentCounter)
+	g.RegisterCollector(h.backPressureCounter)
+	g.RegisterCollector(h.clientCounter)
+	g.RegisterCollector(h.lastEventTimestamp)
 	pMetrics[streamName] = h
 	return h
 }
@@ -236,17 +240,29 @@ func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
 	return p, ok
 }
 
+func GetFullStreamName(serviceName, streamName string) string {
+	return fmt.Sprintf("%s.%s", serviceName, streamName)
+}
+
+// returns the service name and stream name
+func ParseStreamName(fullStreamName string) (string, string) {
+	li := strings.LastIndex(fullStreamName, ".")
+	if li >= 0 {
+		return fullStreamName[:li], fullStreamName[li+1:]
+	}
+	return fullStreamName, ""
+}
+
 func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider) {
 	r.Lock()
 	if _, found := r.providers[streamName]; found {
 		panic("cannot register 2 providers with the same streamName: " + streamName)
 	}
 	r.providers[streamName] = p
-
 	port := p.gaz.grpcListener.Addr().(*net.TCPAddr).Port
 
 	if p.gaz.ServiceDiscovery != nil {
-		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: p.gaz.ServiceName + "/" + streamName,
+		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: GetFullStreamName(p.gaz.ServiceName, streamName),
 			Addr: p.gaz.serviceAddress,
 			Port: port,
 			Tags: []string{StreamTag},
