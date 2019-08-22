@@ -48,8 +48,8 @@ type Gaz struct {
 type streamConsumerRegistry struct {
 	sync.Mutex
 	g                 *Gaz
-	endpointsByName   map[string]*StreamEndpoint
-	endpointConsumers map[*StreamEndpoint]map[*registeredConsumer]struct{}
+	endpointsByName   map[string]*streamEndpoint
+	endpointConsumers map[*streamEndpoint]map[*registeredConsumer]struct{}
 }
 
 type GazOption interface {
@@ -101,8 +101,8 @@ func New(options ...GazOption) *Gaz {
 	gaz.httpSrv = &http.Server{Handler: gaz.Router}
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
-		endpointsByName:   make(map[string]*StreamEndpoint),
-		endpointConsumers: make(map[*StreamEndpoint]map[*registeredConsumer]struct{}),
+		endpointsByName:   make(map[string]*streamEndpoint),
+		endpointConsumers: make(map[*streamEndpoint]map[*registeredConsumer]struct{}),
 	}
 
 	// first apply only init options

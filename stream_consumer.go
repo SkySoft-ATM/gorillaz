@@ -33,7 +33,7 @@ type StreamConsumer interface {
 	StreamName() string
 	EvtChan() chan *stream.Event
 	Stop() bool //return previous 'stopped' state
-	streamEndpoint() *StreamEndpoint
+	streamEndpoint() *streamEndpoint
 }
 
 type registeredConsumer struct {
@@ -52,14 +52,14 @@ func (c *registeredConsumer) Stop() bool {
 }
 
 type consumer struct {
-	endpoint   *StreamEndpoint
+	endpoint   *streamEndpoint
 	streamName string
 	evtChan    chan *stream.Event
 	config     *ConsumerConfig
 	stopped    *int32
 }
 
-func (c *consumer) streamEndpoint() *StreamEndpoint {
+func (c *consumer) streamEndpoint() *streamEndpoint {
 	return c.endpoint
 }
 
@@ -79,7 +79,7 @@ func (c *consumer) isStopped() bool {
 	return atomic.LoadInt32(c.stopped) == 1
 }
 
-type StreamEndpoint struct {
+type streamEndpoint struct {
 	g         *Gaz
 	target    string
 	endpoints []string
@@ -150,13 +150,13 @@ func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...Cons
 	if !ok {
 		var err error
 		Log.Debug("Creating stream endpoint", zap.String("target", target))
-		e, err = r.g.NewStreamEndpoint(endpoints, g.streamEndpointOptions...)
+		e, err = r.g.newStreamEndpoint(endpoints, g.streamEndpointOptions...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "error while creating stream endpoint for target %s", target)
 		}
 		r.endpointsByName[e.target] = e
 	}
-	sc := e.ConsumeStream(streamName, opts...)
+	sc := e.consumeStream(streamName, opts...)
 	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
 	consumers := r.endpointConsumers[e]
 	if consumers == nil {
@@ -181,7 +181,7 @@ func (g *Gaz) deregister(c *registeredConsumer) {
 	delete(consumers, c)
 	if len(consumers) == 0 {
 		Log.Debug("Closing endpoint", zap.String("target", e.target))
-		err := e.Close()
+		err := e.close()
 		if err != nil {
 			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
 		}
@@ -193,11 +193,11 @@ func (g *Gaz) deregister(c *registeredConsumer) {
 }
 
 // Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
-func (g *Gaz) NewServiceStreamEndpoint(serviceName string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
-	return g.NewStreamEndpoint([]string{SdPrefix + serviceName})
+func (g *Gaz) newServiceStreamEndpoint(serviceName string, opts ...StreamEndpointConfigOpt) (*streamEndpoint, error) {
+	return g.newStreamEndpoint([]string{SdPrefix + serviceName})
 }
 
-func (g *Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*StreamEndpoint, error) {
+func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*streamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {
 		opt(config)
@@ -212,7 +212,7 @@ func (g *Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 	if err != nil {
 		return nil, err
 	}
-	endpoint := &StreamEndpoint{
+	endpoint := &streamEndpoint{
 		g:         g,
 		config:    config,
 		endpoints: endpoints,
@@ -222,11 +222,11 @@ func (g *Gaz) NewStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 	return endpoint, nil
 }
 
-func (se *StreamEndpoint) Close() error {
+func (se *streamEndpoint) close() error {
 	return se.conn.Close()
 }
 
-func (se *StreamEndpoint) ConsumeStream(streamName string, opts ...ConsumerConfigOpt) StreamConsumer {
+func (se *streamEndpoint) consumeStream(streamName string, opts ...ConsumerConfigOpt) StreamConsumer {
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)
@@ -334,7 +334,7 @@ func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.
 	}
 }
 
-func waitTillReadyOrShutdown(streamName string, se *StreamEndpoint) {
+func waitTillReadyOrShutdown(streamName string, se *streamEndpoint) {
 	var state connectivity.State
 	for state = se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
 		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
