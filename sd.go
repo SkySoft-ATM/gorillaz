@@ -167,7 +167,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) UpdateGaz(g *Gaz) {
 type MockedRegistrationHandle struct {
 }
 
-func (m MockedRegistrationHandle) DeRegister() error {
+func (m MockedRegistrationHandle) DeRegister(ctx context.Context) error {
 	return nil
 }
 

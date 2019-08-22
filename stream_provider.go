@@ -15,6 +15,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 const StreamTag = "gorillazStream"
@@ -263,9 +264,9 @@ func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider
 
 	if p.gaz.ServiceDiscovery != nil {
 		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: GetFullStreamName(p.gaz.ServiceName, streamName),
-			Addr: p.gaz.serviceAddress,
-			Port: port,
-			Tags: []string{StreamTag},
+			Addr:     p.gaz.serviceAddress,
+			GrpcPort: port,
+			Tags:     []string{StreamTag},
 			Meta: map[string]string{
 				StreamName:  streamName,
 				DataType:    dataType,
@@ -287,7 +288,8 @@ func (r *streamRegistry) unregister(streamName string) {
 		delete(r.providers, streamName)
 		handle, ok := r.serviceIds[streamName]
 		if ok {
-			err := handle.DeRegister()
+			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			err := handle.DeRegister(ctx)
 			if err != nil {
 				Log.Warn("Could not deregister stream on service discovery", zap.String("streamName", streamName))
 			}
