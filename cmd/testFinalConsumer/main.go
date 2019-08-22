@@ -21,7 +21,7 @@ func main() {
 	flag.StringVar(&endpoints, "endpoints", "", "endpoint to connect to")
 	flag.Parse()
 
-	g := gaz.New(gaz.WithStreamEndpointOptions(gaz.BackoffMaxDelay(3 * time.Second)))
+	g := gaz.New(gaz.WithStreamEndpointOptions(gaz.BackoffMaxDelay(3*time.Second)), gaz.WithConfigPath("cmd/testFinalConsumer/configs"))
 	g.Run()
 
 	var wg sync.WaitGroup
