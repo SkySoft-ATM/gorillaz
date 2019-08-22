@@ -1,6 +1,7 @@
 package gorillaz
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"go.uber.org/zap"
@@ -15,7 +16,8 @@ const SdPrefix = "sd://"
 type ServiceDefinition struct {
 	ServiceName string
 	Addr        string
-	Port        int
+	GrpcPort    int
+	HttpPort    int
 	Tags        []string
 	Meta        map[string]string
 }
@@ -28,7 +30,7 @@ type ServiceDiscovery interface {
 }
 
 type RegistrationHandle interface {
-	DeRegister() error
+	DeRegister(context.Context) error
 }
 
 // gorillazResolverBuilder is a
@@ -101,7 +103,7 @@ func (r *serviceDiscoveryResolver) sendUpdate() {
 	}
 	addrs := make([]resolver.Address, len(endpoints))
 	for i, e := range endpoints {
-		addrs[i] = resolver.Address{Addr: fmt.Sprintf("%s:%d", e.Addr, e.Port)}
+		addrs[i] = resolver.Address{Addr: fmt.Sprintf("%s:%d", e.Addr, e.GrpcPort)}
 	}
 	r.cc.UpdateState(resolver.State{Addresses: addrs})
 }
@@ -179,7 +181,8 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([
 	result := ServiceDefinition{
 		ServiceName: serviceName,
 		Addr:        "localhost",
-		Port:        m.g.GrpcPort(),
+		GrpcPort:    m.g.GrpcPort(),
+		HttpPort:    m.g.HttpPort(),
 		Tags:        []string{},
 		Meta: map[string]string{
 			ServiceName: serviceName,
@@ -194,7 +197,8 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, ta
 	result := ServiceDefinition{
 		ServiceName: serviceName,
 		Addr:        "localhost",
-		Port:        m.g.GrpcPort(),
+		GrpcPort:    m.g.GrpcPort(),
+		HttpPort:    m.g.HttpPort(),
 		Tags:        []string{tag},
 		Meta: map[string]string{
 			ServiceName: serviceName,
