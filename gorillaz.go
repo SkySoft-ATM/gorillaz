@@ -242,15 +242,16 @@ func (g *Gaz) Run() <-chan struct{} {
 	waitgroup.Add(2) // wait for gRPC + http
 	go g.serveGrpc(&waitgroup)
 
+	port := g.Viper.GetInt("http.port")
+	httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		Log.Panic("HTTP Listen failed", zap.Error(err))
+	}
+	g.httpListener = httpListener
+
 	go func() {
 		// register /version to return the build version
 		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
-		port := g.Viper.GetInt("http.port")
-		httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		if err != nil {
-			Log.Panic("HTTP Listen failed", zap.Error(err))
-		}
-		g.httpListener = httpListener
 		httpPort := g.HttpPort()
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
 		waitgroup.Done()
@@ -330,16 +331,18 @@ func (g *Gaz) Shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	err := g.registrationHandler.DeRegister(ctx)
-	if err != nil {
-		Log.Error("Failed to deregister the service", zap.Error(err))
+	if g.registrationHandler != nil {
+		err := g.registrationHandler.DeRegister(ctx)
+		if err != nil {
+			Log.Error("Failed to deregister the service", zap.Error(err))
+		}
 	}
 
 	Log.Info("Stopping gRPC server")
 	g.GrpcServer.Stop()
 
 	Log.Info("Closing http server")
-	err = g.httpSrv.Close()
+	err := g.httpSrv.Close()
 	if err != nil {
 		Log.Warn("Error while closing http server", zap.Error(err))
 	}
