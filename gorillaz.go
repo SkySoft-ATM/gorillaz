@@ -1,6 +1,7 @@
 package gorillaz
 
 import (
+	"context"
 	"fmt"
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
@@ -23,13 +24,14 @@ import (
 )
 
 type Gaz struct {
-	Router            *mux.Router
-	ServiceDiscovery  ServiceDiscovery
-	GrpcServer        *grpc.Server
-	ServiceName       string
-	ViperRemoteConfig bool
-	Env               string
-	Viper             *viper.Viper
+	Router              *mux.Router
+	ServiceDiscovery    ServiceDiscovery
+	registrationHandler RegistrationHandle
+	GrpcServer          *grpc.Server
+	ServiceName         string
+	ViperRemoteConfig   bool
+	Env                 string
+	Viper               *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady               *int32
 	isLive                *int32
@@ -236,7 +238,7 @@ func (g *Gaz) Run() <-chan struct{} {
 		port := g.Viper.GetInt("http.port")
 		httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
-			panic(err)
+			Log.Panic("HTTP Listen failed", zap.Error(err))
 		}
 		g.httpListener = httpListener
 		httpPort := g.HttpPort()
@@ -246,13 +248,23 @@ func (g *Gaz) Run() <-chan struct{} {
 		err = g.httpSrv.Serve(httpListener)
 		if err != nil {
 			if err != http.ErrServerClosed {
-				Sugar.Errorf("HTTP server server stopped on :%d, %v", httpPort, err)
-				panic(err)
-			} else {
-				Sugar.Infof("HTTP server server stopped on :%d", httpPort)
+				Log.Panic("HTTP serve stopped unexpectedly", zap.Error(err))
 			}
+			Sugar.Infof("HTTP server server stopped on :%d", httpPort)
 		}
 	}()
+	if g.ServiceDiscovery != nil {
+		Log.Info("registering service", zap.String("serviceName", g.ServiceName), zap.String("serviceAddr", g.serviceAddress), zap.Int("grpcPort", g.GrpcPort()), zap.Int("httpPort", g.HttpPort()))
+		var err error
+		g.registrationHandler, err = g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
+			Addr:     g.serviceAddress,
+			GrpcPort: g.GrpcPort(),
+			HttpPort: g.HttpPort(),
+		})
+		if err != nil {
+			Log.Panic("failed to register service", zap.Error(err))
+		}
+	}
 	gazReady := make(chan struct{})
 	go g.notifyWhenReady(&waitgroup, gazReady)
 	return gazReady
@@ -275,20 +287,12 @@ func (g *Gaz) serveGrpc(waitgroup *sync.WaitGroup) {
 	port := g.GrpcPort()
 	Log.Info("Starting gRPC server on port", zap.Int("port", port))
 
-	if g.ServiceDiscovery != nil {
-		h, err := g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
-			Addr: g.serviceAddress,
-			Port: port})
-		if err != nil {
-			panic(err)
-		}
-		defer h.DeRegister()
-	}
 	waitgroup.Done()
 	err := g.GrpcServer.Serve(g.grpcListener)
 	if err != nil {
-		Log.Warn("gRPC server stopped", zap.Error(err))
+		Log.Fatal("gRPC Serve in error", zap.Error(err))
 	}
+	Log.Info("gRPC server stopped")
 }
 
 func (g *Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
@@ -311,12 +315,22 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 }
 
 func (g *Gaz) Shutdown() {
+	Log.Info("Deregister the service")
+	// wait max 1 second for deregistering the service
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	err := g.registrationHandler.DeRegister(ctx)
+	if err != nil {
+		Log.Error("Failed to deregister the service", zap.Error(err))
+	}
+
 	Log.Info("Stopping gRPC server")
 	g.GrpcServer.Stop()
+
 	Log.Info("Closing http server")
-	err := g.httpSrv.Close()
+	err = g.httpSrv.Close()
 	if err != nil {
 		Log.Warn("Error while closing http server", zap.Error(err))
 	}
-
 }
