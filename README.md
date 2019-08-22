@@ -78,7 +78,7 @@ Producer:
 ```go
 g := gorillaz.New()
 
-p, err := g.NewStreamProvider("myNiceStream", "my stream type")
+p, err := g.NewStreamProvider("myNiceStream", "my stream data type")
 if err != nil {
     panic(err)
 }
@@ -99,17 +99,25 @@ for {
 Consumer:
 ```go
 g := gorillaz.New()
-g.Run()
-
-endpoint, err := g.NewStreamEndpoint(strings.Split("localhost:8080", ","))
+consumer, err := g.ConsumeStream([]string{"localhost:9090"}, "myStreamName")
 if err != nil {
     panic(err)
 }
 
-consumer := endpoint.ConsumeStream(streamName)
+for evt := range consumer.EvtChan() {
+    fmt.Println(evt)
+}
+```
 
+Consumer with service discovery:
+```go
+g := gorillaz.New()
+consumer, err := g.DiscoverAndConsumeServiceStream("myServiceName", "myStreamName")
+if err != nil {
+    panic(err)
+}
 
-for evt := range consumer.EvtChan {
+for evt := range consumer.EvtChan() {
     fmt.Println(evt)
 }
 ```
@@ -125,9 +133,14 @@ grpc.port=9666
 
 ### Tracing
 
-Tracing is done through zipkin, it can be configured with these properties:
+Tracing is done through Zipkin, it can be enable with this property:
 ```
 tracing.enabled=true
-tracing.collector.url=http://127.0.0.1:9411/api/v1/spans // if you do not configure zipkin with the service discovery
 ```
+
+If service discovery is enabled, gorillaz will try to resolve the 'zipkin' service to find its endpoint.
+Otherwise you can configure it with this property:
+ ```
+ tracing.collector.url=http://127.0.0.1:9411/api/v1/spans // if you do not configure zipkin with the service discovery
+ ```
 
