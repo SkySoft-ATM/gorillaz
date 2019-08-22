@@ -27,11 +27,12 @@ func init() {
 func parseConfiguration(g *Gaz, configPath string) {
 	conf := GetConfigPath(configPath)
 
-	g.Viper.SetConfigName("application") //the suffix ".properties" will be added by viper
+	const configFilePrefix = "application"
+	g.Viper.SetConfigName(configFilePrefix) //the suffix ".properties" will be added by viper
 	g.Viper.AddConfigPath(conf)
 	err := g.Viper.ReadInConfig()
 	if err != nil {
-		panic(err)
+		Sugar.Warnf("unable to read config in path %s with file prefix %s %v", conf, configFilePrefix, err)
 	}
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)

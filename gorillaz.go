@@ -1,7 +1,6 @@
 package gorillaz
 
 import (
-	"context"
 	"fmt"
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
@@ -19,12 +18,9 @@ import (
 	"google.golang.org/grpc/resolver"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
-
-var initialized = false
 
 type Gaz struct {
 	Router            *mux.Router
@@ -56,57 +52,6 @@ type streamConsumerRegistry struct {
 	endpointConsumers map[*StreamEndpoint]map[*registeredConsumer]struct{}
 }
 
-func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
-	r := g.streamConsumers
-	target := strings.Join(endpoints, ",")
-	r.Lock()
-	defer r.Unlock()
-	e, ok := r.endpointsByName[target]
-	if !ok {
-		var err error
-		Log.Debug("Creating stream endpoint", zap.String("target", target))
-		e, err = r.g.NewStreamEndpoint(endpoints, g.streamEndpointOptions...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "error while creating stream endpoint for target %s", target)
-		}
-		r.endpointsByName[e.target] = e
-	}
-	sc := e.ConsumeStream(streamName, opts...)
-	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
-	consumers := r.endpointConsumers[e]
-	if consumers == nil {
-		consumers = make(map[*registeredConsumer]struct{})
-		r.endpointConsumers[e] = consumers
-	}
-	consumers[&rc] = struct{}{}
-	return &rc, nil
-}
-
-func (g *Gaz) deregister(c *registeredConsumer) {
-	r := g.streamConsumers
-	e := c.StreamConsumer.streamEndpoint()
-	r.Lock()
-	defer r.Unlock()
-	consumers, ok := r.endpointConsumers[e]
-	if !ok {
-		Log.Warn("Stream consumers not found", zap.String("stream name", c.StreamName()),
-			zap.String("target", e.target))
-		return
-	}
-	delete(consumers, c)
-	if len(consumers) == 0 {
-		Log.Debug("Closing endpoint", zap.String("target", e.target))
-		err := e.Close()
-		if err != nil {
-			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
-		}
-		delete(r.endpointsByName, e.target)
-		delete(r.endpointConsumers, e)
-	} else {
-		r.endpointConsumers[e] = consumers
-	}
-}
-
 type GazOption interface {
 	apply(*Gaz) error
 }
@@ -134,6 +79,13 @@ func WithConfigPath(configPath string) InitOption {
 	}}
 }
 
+func WithServiceName(sn string) InitOption {
+	return InitOption{func(g *Gaz) error {
+		g.Viper.Set("service.name", sn)
+		return nil
+	}}
+}
+
 func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 	return Option{func(g *Gaz) error {
 		g.grpcServerOptions = o
@@ -144,12 +96,8 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
-	if initialized {
-		Log.Warn("gorillaz is already initialized")
-	}
-	initialized = true
 	GracefulStop()
-	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32), Viper: viper.New()}
+	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32), Viper: viper.New(), prometheusRegistry: prometheus.NewRegistry()}
 	gaz.httpSrv = &http.Server{Handler: gaz.Router}
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
@@ -376,22 +324,10 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 func (g *Gaz) Shutdown() {
 	Log.Info("Stopping gRPC server")
 	g.GrpcServer.Stop()
-	Log.Info("Closing gRPC listener")
-	err := g.grpcListener.Close()
+	Log.Info("Closing http server")
+	err := g.httpSrv.Close()
 	if err != nil {
-		Log.Warn("Error while closing gRPC listener", zap.Error(err))
-	}
-	Log.Info("Shutting down http server")
-	err = g.httpSrv.Shutdown(context.Background())
-	if err != nil {
-		Log.Warn("Error while shutting down http server", zap.Error(err))
-	}
-	if g.httpListener != nil {
-		Log.Info("Closing http listener")
-		err = g.httpListener.Close()
-		if err != nil {
-			Log.Warn("Error while closing http listener", zap.Error(err))
-		}
+		Log.Warn("Error while closing http server", zap.Error(err))
 	}
 
 }

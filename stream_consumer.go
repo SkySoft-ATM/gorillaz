@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
@@ -138,6 +139,57 @@ func (g *Gaz) DiscoverAndConsumeServiceStream(service, stream string, opts ...Co
 // Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
 func (g *Gaz) ConsumeStream(endpoints []string, stream string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
 	return g.createConsumer(endpoints, stream, opts...)
+}
+
+func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...ConsumerConfigOpt) (StreamConsumer, error) {
+	r := g.streamConsumers
+	target := strings.Join(endpoints, ",")
+	r.Lock()
+	defer r.Unlock()
+	e, ok := r.endpointsByName[target]
+	if !ok {
+		var err error
+		Log.Debug("Creating stream endpoint", zap.String("target", target))
+		e, err = r.g.NewStreamEndpoint(endpoints, g.streamEndpointOptions...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error while creating stream endpoint for target %s", target)
+		}
+		r.endpointsByName[e.target] = e
+	}
+	sc := e.ConsumeStream(streamName, opts...)
+	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
+	consumers := r.endpointConsumers[e]
+	if consumers == nil {
+		consumers = make(map[*registeredConsumer]struct{})
+		r.endpointConsumers[e] = consumers
+	}
+	consumers[&rc] = struct{}{}
+	return &rc, nil
+}
+
+func (g *Gaz) deregister(c *registeredConsumer) {
+	r := g.streamConsumers
+	e := c.StreamConsumer.streamEndpoint()
+	r.Lock()
+	defer r.Unlock()
+	consumers, ok := r.endpointConsumers[e]
+	if !ok {
+		Log.Warn("Stream consumers not found", zap.String("stream name", c.StreamName()),
+			zap.String("target", e.target))
+		return
+	}
+	delete(consumers, c)
+	if len(consumers) == 0 {
+		Log.Debug("Closing endpoint", zap.String("target", e.target))
+		err := e.Close()
+		if err != nil {
+			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
+		}
+		delete(r.endpointsByName, e.target)
+		delete(r.endpointConsumers, e)
+	} else {
+		r.endpointConsumers[e] = consumers
+	}
 }
 
 // Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism

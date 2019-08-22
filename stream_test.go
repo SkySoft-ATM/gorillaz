@@ -27,7 +27,7 @@ func assertEquals(t *testing.T, got, expected, comment string) {
 }
 
 func TestStreamLazy(t *testing.T) {
-	g := New(WithConfigPath("testConfig"), WithMockedServiceDiscovery())
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
 	defer g.Shutdown()
 	<-g.Run()
 
@@ -53,7 +53,7 @@ func TestStreamLazy(t *testing.T) {
 }
 
 func TestStreamEvents(t *testing.T) {
-	g := New(WithConfigPath("testConfig"), WithMockedServiceDiscovery())
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
 	defer g.Shutdown()
 	<-g.Run()
 
@@ -97,7 +97,7 @@ func TestStreamEvents(t *testing.T) {
 }
 
 func TestMultipleConsumers(t *testing.T) {
-	g := New(WithConfigPath("testConfig"), WithMockedServiceDiscovery())
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
 	defer g.Shutdown()
 	<-g.Run()
 
@@ -133,7 +133,7 @@ func TestMultipleConsumers(t *testing.T) {
 
 func TestProducerReconnect(t *testing.T) {
 	mock, sdOption := NewMockedServiceDiscovery()
-	g := New(WithConfigPath("testConfig"), sdOption)
+	g := New(WithServiceName("test"), sdOption)
 	<-g.Run()
 
 	streamName := "testaa"
@@ -162,7 +162,7 @@ func TestProducerReconnect(t *testing.T) {
 	// wait a bit to be sure the consumer has seen it
 	time.Sleep(time.Second)
 
-	g = New(WithConfigPath("testConfig"))
+	g = New(WithServiceName("test"))
 	<-g.Run()
 	mock.UpdateGaz(g)
 	defer g.Shutdown()
