@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/resolver"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -221,6 +222,12 @@ func New(options ...GazOption) *Gaz {
 	return &gaz
 }
 
+const (
+	grpcTag          = "grpc"
+	httpTag          = "http"
+	httpPortMetadata = "http_port"
+)
+
 // Starts the router, once Run is launched, you should no longer add new handlers on the router.
 // It returns a channel that will be notified once the gRPC and http servers have been started.
 func (g *Gaz) Run() <-chan struct{} {
@@ -265,12 +272,13 @@ func (g *Gaz) Run() <-chan struct{} {
 		}
 	}()
 	if g.ServiceDiscovery != nil {
-		Log.Info("registering service", zap.String("serviceName", g.ServiceName), zap.String("serviceAddr", g.serviceAddress), zap.Int("grpcPort", g.GrpcPort()), zap.Int("httpPort", g.HttpPort()))
+		Log.Info("registering service", zap.String("serviceName", g.ServiceName), zap.String("serviceAddr", g.serviceAddress), zap.Int("port", g.GrpcPort()))
 		var err error
 		g.registrationHandler, err = g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
-			Addr:     g.serviceAddress,
-			GrpcPort: g.GrpcPort(),
-			HttpPort: g.HttpPort(),
+			Addr: g.serviceAddress,
+			Port: g.GrpcPort(),
+			Tags: []string{grpcTag, httpTag},
+			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort())},
 		})
 		if err != nil {
 			Log.Panic("failed to register service", zap.Error(err))
