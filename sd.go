@@ -16,8 +16,7 @@ const SdPrefix = "sd://"
 type ServiceDefinition struct {
 	ServiceName string
 	Addr        string
-	GrpcPort    int
-	HttpPort    int
+	Port        int
 	Tags        []string
 	Meta        map[string]string
 }
@@ -103,7 +102,7 @@ func (r *serviceDiscoveryResolver) sendUpdate() {
 	}
 	addrs := make([]resolver.Address, len(endpoints))
 	for i, e := range endpoints {
-		addrs[i] = resolver.Address{Addr: fmt.Sprintf("%s:%d", e.Addr, e.GrpcPort)}
+		addrs[i] = resolver.Address{Addr: fmt.Sprintf("%s:%d", e.Addr, e.Port)}
 	}
 	r.cc.UpdateState(resolver.State{Addresses: addrs})
 }
@@ -181,8 +180,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([
 	result := ServiceDefinition{
 		ServiceName: serviceName,
 		Addr:        "localhost",
-		GrpcPort:    m.g.GrpcPort(),
-		HttpPort:    m.g.HttpPort(),
+		Port:        m.g.GrpcPort(),
 		Tags:        []string{},
 		Meta: map[string]string{
 			ServiceName: serviceName,
@@ -197,8 +195,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, ta
 	result := ServiceDefinition{
 		ServiceName: serviceName,
 		Addr:        "localhost",
-		GrpcPort:    m.g.GrpcPort(),
-		HttpPort:    m.g.HttpPort(),
+		Port:        m.g.GrpcPort(),
 		Tags:        []string{tag},
 		Meta: map[string]string{
 			ServiceName: serviceName,
