@@ -15,13 +15,13 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 )
 
-const StreamTag = "gorillazStream"
-const StreamName = "streamName"
-const DataType = "dataType"
-const ServiceName = "serviceName"
+const (
+	StreamProviderTag = "streamProvider"
+	StreamNames       = "streamNames"
+	StreamDataTypes   = "streamDataTypes"
+)
 
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
@@ -46,13 +46,13 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 		return nil, err
 	}
 	p := &StreamProvider{
-		streamName:  streamName,
+		streamDef:   &StreamDefinition{streamName: streamName, dataType: dataType},
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(g, streamName),
 		gaz:         g,
 	}
-	g.streamRegistry.register(streamName, dataType, p)
+	g.streamRegistry.register(p)
 
 	return p, nil
 }
@@ -68,8 +68,13 @@ func (g *Gaz) CloseStream(streamName string) error {
 	return nil
 }
 
+type StreamDefinition struct {
+	streamName string
+	dataType   string
+}
+
 type StreamProvider struct {
-	streamName  string
+	streamDef   *StreamDefinition
 	config      *ProviderConfig
 	broadcaster *mux.Broadcaster
 	metrics     providerMetricsHolder
@@ -221,7 +226,7 @@ forloop:
 }
 
 func (p *StreamProvider) CloseStream() error {
-	return p.gaz.CloseStream(p.streamName)
+	return p.gaz.CloseStream(p.streamDef.streamName)
 }
 
 func (p *StreamProvider) close() {
@@ -254,48 +259,77 @@ func ParseStreamName(fullStreamName string) (string, string) {
 	return fullStreamName, ""
 }
 
-func (r *streamRegistry) register(streamName, dataType string, p *StreamProvider) {
+type StreamDefinitions []*StreamDefinition
+
+func (d StreamDefinitions) StreamNames() string {
+	return d.join(func(sd *StreamDefinition) string {
+		return sd.streamName
+	})
+}
+
+func (d StreamDefinitions) join(f func(*StreamDefinition) string) string {
+	l := make([]string, len(d))
+	for i, v := range d {
+		l[i] = f(v)
+	}
+	return strings.Join(l, ",")
+}
+
+func (d StreamDefinitions) DataTypes() string {
+	return d.join(func(sd *StreamDefinition) string {
+		return sd.dataType
+	})
+}
+
+func (r *streamRegistry) streams() StreamDefinitions {
 	r.Lock()
+	defer r.Unlock()
+	return extractStreamsDefinitions(r)
+}
+
+//To be called only with a lock on the stream registry
+func extractStreamsDefinitions(r *streamRegistry) StreamDefinitions {
+	result := make([]*StreamDefinition, len(r.providers))
+	i := 0
+	for _, v := range r.providers {
+		result[i] = v.streamDef
+		i++
+	}
+	return result
+}
+
+func (r *streamRegistry) register(p *StreamProvider) {
+	streamName := p.streamDef.streamName
+	r.Lock()
+	defer r.Unlock()
 	if _, found := r.providers[streamName]; found {
 		panic("cannot register 2 providers with the same streamName: " + streamName)
 	}
 	r.providers[streamName] = p
-	port := p.gaz.grpcListener.Addr().(*net.TCPAddr).Port
 
-	if p.gaz.ServiceDiscovery != nil {
-		sid, err := p.gaz.Register(&ServiceDefinition{ServiceName: GetFullStreamName(p.gaz.ServiceName, streamName),
-			Addr: p.gaz.serviceAddress,
-			Port: port,
-			Tags: []string{StreamTag},
-			Meta: map[string]string{
-				StreamName:  streamName,
-				DataType:    dataType,
-				ServiceName: p.gaz.ServiceName,
-			},
-		})
-		if err != nil {
-			Log.Warn("Could not register stream on service discovery", zap.String("streamName", streamName))
-		}
-		r.serviceIds[streamName] = sid
+	sd := extractStreamsDefinitions(r)
+	p.gaz.updateStreamDefinitions(sd)
+}
+
+func (g *Gaz) updateStreamDefinitions(sd StreamDefinitions) {
+	if g.serviceDefinitionUpdates != nil {
+		g.serviceDefinition.Lock()
+		defer g.serviceDefinition.Unlock()
+		g.serviceDefinition.Meta[StreamNames] = sd.StreamNames()
+		g.serviceDefinition.Meta[StreamDataTypes] = sd.DataTypes()
+		g.serviceDefinitionUpdates <- *g.serviceDefinition
 	}
-	r.Unlock()
 }
 
 func (r *streamRegistry) unregister(streamName string) {
 	r.Lock()
-	_, ok := r.providers[streamName]
+	defer r.Unlock()
+	p, ok := r.providers[streamName]
 	if ok {
 		delete(r.providers, streamName)
-		handle, ok := r.serviceIds[streamName]
-		if ok {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
-			err := handle.DeRegister(ctx)
-			if err != nil {
-				Log.Warn("Could not deregister stream on service discovery", zap.String("streamName", streamName))
-			}
-		}
+		sd := extractStreamsDefinitions(r)
+		p.gaz.updateStreamDefinitions(sd)
 	}
-	r.Unlock()
 }
 
 // Stream implements streaming.proto Stream.

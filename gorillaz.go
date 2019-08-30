@@ -25,28 +25,30 @@ import (
 )
 
 type Gaz struct {
-	Router              *mux.Router
-	ServiceDiscovery    ServiceDiscovery
-	registrationHandler RegistrationHandle
-	GrpcServer          *grpc.Server
-	ServiceName         string
-	ViperRemoteConfig   bool
-	Env                 string
-	Viper               *viper.Viper
+	Router             *mux.Router
+	ServiceDiscovery   ServiceDiscovery
+	registrationHandle RegistrationHandle
+	GrpcServer         *grpc.Server
+	ServiceName        string
+	ViperRemoteConfig  bool
+	Env                string
+	Viper              *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
-	isReady               *int32
-	isLive                *int32
-	streamRegistry        *streamRegistry
-	grpcListener          net.Listener
-	grpcServerOptions     []grpc.ServerOption
-	configPath            string
-	serviceAddress        string // optional address of the service that will be used for service discovery
-	streamConsumers       *streamConsumerRegistry
-	streamEndpointOptions []StreamEndpointConfigOpt
-	httpListener          net.Listener
-	httpSrv               *http.Server
-	prometheusRegistry    *prometheus.Registry
-	bindConfigKeysAsFlag  bool
+	isReady                  *int32
+	isLive                   *int32
+	streamRegistry           *streamRegistry
+	grpcListener             net.Listener
+	grpcServerOptions        []grpc.ServerOption
+	configPath               string
+	serviceAddress           string // optional address of the service that will be used for service discovery
+	streamConsumers          *streamConsumerRegistry
+	streamEndpointOptions    []StreamEndpointConfigOpt
+	httpListener             net.Listener
+	httpSrv                  *http.Server
+	prometheusRegistry       *prometheus.Registry
+	bindConfigKeysAsFlag     bool
+	serviceDefinition        *ServiceDefinition
+	serviceDefinitionUpdates chan ServiceDefinition
 }
 
 type streamConsumerRegistry struct {
@@ -280,19 +282,34 @@ func (g *Gaz) Run() <-chan struct{} {
 	if g.ServiceDiscovery != nil {
 		Log.Info("registering service", zap.String("serviceName", g.ServiceName), zap.String("serviceAddr", g.serviceAddress), zap.Int("port", g.GrpcPort()))
 		var err error
-		g.registrationHandler, err = g.Register(&ServiceDefinition{ServiceName: g.ServiceName,
+		streamDefs := g.streamRegistry.streams()
+		g.serviceDefinitionUpdates = make(chan ServiceDefinition, 100)
+		g.serviceDefinition = &ServiceDefinition{ServiceName: g.ServiceName,
 			Addr: g.serviceAddress,
 			Port: g.GrpcPort(),
-			Tags: []string{grpcTag, httpTag},
-			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort())},
-		})
+			Tags: []string{grpcTag, httpTag, StreamProviderTag},
+			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort()), StreamNames: streamDefs.StreamNames(), StreamDataTypes: streamDefs.DataTypes()},
+		}
+
+		g.registrationHandle, err = g.Register(g.serviceDefinition)
 		if err != nil {
 			Log.Panic("failed to register service", zap.Error(err))
 		}
+		go serviceDefinitionUpdateLoop(g)
 	}
 	gazReady := make(chan struct{})
 	go g.notifyWhenReady(&waitgroup, gazReady)
 	return gazReady
+}
+
+func serviceDefinitionUpdateLoop(g *Gaz) {
+	for u := range g.serviceDefinitionUpdates {
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		err := g.registrationHandle.Update(ctx, &u)
+		if err != nil {
+			Log.Warn("Could not perform service definition update in service discovery", zap.Error(err))
+		}
+	}
 }
 
 func (g *Gaz) notifyWhenReady(waitgroup *sync.WaitGroup, gazReady chan<- struct{}) {
@@ -345,8 +362,8 @@ func (g *Gaz) Shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	if g.registrationHandler != nil {
-		err := g.registrationHandler.DeRegister(ctx)
+	if g.registrationHandle != nil {
+		err := g.registrationHandle.DeRegister(ctx)
 		if err != nil {
 			Log.Error("Failed to deregister the service", zap.Error(err))
 		}
