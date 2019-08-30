@@ -14,6 +14,7 @@ import (
 const SdPrefix = "sd://"
 
 type ServiceDefinition struct {
+	sync.Mutex
 	ServiceName string
 	Addr        string
 	Port        int
@@ -30,6 +31,7 @@ type ServiceDiscovery interface {
 
 type RegistrationHandle interface {
 	DeRegister(context.Context) error
+	Update(c context.Context, d *ServiceDefinition) error
 }
 
 // gorillazResolverBuilder is a
@@ -166,6 +168,10 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) UpdateGaz(g *Gaz) {
 type MockedRegistrationHandle struct {
 }
 
+func (m MockedRegistrationHandle) Update(c context.Context, d *ServiceDefinition) error {
+	return nil
+}
+
 func (m MockedRegistrationHandle) DeRegister(ctx context.Context) error {
 	return nil
 }
@@ -182,9 +188,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([
 		Addr:        "localhost",
 		Port:        m.g.GrpcPort(),
 		Tags:        []string{},
-		Meta: map[string]string{
-			ServiceName: serviceName,
-		},
+		Meta:        map[string]string{},
 	}
 	return []ServiceDefinition{result}, nil
 }
@@ -197,9 +201,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, ta
 		Addr:        "localhost",
 		Port:        m.g.GrpcPort(),
 		Tags:        []string{tag},
-		Meta: map[string]string{
-			ServiceName: serviceName,
-		},
+		Meta:        map[string]string{},
 	}
 	return []ServiceDefinition{result}, nil
 }
