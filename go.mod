@@ -2,6 +2,7 @@ module github.com/skysoft-atm/gorillaz
 
 require (
 	github.com/coreos/etcd v3.3.13+incompatible
+	github.com/gogo/protobuf v1.2.1
 	github.com/golang/protobuf v1.3.1
 	github.com/gorilla/mux v1.7.0
 	github.com/json-iterator/go v1.1.7 // indirect
