@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
@@ -19,8 +20,6 @@ import (
 
 const (
 	StreamProviderTag = "streamProvider"
-	StreamNames       = "streamNames"
-	StreamDataTypes   = "streamDataTypes"
 )
 
 // NewStreamProvider returns a new provider ready to be used.
@@ -46,7 +45,7 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 		return nil, err
 	}
 	p := &StreamProvider{
-		streamDef:   &StreamDefinition{streamName: streamName, dataType: dataType},
+		streamDef:   &stream.StreamDefinition{Name: streamName, DataType: dataType},
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(g, streamName),
@@ -68,13 +67,8 @@ func (g *Gaz) CloseStream(streamName string) error {
 	return nil
 }
 
-type StreamDefinition struct {
-	streamName string
-	dataType   string
-}
-
 type StreamProvider struct {
-	streamDef   *StreamDefinition
+	streamDef   *stream.StreamDefinition
 	config      *ProviderConfig
 	broadcaster *mux.Broadcaster
 	metrics     providerMetricsHolder
@@ -182,7 +176,7 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	b, err := streamEvent.Marshal()
+	b, err := proto.Marshal(streamEvent)
 	if err != nil {
 		Log.Error("error while marshaling stream.StreamEvent, cannot send event", zap.Error(err))
 		return
@@ -226,7 +220,7 @@ forloop:
 }
 
 func (p *StreamProvider) CloseStream() error {
-	return p.gaz.CloseStream(p.streamDef.streamName)
+	return p.gaz.CloseStream(p.streamDef.Name)
 }
 
 func (p *StreamProvider) close() {
@@ -235,8 +229,36 @@ func (p *StreamProvider) close() {
 
 type streamRegistry struct {
 	sync.RWMutex
+	g          *Gaz
 	providers  map[string]*StreamProvider
 	serviceIds map[string]RegistrationHandle // for each stream a service is registered in the service discovery
+}
+
+func (sr *streamRegistry) GetStreamDefinitions(e *empty.Empty, s stream.Stream_GetStreamDefinitionsServer) error {
+	updates := make(chan *mux.StateUpdate, 100)
+	err := sr.g.streamDefinitionsBroadcaster.Register(updates)
+	if err != nil {
+		return err
+	}
+	for {
+		select {
+		case u := <-updates:
+			var sd *stream.StreamDefinition
+			if u.UpdateType == mux.Delete {
+				sd = &stream.StreamDefinition{Name: u.Value.(string), IsDelete: true}
+			} else {
+				sd = u.Value.(*stream.StreamDefinition)
+			}
+			err := s.Send(sd)
+			if err != nil {
+				sr.g.streamDefinitionsBroadcaster.Unregister(updates)
+				return err
+			}
+		case <-s.Context().Done():
+			sr.g.streamDefinitionsBroadcaster.Unregister(updates)
+			return nil
+		}
+	}
 }
 
 func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
@@ -259,65 +281,19 @@ func ParseStreamName(fullStreamName string) (string, string) {
 	return fullStreamName, ""
 }
 
-type StreamDefinitions []*StreamDefinition
-
-func (d StreamDefinitions) StreamNames() string {
-	return d.join(func(sd *StreamDefinition) string {
-		return sd.streamName
-	})
-}
-
-func (d StreamDefinitions) join(f func(*StreamDefinition) string) string {
-	l := make([]string, len(d))
-	for i, v := range d {
-		l[i] = f(v)
-	}
-	return strings.Join(l, ",")
-}
-
-func (d StreamDefinitions) DataTypes() string {
-	return d.join(func(sd *StreamDefinition) string {
-		return sd.dataType
-	})
-}
-
-func (r *streamRegistry) streams() StreamDefinitions {
-	r.Lock()
-	defer r.Unlock()
-	return extractStreamsDefinitions(r)
-}
-
-//To be called only with a lock on the stream registry
-func extractStreamsDefinitions(r *streamRegistry) StreamDefinitions {
-	result := make([]*StreamDefinition, len(r.providers))
-	i := 0
-	for _, v := range r.providers {
-		result[i] = v.streamDef
-		i++
-	}
-	return result
-}
+type StreamDefinitions []*stream.StreamDefinition
 
 func (r *streamRegistry) register(p *StreamProvider) {
-	streamName := p.streamDef.streamName
+	streamName := p.streamDef.Name
 	r.Lock()
 	defer r.Unlock()
 	if _, found := r.providers[streamName]; found {
 		panic("cannot register 2 providers with the same streamName: " + streamName)
 	}
 	r.providers[streamName] = p
-
-	sd := extractStreamsDefinitions(r)
-	p.gaz.updateStreamDefinitions(sd)
-}
-
-func (g *Gaz) updateStreamDefinitions(sd StreamDefinitions) {
-	if g.serviceDefinitionUpdates != nil {
-		g.serviceDefinition.Lock()
-		defer g.serviceDefinition.Unlock()
-		g.serviceDefinition.Meta[StreamNames] = sd.StreamNames()
-		g.serviceDefinition.Meta[StreamDataTypes] = sd.DataTypes()
-		g.serviceDefinitionUpdates <- *g.serviceDefinition
+	err := p.gaz.streamDefinitionsBroadcaster.Submit(streamName, p.streamDef)
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -327,9 +303,17 @@ func (r *streamRegistry) unregister(streamName string) {
 	p, ok := r.providers[streamName]
 	if ok {
 		delete(r.providers, streamName)
-		sd := extractStreamsDefinitions(r)
-		p.gaz.updateStreamDefinitions(sd)
+		p.gaz.streamDefinitionsBroadcaster.Delete(streamName)
 	}
+}
+
+func (g *Gaz) GetServiceStreamDefinitions(serviceName string, opts ...grpc.DialOption) (stream.Stream_GetStreamDefinitionsClient, error) {
+	clientConn, err := g.GrpcDialService(serviceName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	cli := stream.NewStreamClient(clientConn)
+	return cli.GetStreamDefinitions(context.Background(), &empty.Empty{})
 }
 
 // Stream implements streaming.proto Stream.
@@ -384,7 +368,7 @@ func (c *binaryCodec) Marshal(v interface{}) ([]byte, error) {
 func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
 	evt, ok := v.(*stream.StreamRequest)
 	if ok {
-		return evt.Unmarshal(data)
+		return proto.Unmarshal(data, evt)
 	}
 	return proto.Unmarshal(data, v.(proto.Message))
 }

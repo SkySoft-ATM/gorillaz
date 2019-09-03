@@ -1,9 +1,12 @@
 syntax = "proto3";
 
+package stream;
 
+import "google/protobuf/empty.proto";
 
 service Stream {
     rpc Stream(StreamRequest) returns (stream StreamEvent);
+    rpc GetStreamDefinitions(google.protobuf.Empty) returns (stream StreamDefinition);
 }
 
 message StreamRequest {
@@ -21,4 +24,11 @@ message Metadata {
     int64               OriginStreamTimestamp = 2;  // timestamp in ns of when the event was streamed by the first producer of the chain of streams
     int64               StreamTimestamp = 3; // timestamp in ns of when the event was streamed by the producer
     map<string, string> keyValue = 4;
+}
+
+
+message StreamDefinition {
+    string name = 1;
+    string dataType = 2;
+    bool isDelete = 3; // on delete events, only the dataType will be empty
 }

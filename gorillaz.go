@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	gmux "github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -34,21 +35,20 @@ type Gaz struct {
 	Env                string
 	Viper              *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
-	isReady                  *int32
-	isLive                   *int32
-	streamRegistry           *streamRegistry
-	grpcListener             net.Listener
-	grpcServerOptions        []grpc.ServerOption
-	configPath               string
-	serviceAddress           string // optional address of the service that will be used for service discovery
-	streamConsumers          *streamConsumerRegistry
-	streamEndpointOptions    []StreamEndpointConfigOpt
-	httpListener             net.Listener
-	httpSrv                  *http.Server
-	prometheusRegistry       *prometheus.Registry
-	bindConfigKeysAsFlag     bool
-	serviceDefinition        *ServiceDefinition
-	serviceDefinitionUpdates chan ServiceDefinition
+	isReady                      *int32
+	isLive                       *int32
+	streamRegistry               *streamRegistry
+	grpcListener                 net.Listener
+	grpcServerOptions            []grpc.ServerOption
+	configPath                   string
+	serviceAddress               string // optional address of the service that will be used for service discovery
+	streamConsumers              *streamConsumerRegistry
+	streamEndpointOptions        []StreamEndpointConfigOpt
+	httpListener                 net.Listener
+	httpSrv                      *http.Server
+	prometheusRegistry           *prometheus.Registry
+	bindConfigKeysAsFlag         bool
+	streamDefinitionsBroadcaster *gmux.StateBroadcaster
 }
 
 type streamConsumerRegistry struct {
@@ -181,6 +181,8 @@ func New(options ...GazOption) *Gaz {
 		gaz.InitTracingFromConfig()
 	}
 
+	gaz.streamDefinitionsBroadcaster, _ = gmux.NewNonBlockingStateBroadcaster(100, 0)
+
 	// necessary to avoid weird 'transport closing' errors
 	// see https://github.com/grpc/grpc-go/issues/2443
 	// see https://github.com/grpc/grpc-go/issues/2160
@@ -207,6 +209,7 @@ func New(options ...GazOption) *Gaz {
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
 	gaz.streamRegistry = &streamRegistry{
+		g:          &gaz,
 		providers:  make(map[string]*StreamProvider),
 		serviceIds: make(map[string]RegistrationHandle),
 	}
@@ -282,34 +285,21 @@ func (g *Gaz) Run() <-chan struct{} {
 	if g.ServiceDiscovery != nil {
 		Log.Info("registering service", zap.String("serviceName", g.ServiceName), zap.String("serviceAddr", g.serviceAddress), zap.Int("port", g.GrpcPort()))
 		var err error
-		streamDefs := g.streamRegistry.streams()
-		g.serviceDefinitionUpdates = make(chan ServiceDefinition, 100)
-		g.serviceDefinition = &ServiceDefinition{ServiceName: g.ServiceName,
+		serviceDefinition := &ServiceDefinition{ServiceName: g.ServiceName,
 			Addr: g.serviceAddress,
 			Port: g.GrpcPort(),
 			Tags: []string{grpcTag, httpTag, StreamProviderTag},
-			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort()), StreamNames: streamDefs.StreamNames(), StreamDataTypes: streamDefs.DataTypes()},
+			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort())},
 		}
 
-		g.registrationHandle, err = g.Register(g.serviceDefinition)
+		g.registrationHandle, err = g.Register(serviceDefinition)
 		if err != nil {
 			Log.Panic("failed to register service", zap.Error(err))
 		}
-		go serviceDefinitionUpdateLoop(g)
 	}
 	gazReady := make(chan struct{})
 	go g.notifyWhenReady(&waitgroup, gazReady)
 	return gazReady
-}
-
-func serviceDefinitionUpdateLoop(g *Gaz) {
-	for u := range g.serviceDefinitionUpdates {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-		err := g.registrationHandle.Update(ctx, &u)
-		if err != nil {
-			Log.Warn("Could not perform service definition update in service discovery", zap.Error(err))
-		}
-	}
 }
 
 func (g *Gaz) notifyWhenReady(waitgroup *sync.WaitGroup, gazReady chan<- struct{}) {
