@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
+	"io"
 	"math"
 	"strings"
 	"sync"
@@ -244,76 +246,82 @@ func (se *streamEndpoint) consumeStream(streamName string, opts ...ConsumerConfi
 	var monitoringHolder = consumerMonitoring(se.g, streamName, se.endpoints)
 
 	go func() {
-		for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
-			waitTillReadyOrShutdown(streamName, se)
-			if se.conn.GetState() == connectivity.Shutdown {
-				break
-			}
-
-			client := stream.NewStreamClient(se.conn)
-			req := &stream.StreamRequest{Name: streamName}
-
-			var callOpts []grpc.CallOption
-			if config.UseGzip {
-				callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
-			}
-			st, err := client.Stream(context.Background(), req, callOpts...)
-			if err != nil {
-				Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
-				continue
-			}
-
-			//without this hack we do not know if the stream is really connected
-			mds, err := st.Header()
-			if err == nil && mds != nil {
-
-				if config.OnConnected != nil {
-					config.OnConnected(streamName)
-				}
-				Log.Debug("Stream connected", zap.String("streamName", streamName))
-
-				// at this point, the GRPC connection is established with the server
-				for !c.isStopped() {
-					monitoringHolder.conGauge.Set(1)
-					streamEvt, err := st.Recv()
-
-					if err != nil {
-						Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.Error(err))
-						if e, ok := status.FromError(err); ok {
-							switch e.Code() {
-							case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
-								codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
-								time.Sleep(5 * time.Second)
-							}
-						}
-						break
-					}
-
-					Log.Debug("event received", zap.String("stream", streamName))
-					monitorDelays(monitoringHolder, streamEvt)
-
-					evt := &stream.Event{
-						Key:   streamEvt.Key,
-						Value: streamEvt.Value,
-						Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
-					}
-					c.evtChan <- evt
-				}
-			} else {
-				Log.Warn("Stream created but not connected", zap.String("stream", streamName))
-				time.Sleep(5 * time.Second)
-			}
-			monitoringHolder.conGauge.Set(0)
-			if config.OnDisconnected != nil {
-				config.OnDisconnected(streamName)
-			}
-
-		}
+		se.reconnectWhileNotStopped(c, streamName, config, monitoringHolder)
 		Log.Info("Stream closed", zap.String("stream", c.streamName))
 		close(c.evtChan)
-
 	}()
 	return c
+}
+
+func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName string, config *ConsumerConfig, monitoringHolder consumerMonitoringHolder) {
+	for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
+		waitTillReadyOrShutdown(streamName, se)
+		if se.conn.GetState() == connectivity.Shutdown {
+			break
+		}
+
+		client := stream.NewStreamClient(se.conn)
+		req := &stream.StreamRequest{Name: streamName}
+
+		var callOpts []grpc.CallOption
+		if config.UseGzip {
+			callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
+		}
+		st, err := client.Stream(context.Background(), req, callOpts...)
+		if err != nil {
+			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
+			continue
+		}
+
+		//without this hack we do not know if the stream is really connected
+		mds, err := st.Header()
+		if err == nil && mds != nil {
+
+			if config.OnConnected != nil {
+				config.OnConnected(streamName)
+			}
+			Log.Debug("Stream connected", zap.String("streamName", streamName))
+
+			// at this point, the GRPC connection is established with the server
+			for !c.isStopped() {
+				monitoringHolder.conGauge.Set(1)
+				streamEvt, err := st.Recv()
+
+				if err != nil {
+					if err == io.EOF {
+						return //standard error for closed stream
+					}
+					Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.Error(err))
+					if e, ok := status.FromError(err); ok {
+						switch e.Code() {
+						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
+							codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
+							time.Sleep(5 * time.Second)
+						}
+					}
+					break
+				}
+
+				Log.Debug("event received", zap.String("stream", streamName))
+				monitorDelays(monitoringHolder, streamEvt)
+
+				evt := &stream.Event{
+					Key:   streamEvt.Key,
+					Value: streamEvt.Value,
+					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+				}
+				c.evtChan <- evt
+			}
+		} else {
+			Log.Warn("Stream created but not connected", zap.String("stream", streamName))
+			time.Sleep(5 * time.Second)
+		}
+		monitoringHolder.conGauge.Set(0)
+		if config.OnDisconnected != nil {
+			config.OnDisconnected(streamName)
+		}
+
+	}
 }
 
 func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.StreamEvent) {
@@ -442,13 +450,13 @@ type gogoCodec struct{}
 // Marshal returns the wire format of v.
 func (c *gogoCodec) Marshal(v interface{}) ([]byte, error) {
 	var req = v.(*stream.StreamRequest)
-	return req.Marshal()
+	return proto.Marshal(req)
 }
 
 // Unmarshal parses the wire format into v.
 func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error {
 	evt := v.(*stream.StreamEvent)
-	return evt.Unmarshal(data)
+	return proto.Unmarshal(data, evt)
 }
 
 func (c *gogoCodec) Name() string {
