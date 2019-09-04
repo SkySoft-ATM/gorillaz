@@ -36,7 +36,6 @@ type Gaz struct {
 	Viper              *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady                      *int32
-	isLive                       *int32
 	streamRegistry               *streamRegistry
 	grpcListener                 net.Listener
 	grpcServerOptions            []grpc.ServerOption
@@ -112,7 +111,7 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
 	GracefulStop()
-	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), isLive: new(int32), Viper: viper.New(), prometheusRegistry: prometheus.NewRegistry()}
+	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), Viper: viper.New(), prometheusRegistry: prometheus.NewRegistry()}
 
 	// expose Go metrics and process metrics as Prometheus DefaultRegistry would
 	// https://github.com/prometheus/client_golang/blob/v1.1.0/prometheus/registry.go#L60
@@ -229,7 +228,6 @@ func New(options ...GazOption) *Gaz {
 		panic(err)
 	}
 	gaz.grpcListener = grpcListener
-
 	return &gaz
 }
 

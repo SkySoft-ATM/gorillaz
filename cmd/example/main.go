@@ -11,6 +11,5 @@ func main() {
 	// write your application code here
 
 	gaz.SetReady(true)
-	gaz.SetLive(true)
 	select {}
 }
