@@ -52,6 +52,7 @@ func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 			name:             strings.TrimPrefix(target.Endpoint, SdPrefix),
 			cc:               cc,
 			tick:             time.NewTicker(1 * time.Second),
+			close:            make(chan struct{}, 1),
 			env:              g.gaz.Env,
 		}
 		go r.updater()
@@ -82,17 +83,19 @@ type serviceDiscoveryResolver struct {
 	name             string
 	cc               resolver.ClientConn
 	tick             *time.Ticker
+	close            chan struct{}
 	env              string
 }
 
 func (r *serviceDiscoveryResolver) updater() {
 	r.sendUpdate()
 	for {
-		_, ok := <-r.tick.C
-		if !ok {
-			break
+		select {
+		case <-r.tick.C:
+			r.sendUpdate()
+		case <-r.close:
+			return
 		}
-		r.sendUpdate()
 	}
 }
 
@@ -110,8 +113,16 @@ func (r *serviceDiscoveryResolver) sendUpdate() {
 }
 
 func (*serviceDiscoveryResolver) ResolveNow(o resolver.ResolveNowOption) {}
+
 func (r *serviceDiscoveryResolver) Close() {
 	r.tick.Stop()
+	select {
+	case r.close <- struct{}{}:
+		// ok
+	default:
+		// there is already a close request in the channel
+		return
+	}
 }
 
 // gorillazDefaultResolver is a
