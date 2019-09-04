@@ -267,8 +267,10 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		if config.UseGzip {
 			callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 		}
-		st, err := client.Stream(context.Background(), req, callOpts...)
+		ctx, cancel := context.WithCancel(context.Background())
+		st, err := client.Stream(ctx, req, callOpts...)
 		if err != nil {
+			cancel()
 			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
 			continue
 		}
@@ -320,7 +322,7 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		if config.OnDisconnected != nil {
 			config.OnDisconnected(streamName)
 		}
-
+		cancel()
 	}
 }
 
