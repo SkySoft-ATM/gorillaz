@@ -16,11 +16,7 @@ func (g *Gaz) InitHealthcheck() {
 	}
 
 	live := func(w http.ResponseWriter, _ *http.Request) {
-		if atomic.LoadInt32(g.isLive) == 1 {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
+		w.WriteHeader(http.StatusOK)
 	}
 
 	g.Router.HandleFunc("/ready", ready).Methods("GET")
@@ -34,13 +30,4 @@ func (g *Gaz) SetReady(status bool) {
 		statusInt = 1
 	}
 	atomic.StoreInt32(g.isReady, statusInt)
-}
-
-// SetLive returns the actual internal state to precise if the given microservice is live
-func (g *Gaz) SetLive(status bool) {
-	var statusInt int32
-	if status {
-		statusInt = 1
-	}
-	atomic.StoreInt32(g.isLive, statusInt)
 }
