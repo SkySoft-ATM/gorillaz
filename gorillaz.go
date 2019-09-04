@@ -2,10 +2,10 @@ package gorillaz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	gmux "github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -31,7 +31,7 @@ type Gaz struct {
 	registrationHandle RegistrationHandle
 	GrpcServer         *grpc.Server
 	ServiceName        string
-	ViperRemoteConfig  bool
+	ViperRemoteConfig  func(g *Gaz) error
 	Env                string
 	Viper              *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
@@ -137,24 +137,7 @@ func New(options ...GazOption) *Gaz {
 	}
 
 	// then parse configuration
-	if gaz.ViperRemoteConfig {
-		err := gaz.Viper.ReadRemoteConfig()
-		if err != nil {
-			panic(err)
-		}
-	}
 	parseConfiguration(&gaz, gaz.configPath)
-
-	// then apply non-init options
-	for _, o := range options {
-		_, ok := o.(InitOption)
-		if !ok {
-			err := o.apply(&gaz)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
 
 	serviceName := gaz.Viper.GetString("service.name")
 	if serviceName == "" {
@@ -167,6 +150,24 @@ func New(options ...GazOption) *Gaz {
 		panic(errors.New("please provide an environment with the \"env\" configuration key"))
 	}
 	gaz.Env = env
+
+	if gaz.ViperRemoteConfig != nil {
+		err := gaz.ViperRemoteConfig(&gaz)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// then apply non-init options
+	for _, o := range options {
+		_, ok := o.(InitOption)
+		if !ok {
+			err := o.apply(&gaz)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 
 	serviceAddress := gaz.Viper.GetString("service.address")
 	gaz.serviceAddress = serviceAddress
