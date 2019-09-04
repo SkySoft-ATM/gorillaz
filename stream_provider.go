@@ -307,13 +307,15 @@ func (r *streamRegistry) unregister(streamName string) {
 	}
 }
 
-func (g *Gaz) GetServiceStreamDefinitions(serviceName string, opts ...grpc.DialOption) (stream.Stream_GetStreamDefinitionsClient, error) {
+func (g *Gaz) GetServiceStreamDefinitions(serviceName string, opts ...grpc.DialOption) (stream.Stream_GetStreamDefinitionsClient, context.CancelFunc, error) {
 	clientConn, err := g.GrpcDialService(serviceName, opts...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cli := stream.NewStreamClient(clientConn)
-	return cli.GetStreamDefinitions(context.Background(), &empty.Empty{})
+	ctx, cancel := context.WithCancel(context.Background())
+	r, err := cli.GetStreamDefinitions(ctx, &empty.Empty{})
+	return r, cancel, err
 }
 
 // Stream implements streaming.proto Stream.
