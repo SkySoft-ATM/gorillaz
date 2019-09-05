@@ -265,13 +265,14 @@ func (sr *streamRegistry) runStreamDefinitions(updates chan *mux.StateUpdate, pr
 			bytes, err := proto.Marshal(sd)
 			if err != nil {
 				Log.Error("Error encoding stream definition", zap.Error(err))
+			} else {
+				se := stream.Event{
+					Ctx:   nil,
+					Key:   []byte(sd.Name),
+					Value: bytes,
+				}
+				provider.Submit(&se)
 			}
-			se := stream.Event{
-				Ctx:   nil,
-				Key:   []byte(sd.Name),
-				Value: bytes,
-			}
-			provider.Submit(&se)
 		}
 	}
 }

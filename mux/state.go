@@ -194,7 +194,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				for output := range b.outputs {
 					close(output)
 				}
-				break
+				return
 			}
 		case u := <-b.unreg:
 			delete(b.outputs, u.channel)
