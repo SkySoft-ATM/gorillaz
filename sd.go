@@ -43,6 +43,8 @@ type gorillazResolverBuilder struct {
 func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOption) (resolver.Resolver, error) {
 	var result resolver.Resolver
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	if strings.HasPrefix(target.Endpoint, SdPrefix) {
 		if g.gaz.ServiceDiscovery == nil {
 			return nil, errors.New("service discovery not initialized in gorillaz")
@@ -51,10 +53,11 @@ func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 			serviceDiscovery: g.gaz.ServiceDiscovery,
 			name:             strings.TrimPrefix(target.Endpoint, SdPrefix),
 			cc:               cc,
+			closeFunc:        cancel,
 			tick:             time.NewTicker(1 * time.Second),
 			env:              g.gaz.Env,
 		}
-		go r.updater()
+		go r.updater(ctx)
 
 		result = r
 	} else {
@@ -78,6 +81,7 @@ func (*gorillazResolverBuilder) Scheme() string { return "gorillaz" }
 // serviceDiscoveryResolver is a
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type serviceDiscoveryResolver struct {
+	closeFunc        func()
 	serviceDiscovery ServiceDiscovery
 	name             string
 	cc               resolver.ClientConn
@@ -85,14 +89,15 @@ type serviceDiscoveryResolver struct {
 	env              string
 }
 
-func (r *serviceDiscoveryResolver) updater() {
+func (r *serviceDiscoveryResolver) updater(ctx context.Context) {
 	r.sendUpdate()
 	for {
-		_, ok := <-r.tick.C
-		if !ok {
-			break
+		select {
+		case <-r.tick.C:
+			r.sendUpdate()
+		case <-ctx.Done():
+			return
 		}
-		r.sendUpdate()
 	}
 }
 
@@ -110,7 +115,9 @@ func (r *serviceDiscoveryResolver) sendUpdate() {
 }
 
 func (*serviceDiscoveryResolver) ResolveNow(o resolver.ResolveNowOption) {}
+
 func (r *serviceDiscoveryResolver) Close() {
+	r.closeFunc()
 	r.tick.Stop()
 }
 
