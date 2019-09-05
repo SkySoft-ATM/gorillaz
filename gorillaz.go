@@ -241,6 +241,10 @@ const (
 // Starts the router, once Run is launched, you should no longer add new handlers on the router.
 // It returns a channel that will be notified once the gRPC and http servers have been started.
 func (g *Gaz) Run() <-chan struct{} {
+	err := g.streamRegistry.createStreamDefinitionsStream()
+	if err != nil {
+		panic(err)
+	}
 	if he := g.Viper.GetBool("healthcheck.enabled"); he {
 		Sugar.Info("Activating health check")
 		g.InitHealthcheck()
