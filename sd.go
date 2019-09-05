@@ -31,7 +31,6 @@ type ServiceDiscovery interface {
 
 type RegistrationHandle interface {
 	DeRegister(context.Context) error
-	Update(c context.Context, d *ServiceDefinition) error
 }
 
 // gorillazResolverBuilder is a

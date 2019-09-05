@@ -261,7 +261,7 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		}
 
 		client := stream.NewStreamClient(se.conn)
-		req := &stream.StreamRequest{Name: streamName}
+		req := &stream.StreamRequest{Name: streamName, RequesterName: se.g.ServiceName}
 
 		var callOpts []grpc.CallOption
 		if config.UseGzip {

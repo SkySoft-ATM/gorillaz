@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
@@ -20,6 +19,7 @@ import (
 
 const (
 	StreamProviderTag = "streamProvider"
+	streamDefinitions = "streamDefinitions"
 )
 
 // NewStreamProvider returns a new provider ready to be used.
@@ -52,7 +52,6 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 		gaz:         g,
 	}
 	g.streamRegistry.register(p)
-
 	return p, nil
 }
 
@@ -227,6 +226,10 @@ func (p *StreamProvider) close() {
 	p.broadcaster.Close()
 }
 
+func (g *Gaz) DiscoverStreamDefinitions(serviceName string) (StreamConsumer, error) {
+	return g.DiscoverAndConsumeServiceStream(serviceName, streamDefinitions)
+}
+
 type streamRegistry struct {
 	sync.RWMutex
 	g          *Gaz
@@ -234,12 +237,22 @@ type streamRegistry struct {
 	serviceIds map[string]RegistrationHandle // for each stream a service is registered in the service discovery
 }
 
-func (sr *streamRegistry) GetStreamDefinitions(e *empty.Empty, s stream.Stream_GetStreamDefinitionsServer) error {
-	updates := make(chan *mux.StateUpdate, 100)
-	err := sr.g.streamDefinitionsBroadcaster.Register(updates)
+func (sr *streamRegistry) createStreamDefinitionsStream() error {
+	provider, err := sr.g.NewStreamProvider("streamDefinitions", "stream.StreamDefinition")
 	if err != nil {
 		return err
 	}
+	updates := make(chan *mux.StateUpdate, 100)
+	err = sr.g.streamDefinitionsBroadcaster.Register(updates)
+	if err != nil {
+		return err
+	}
+	go sr.runStreamDefinitions(updates, provider)
+	return nil
+}
+
+func (sr *streamRegistry) runStreamDefinitions(updates chan *mux.StateUpdate, provider *StreamProvider) {
+	defer sr.g.streamDefinitionsBroadcaster.Unregister(updates)
 	for {
 		select {
 		case u := <-updates:
@@ -249,14 +262,16 @@ func (sr *streamRegistry) GetStreamDefinitions(e *empty.Empty, s stream.Stream_G
 			} else {
 				sd = u.Value.(*stream.StreamDefinition)
 			}
-			err := s.Send(sd)
+			bytes, err := proto.Marshal(sd)
 			if err != nil {
-				sr.g.streamDefinitionsBroadcaster.Unregister(updates)
-				return err
+				Log.Error("Error encoding stream definition", zap.Error(err))
 			}
-		case <-s.Context().Done():
-			sr.g.streamDefinitionsBroadcaster.Unregister(updates)
-			return nil
+			se := stream.Event{
+				Ctx:   nil,
+				Key:   []byte(sd.Name),
+				Value: bytes,
+			}
+			provider.Submit(&se)
 		}
 	}
 }
@@ -307,17 +322,6 @@ func (r *streamRegistry) unregister(streamName string) {
 	}
 }
 
-func (g *Gaz) GetServiceStreamDefinitions(serviceName string, opts ...grpc.DialOption) (stream.Stream_GetStreamDefinitionsClient, context.CancelFunc, error) {
-	clientConn, err := g.GrpcDialService(serviceName, opts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	cli := stream.NewStreamClient(clientConn)
-	ctx, cancel := context.WithCancel(context.Background())
-	r, err := cli.GetStreamDefinitions(ctx, &empty.Empty{})
-	return r, cancel, err
-}
-
 // Stream implements streaming.proto Stream.
 // should not be called by the client
 func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_StreamServer) error {
@@ -328,7 +332,7 @@ func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_St
 	provider, ok := r.providers[req.Name]
 	r.RUnlock()
 	if !ok {
-		Log.Error("unknown stream %s", zap.String("stream", streamName), zap.String("peer", peer))
+		Log.Warn("unknown stream", zap.String("stream", streamName), zap.String("peer", peer), zap.String("requester", req.RequesterName))
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
 	// we need to send some data because right now it is the only way to check on the client side if the stream connection is really established

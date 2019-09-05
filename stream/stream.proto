@@ -2,15 +2,13 @@ syntax = "proto3";
 
 package stream;
 
-import "google/protobuf/empty.proto";
-
 service Stream {
     rpc Stream(StreamRequest) returns (stream StreamEvent);
-    rpc GetStreamDefinitions(google.protobuf.Empty) returns (stream StreamDefinition);
 }
 
 message StreamRequest {
     string name = 1; // stream name
+    string requesterName = 2; //name of the service making the stream request
 }
 
 message StreamEvent {

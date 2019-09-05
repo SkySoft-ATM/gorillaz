@@ -154,6 +154,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 	var ticker time.Ticker
 	if ttl > 0 {
 		ticker = *time.NewTicker(ttl / 2)
+		defer ticker.Stop()
 	}
 	for {
 		select {
@@ -193,7 +194,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				for output := range b.outputs {
 					close(output)
 				}
-				ticker.Stop() //to avoid goroutine leak
+				break
 			}
 		case u := <-b.unreg:
 			delete(b.outputs, u.channel)
