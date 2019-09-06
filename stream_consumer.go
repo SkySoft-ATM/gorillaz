@@ -289,6 +289,17 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 				monitoringHolder.conGauge.Set(1)
 				streamEvt, err := st.Recv()
 
+				if streamEvt == nil {
+					Log.Warn("received a nil stream event", zap.String("stream", streamName))
+					continue
+				}
+				if streamEvt.Metadata == nil {
+					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName))
+					streamEvt.Metadata = &stream.Metadata{
+						KeyValue: make(map[string]string),
+					}
+				}
+
 				if err != nil {
 					if err == io.EOF {
 						return //standard error for closed stream
