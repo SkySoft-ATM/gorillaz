@@ -327,7 +327,7 @@ func (r *streamRegistry) unregister(streamName string) {
 // should not be called by the client
 func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_StreamServer) error {
 	peer := GetGrpcClientAddress(strm.Context())
-	Log.Info("new stream consumer", zap.String("stream", req.Name), zap.String("peer", peer))
+	Log.Info("new stream consumer", zap.String("stream", req.Name), zap.String("peer", peer), zap.String("requester", req.RequesterName))
 	streamName := req.Name
 	r.RLock()
 	provider, ok := r.providers[req.Name]
@@ -340,7 +340,7 @@ func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_St
 	header := metadata.Pairs("name", streamName)
 	err := strm.SendHeader(header)
 	if err != nil {
-		Log.Error("client might be disconnected %s", zap.Error(err), zap.String("peer", peer))
+		Log.Error("client might be disconnected %s", zap.Error(err), zap.String("peer", peer), zap.String("requester", req.RequesterName))
 		return nil
 	}
 	provider.sendLoop(streamName, strm, peer)
