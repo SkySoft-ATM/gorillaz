@@ -216,6 +216,24 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 	}
 }
 
+// returns the current content of the state broadcaster
+func (b *StateBroadcaster) GetCurrentState() ([]*StateUpdate, error) {
+	result := make([]*StateUpdate, 0, 0)
+	c := make(chan *StateUpdate, (1<<16)-1) // this channel should be able to receive immediately all the states when Register is called
+	err := b.Register(c)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		select {
+		case i := <-c:
+			result = append(result, i)
+		default:
+			return result, nil
+		}
+	}
+}
+
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
 // ttl defines a time to live for values sent to the state broadcaster, 0 means no expiry
 func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) (*StateBroadcaster, error) {
