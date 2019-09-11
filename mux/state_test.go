@@ -170,9 +170,8 @@ func TestTtl(t *testing.T) {
 	assert.Contains(t, result, &StateUpdate{Update, "A2"})
 	assert.Contains(t, result, &StateUpdate{Update, "B1"})
 
-	result2, err := b.GetCurrentState()
+	result2 := b.GetCurrentState()
 
-	assert.Nil(t, err)
 	assert.Equal(t, 0, len(result2)) // state has expired
 
 }
@@ -201,11 +200,10 @@ func TestDelete(t *testing.T) {
 	assert.Equal(t, 1, len(result))
 	assert.Contains(t, result, &StateUpdate{Delete, "A"})
 	b.Register(chan2)
-	result2, err := b.GetCurrentState()
+	result2 := b.GetCurrentState()
 
-	assert.Nil(t, err)
 	assert.Equal(t, 1, len(result2))
-	assert.Contains(t, result2, &StateUpdate{InitialState, "B1"})
+	assert.Equal(t, result2["B"], "B1")
 
 }
 
@@ -216,14 +214,13 @@ func TestStateCleared(t *testing.T) {
 	b.Submit("A", "A1")
 	time.Sleep(50 * time.Millisecond)
 
-	result, err := b.GetCurrentState()
+	result := b.GetCurrentState()
 
-	assert.Nil(t, err)
 	assert.Equal(t, 1, len(result))
-	assert.Contains(t, result, &StateUpdate{InitialState, "A1"})
+	assert.Equal(t, result["A"], "A1")
 
 	b.ClearState()
-	result2, err := b.GetCurrentState()
+	result2 := b.GetCurrentState()
 
 	assert.Equal(t, 0, len(result2))
 
