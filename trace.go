@@ -113,13 +113,12 @@ func StartSpanFromExternalTraceId(spanName string, traceId string) opentracing.S
 		})
 	ctx, err := tracer.Extract(opentracing.TextMap, carrier)
 	if err != nil {
-		//TODO : should we just create another context? how bad is this?
-		Log.Warn("Error while creating context from traceId "+traceId+" we will create a new traceId", zap.Error(err))
 		newSpan := StartNewSpan(spanName)
 		newSpan = newSpan.SetTag("externalTraceId", traceId)
+		Log.Debug("Error while creating context from external traceId we created a new traceId", zap.Error(err),
+			zap.String("external trace id", traceId), zap.String("new trace id", GetTraceId(newSpan)))
 		return newSpan
 	}
-
 	return createSpanFromContext(spanName, ctx)
 }
 
