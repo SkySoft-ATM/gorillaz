@@ -39,6 +39,7 @@ const clearAllValues clearAll = "ALL"
 type StateBroadcaster struct {
 	input   chan keyValue
 	delete  chan interface{}
+	get     chan getCurrentState
 	reg     chan stateRegistration
 	unreg   chan stateUnregistration
 	outputs map[StateUpdateChan]ConsumerConfig
@@ -76,6 +77,10 @@ func (b *StateBroadcaster) Register(newch StateUpdateChan, options ...ConsumerOp
 	b.reg <- stateRegistration{stateConsumer{*config, newch}, done}
 	<-done
 	return nil
+}
+
+type getCurrentState struct {
+	callback chan<- map[interface{}]interface{}
 }
 
 type stateRegistration struct {
@@ -174,6 +179,12 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				delete(b.state, k)
 				b.broadcast(&StateUpdate{Delete, k})
 			}
+		case g := <-b.get:
+			result := make(map[interface{}]interface{}, len(b.state))
+			for k, v := range b.state {
+				result[k] = v.value
+			}
+			g.callback <- result
 		case r, ok := <-b.reg:
 			if ok {
 				b.outputs[r.consumer.channel] = r.consumer.config
@@ -216,11 +227,19 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 	}
 }
 
+// returns the current content of the state broadcaster
+func (b *StateBroadcaster) GetCurrentState() map[interface{}]interface{} {
+	callback := make(chan map[interface{}]interface{}, 1)
+	b.get <- getCurrentState{callback: callback}
+	return <-callback
+}
+
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
 // ttl defines a time to live for values sent to the state broadcaster, 0 means no expiry
 func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) (*StateBroadcaster, error) {
 	b := &StateBroadcaster{
 		input:             make(chan keyValue, bufLen),
+		get:               make(chan getCurrentState),
 		reg:               make(chan stateRegistration),
 		delete:            make(chan interface{}),
 		unreg:             make(chan stateUnregistration),

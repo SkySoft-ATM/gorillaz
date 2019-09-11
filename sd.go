@@ -137,7 +137,6 @@ func (g *Gaz) Register(d *ServiceDefinition) (RegistrationHandle, error) {
 	if g.ServiceDiscovery == nil {
 		return nil, errors.New("no service registry configured")
 	}
-	d.Tags = append(d.Tags, g.Env)
 	return g.ServiceDiscovery.Register(d)
 }
 

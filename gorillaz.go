@@ -291,8 +291,8 @@ func (g *Gaz) Run() <-chan struct{} {
 		serviceDefinition := &ServiceDefinition{ServiceName: g.ServiceName,
 			Addr: g.serviceAddress,
 			Port: g.GrpcPort(),
-			Tags: []string{grpcTag, httpTag, StreamProviderTag},
-			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort())},
+			Tags: []string{grpcTag, httpTag, StreamProviderTag, g.Env},
+			Meta: map[string]string{httpPortMetadata: strconv.Itoa(g.HttpPort()), "env": g.Env},
 		}
 
 		g.registrationHandle, err = g.Register(serviceDefinition)

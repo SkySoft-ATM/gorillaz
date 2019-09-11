@@ -154,7 +154,6 @@ func TestTtl(t *testing.T) {
 	b, _ := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond)
 
 	chan1 := make(chan *StateUpdate, 20)
-	chan2 := make(chan *StateUpdate, 20)
 
 	b.Register(chan1)
 
@@ -171,9 +170,7 @@ func TestTtl(t *testing.T) {
 	assert.Contains(t, result, &StateUpdate{Update, "A2"})
 	assert.Contains(t, result, &StateUpdate{Update, "B1"})
 
-	b.Register(chan2)
-
-	result2 := consumeAvailableMessages(chan2)
+	result2 := b.GetCurrentState()
 
 	assert.Equal(t, 0, len(result2)) // state has expired
 
@@ -203,10 +200,10 @@ func TestDelete(t *testing.T) {
 	assert.Equal(t, 1, len(result))
 	assert.Contains(t, result, &StateUpdate{Delete, "A"})
 	b.Register(chan2)
-	result2 := consumeAvailableMessages(chan2)
+	result2 := b.GetCurrentState()
 
 	assert.Equal(t, 1, len(result2))
-	assert.Contains(t, result2, &StateUpdate{InitialState, "B1"})
+	assert.Equal(t, result2["B"], "B1")
 
 }
 
@@ -214,21 +211,16 @@ func TestStateCleared(t *testing.T) {
 
 	b, _ := NewNonBlockingStateBroadcaster(50, 0)
 
-	chan1 := make(chan *StateUpdate, 20)
-	chan2 := make(chan *StateUpdate, 20)
-
 	b.Submit("A", "A1")
 	time.Sleep(50 * time.Millisecond)
 
-	b.Register(chan1)
-	result := consumeAvailableMessages(chan1)
+	result := b.GetCurrentState()
 
 	assert.Equal(t, 1, len(result))
-	assert.Contains(t, result, &StateUpdate{InitialState, "A1"})
+	assert.Equal(t, result["A"], "A1")
 
 	b.ClearState()
-	b.Register(chan2)
-	result2 := consumeAvailableMessages(chan2)
+	result2 := b.GetCurrentState()
 
 	assert.Equal(t, 0, len(result2))
 
