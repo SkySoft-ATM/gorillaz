@@ -3,10 +3,18 @@ syntax = "proto3";
 package stream;
 
 service Stream {
-    rpc Stream(StreamRequest) returns (stream StreamEvent);
+    rpc Stream (StreamRequest) returns (stream StreamEvent);
+
+    // Gets the initial states and watches for updates
+    rpc GetAndWatch (GetAndWatchRequest) returns (stream GetAndWatchEvent);
 }
 
 message StreamRequest {
+    string name = 1; // stream name
+    string requesterName = 2; //name of the service making the stream request
+}
+
+message GetAndWatchRequest {
     string name = 1; // stream name
     string requesterName = 2; //name of the service making the stream request
 }
@@ -24,9 +32,28 @@ message Metadata {
     map<string, string> keyValue = 4;
 }
 
+message GetAndWatchEvent {
+    bytes Key    = 1; // Event key
+    bytes Value  = 2; // Event value
+    Metadata metadata = 3;
+    EventType eventType = 4;
+}
+
+enum EventType {
+    UNKNOWN_EVENT_TYPE = 0;
+    UPDATE = 1;
+    INITIAL_STATE = 2;
+    DELETE = 3;
+}
 
 message StreamDefinition {
     string name = 1;
     string dataType = 2;
-    bool isDelete = 3; // on delete events, only the dataType will be empty
+    StreamType streamType = 3;
+}
+
+enum StreamType {
+    UNKNOWN_STREAM_TYPE = 0;
+    STREAM = 1;
+    GET_AND_WATCH = 2;
 }

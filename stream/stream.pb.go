@@ -24,6 +24,65 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
+type EventType int32
+
+const (
+	EventType_UNKNOWN_EVENT_TYPE EventType = 0
+	EventType_UPDATE             EventType = 1
+	EventType_INITIAL_STATE      EventType = 2
+	EventType_DELETE             EventType = 3
+)
+
+var EventType_name = map[int32]string{
+	0: "UNKNOWN_EVENT_TYPE",
+	1: "UPDATE",
+	2: "INITIAL_STATE",
+	3: "DELETE",
+}
+
+var EventType_value = map[string]int32{
+	"UNKNOWN_EVENT_TYPE": 0,
+	"UPDATE":             1,
+	"INITIAL_STATE":      2,
+	"DELETE":             3,
+}
+
+func (x EventType) String() string {
+	return proto.EnumName(EventType_name, int32(x))
+}
+
+func (EventType) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_bb17ef3f514bfe54, []int{0}
+}
+
+type StreamType int32
+
+const (
+	StreamType_UNKNOWN_STREAM_TYPE StreamType = 0
+	StreamType_STREAM              StreamType = 1
+	StreamType_GET_AND_WATCH       StreamType = 2
+)
+
+var StreamType_name = map[int32]string{
+	0: "UNKNOWN_STREAM_TYPE",
+	1: "STREAM",
+	2: "GET_AND_WATCH",
+}
+
+var StreamType_value = map[string]int32{
+	"UNKNOWN_STREAM_TYPE": 0,
+	"STREAM":              1,
+	"GET_AND_WATCH":       2,
+}
+
+func (x StreamType) String() string {
+	return proto.EnumName(StreamType_name, int32(x))
+}
+
+func (StreamType) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_bb17ef3f514bfe54, []int{1}
+}
+
 type StreamRequest struct {
 	Name                 string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	RequesterName        string   `protobuf:"bytes,2,opt,name=requesterName,proto3" json:"requesterName,omitempty"`
@@ -71,6 +130,53 @@ func (m *StreamRequest) GetRequesterName() string {
 	return ""
 }
 
+type GetAndWatchRequest struct {
+	Name                 string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	RequesterName        string   `protobuf:"bytes,2,opt,name=requesterName,proto3" json:"requesterName,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *GetAndWatchRequest) Reset()         { *m = GetAndWatchRequest{} }
+func (m *GetAndWatchRequest) String() string { return proto.CompactTextString(m) }
+func (*GetAndWatchRequest) ProtoMessage()    {}
+func (*GetAndWatchRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_bb17ef3f514bfe54, []int{1}
+}
+
+func (m *GetAndWatchRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetAndWatchRequest.Unmarshal(m, b)
+}
+func (m *GetAndWatchRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetAndWatchRequest.Marshal(b, m, deterministic)
+}
+func (m *GetAndWatchRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAndWatchRequest.Merge(m, src)
+}
+func (m *GetAndWatchRequest) XXX_Size() int {
+	return xxx_messageInfo_GetAndWatchRequest.Size(m)
+}
+func (m *GetAndWatchRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAndWatchRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAndWatchRequest proto.InternalMessageInfo
+
+func (m *GetAndWatchRequest) GetName() string {
+	if m != nil {
+		return m.Name
+	}
+	return ""
+}
+
+func (m *GetAndWatchRequest) GetRequesterName() string {
+	if m != nil {
+		return m.RequesterName
+	}
+	return ""
+}
+
 type StreamEvent struct {
 	Key                  []byte    `protobuf:"bytes,1,opt,name=Key,proto3" json:"Key,omitempty"`
 	Value                []byte    `protobuf:"bytes,2,opt,name=Value,proto3" json:"Value,omitempty"`
@@ -84,7 +190,7 @@ func (m *StreamEvent) Reset()         { *m = StreamEvent{} }
 func (m *StreamEvent) String() string { return proto.CompactTextString(m) }
 func (*StreamEvent) ProtoMessage()    {}
 func (*StreamEvent) Descriptor() ([]byte, []int) {
-	return fileDescriptor_bb17ef3f514bfe54, []int{1}
+	return fileDescriptor_bb17ef3f514bfe54, []int{2}
 }
 
 func (m *StreamEvent) XXX_Unmarshal(b []byte) error {
@@ -140,7 +246,7 @@ func (m *Metadata) Reset()         { *m = Metadata{} }
 func (m *Metadata) String() string { return proto.CompactTextString(m) }
 func (*Metadata) ProtoMessage()    {}
 func (*Metadata) Descriptor() ([]byte, []int) {
-	return fileDescriptor_bb17ef3f514bfe54, []int{2}
+	return fileDescriptor_bb17ef3f514bfe54, []int{3}
 }
 
 func (m *Metadata) XXX_Unmarshal(b []byte) error {
@@ -189,20 +295,83 @@ func (m *Metadata) GetKeyValue() map[string]string {
 	return nil
 }
 
+type GetAndWatchEvent struct {
+	Key                  []byte    `protobuf:"bytes,1,opt,name=Key,proto3" json:"Key,omitempty"`
+	Value                []byte    `protobuf:"bytes,2,opt,name=Value,proto3" json:"Value,omitempty"`
+	Metadata             *Metadata `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	EventType            EventType `protobuf:"varint,4,opt,name=eventType,proto3,enum=stream.EventType" json:"eventType,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}  `json:"-"`
+	XXX_unrecognized     []byte    `json:"-"`
+	XXX_sizecache        int32     `json:"-"`
+}
+
+func (m *GetAndWatchEvent) Reset()         { *m = GetAndWatchEvent{} }
+func (m *GetAndWatchEvent) String() string { return proto.CompactTextString(m) }
+func (*GetAndWatchEvent) ProtoMessage()    {}
+func (*GetAndWatchEvent) Descriptor() ([]byte, []int) {
+	return fileDescriptor_bb17ef3f514bfe54, []int{4}
+}
+
+func (m *GetAndWatchEvent) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_GetAndWatchEvent.Unmarshal(m, b)
+}
+func (m *GetAndWatchEvent) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_GetAndWatchEvent.Marshal(b, m, deterministic)
+}
+func (m *GetAndWatchEvent) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAndWatchEvent.Merge(m, src)
+}
+func (m *GetAndWatchEvent) XXX_Size() int {
+	return xxx_messageInfo_GetAndWatchEvent.Size(m)
+}
+func (m *GetAndWatchEvent) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAndWatchEvent.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAndWatchEvent proto.InternalMessageInfo
+
+func (m *GetAndWatchEvent) GetKey() []byte {
+	if m != nil {
+		return m.Key
+	}
+	return nil
+}
+
+func (m *GetAndWatchEvent) GetValue() []byte {
+	if m != nil {
+		return m.Value
+	}
+	return nil
+}
+
+func (m *GetAndWatchEvent) GetMetadata() *Metadata {
+	if m != nil {
+		return m.Metadata
+	}
+	return nil
+}
+
+func (m *GetAndWatchEvent) GetEventType() EventType {
+	if m != nil {
+		return m.EventType
+	}
+	return EventType_UNKNOWN_EVENT_TYPE
+}
+
 type StreamDefinition struct {
-	Name                 string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	DataType             string   `protobuf:"bytes,2,opt,name=dataType,proto3" json:"dataType,omitempty"`
-	IsDelete             bool     `protobuf:"varint,3,opt,name=isDelete,proto3" json:"isDelete,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	Name                 string     `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	DataType             string     `protobuf:"bytes,2,opt,name=dataType,proto3" json:"dataType,omitempty"`
+	StreamType           StreamType `protobuf:"varint,3,opt,name=streamType,proto3,enum=stream.StreamType" json:"streamType,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
 }
 
 func (m *StreamDefinition) Reset()         { *m = StreamDefinition{} }
 func (m *StreamDefinition) String() string { return proto.CompactTextString(m) }
 func (*StreamDefinition) ProtoMessage()    {}
 func (*StreamDefinition) Descriptor() ([]byte, []int) {
-	return fileDescriptor_bb17ef3f514bfe54, []int{3}
+	return fileDescriptor_bb17ef3f514bfe54, []int{5}
 }
 
 func (m *StreamDefinition) XXX_Unmarshal(b []byte) error {
@@ -237,46 +406,61 @@ func (m *StreamDefinition) GetDataType() string {
 	return ""
 }
 
-func (m *StreamDefinition) GetIsDelete() bool {
+func (m *StreamDefinition) GetStreamType() StreamType {
 	if m != nil {
-		return m.IsDelete
+		return m.StreamType
 	}
-	return false
+	return StreamType_UNKNOWN_STREAM_TYPE
 }
 
 func init() {
+	proto.RegisterEnum("stream.EventType", EventType_name, EventType_value)
+	proto.RegisterEnum("stream.StreamType", StreamType_name, StreamType_value)
 	proto.RegisterType((*StreamRequest)(nil), "stream.StreamRequest")
+	proto.RegisterType((*GetAndWatchRequest)(nil), "stream.GetAndWatchRequest")
 	proto.RegisterType((*StreamEvent)(nil), "stream.StreamEvent")
 	proto.RegisterType((*Metadata)(nil), "stream.Metadata")
 	proto.RegisterMapType((map[string]string)(nil), "stream.Metadata.KeyValueEntry")
+	proto.RegisterType((*GetAndWatchEvent)(nil), "stream.GetAndWatchEvent")
 	proto.RegisterType((*StreamDefinition)(nil), "stream.StreamDefinition")
 }
 
 func init() { proto.RegisterFile("stream.proto", fileDescriptor_bb17ef3f514bfe54) }
 
 var fileDescriptor_bb17ef3f514bfe54 = []byte{
-	// 335 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x6c, 0x52, 0x41, 0x4b, 0x02, 0x41,
-	0x14, 0x66, 0x77, 0x4d, 0xd6, 0xa7, 0x96, 0xbc, 0x12, 0xc4, 0x43, 0xc8, 0x12, 0xe1, 0x21, 0x24,
-	0x2c, 0x22, 0xec, 0xd2, 0x41, 0x0f, 0x21, 0x15, 0x4c, 0xd2, 0x31, 0x98, 0xea, 0x15, 0x83, 0xee,
-	0x6a, 0xe3, 0x28, 0xec, 0x6f, 0xe8, 0x4f, 0xe7, 0xcc, 0xec, 0x4e, 0xec, 0xe2, 0xed, 0xbd, 0xef,
-	0xfb, 0xe6, 0xcd, 0xf7, 0xbd, 0x19, 0x68, 0xac, 0x95, 0x24, 0x1e, 0x0f, 0x56, 0x72, 0xa9, 0x96,
-	0x58, 0xb5, 0x5d, 0xf4, 0x00, 0xcd, 0x17, 0x53, 0x31, 0xfa, 0xd9, 0xd0, 0x5a, 0x21, 0x42, 0x25,
-	0xe1, 0x31, 0x75, 0xbc, 0x9e, 0xd7, 0xaf, 0x31, 0x53, 0xe3, 0x19, 0x34, 0xa5, 0xa5, 0x49, 0x3e,
-	0x69, 0xd2, 0x37, 0x64, 0x11, 0x8c, 0x3e, 0xa0, 0x6e, 0x47, 0x4d, 0xb6, 0x94, 0x28, 0x6c, 0x41,
-	0x30, 0xa5, 0xd4, 0xcc, 0x69, 0x30, 0x5d, 0xe2, 0x09, 0x1c, 0xbc, 0xf2, 0xc5, 0xc6, 0x1e, 0x6f,
-	0x30, 0xdb, 0xe0, 0x05, 0x84, 0x31, 0x29, 0xfe, 0xc9, 0x15, 0xef, 0x04, 0x3b, 0xa2, 0x3e, 0x6c,
-	0x0d, 0x32, 0xab, 0x8f, 0x19, 0xce, 0x9c, 0x22, 0xfa, 0xf5, 0x21, 0xcc, 0x61, 0x3c, 0x87, 0x43,
-	0x73, 0xd7, 0x4c, 0xc4, 0x3b, 0x1b, 0x3c, 0x5e, 0x99, 0xdb, 0x02, 0x56, 0x42, 0xf1, 0x1a, 0xda,
-	0xcf, 0x52, 0x7c, 0x8b, 0xc4, 0xfa, 0xfb, 0x97, 0xfb, 0x46, 0xbe, 0x9f, 0xc4, 0x3e, 0x1c, 0x95,
-	0xf5, 0x81, 0xd1, 0x97, 0x61, 0x1c, 0x41, 0x38, 0xa7, 0xd4, 0x66, 0xab, 0xf4, 0x82, 0x5d, 0x84,
-	0xd3, 0x72, 0x84, 0xc1, 0x34, 0x13, 0x4c, 0x12, 0x25, 0x53, 0xe6, 0xf4, 0xdd, 0x3b, 0x68, 0x16,
-	0x28, 0xbd, 0xb7, 0x79, 0xb6, 0xb7, 0x1a, 0xd3, 0xa5, 0xde, 0xdb, 0xd6, 0xed, 0xad, 0xc6, 0x6c,
-	0x33, 0xf2, 0x6f, 0xbd, 0xe8, 0x0d, 0x5a, 0xd6, 0xcb, 0x98, 0xbe, 0x44, 0x22, 0x94, 0x58, 0x26,
-	0x7b, 0x1f, 0xb0, 0x0b, 0xa1, 0x36, 0x31, 0x4b, 0x57, 0xf9, 0x10, 0xd7, 0x6b, 0x4e, 0xac, 0xc7,
-	0xb4, 0x20, 0x45, 0x26, 0x5f, 0xc8, 0x5c, 0x3f, 0xbc, 0x87, 0xaa, 0x9d, 0x8f, 0x37, 0xae, 0x6a,
-	0xe7, 0xd1, 0x0a, 0xff, 0xa6, 0x7b, 0x5c, 0x84, 0xcd, 0x0b, 0x5c, 0x7a, 0xef, 0x55, 0xf3, 0xdd,
-	0xae, 0xfe, 0x02, 0x00, 0x00, 0xff, 0xff, 0x13, 0xf0, 0x9a, 0xc1, 0x7e, 0x02, 0x00, 0x00,
+	// 501 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xb4, 0x54, 0x4f, 0x6f, 0xd3, 0x4e,
+	0x10, 0xfd, 0xd9, 0xee, 0x2f, 0x8a, 0x27, 0x49, 0x71, 0xa7, 0x14, 0x22, 0x1f, 0x50, 0x65, 0x21,
+	0x14, 0x55, 0x28, 0xa0, 0x80, 0x10, 0x2a, 0x27, 0x0b, 0xaf, 0x4a, 0x94, 0xd6, 0xad, 0x36, 0xdb,
+	0x46, 0x9c, 0x2c, 0xd3, 0x2e, 0x60, 0x15, 0x3b, 0xc1, 0xdd, 0x46, 0xca, 0x27, 0xe0, 0xc0, 0x27,
+	0xe0, 0xdb, 0xe2, 0xdd, 0xb5, 0x9d, 0x3f, 0xe4, 0x86, 0xb8, 0xcd, 0xbc, 0xf7, 0xf2, 0x66, 0xde,
+	0x38, 0x36, 0xb4, 0xef, 0x44, 0xce, 0xe3, 0xb4, 0x3f, 0xcb, 0xa7, 0x62, 0x8a, 0x0d, 0xdd, 0x79,
+	0x43, 0xe8, 0x8c, 0x55, 0x45, 0xf9, 0xf7, 0x7b, 0x7e, 0x27, 0x10, 0x61, 0x27, 0x8b, 0x53, 0xde,
+	0x35, 0x0e, 0x8d, 0x9e, 0x4d, 0x55, 0x8d, 0x4f, 0xa1, 0x93, 0x6b, 0x9a, 0xe7, 0xa1, 0x24, 0x4d,
+	0x45, 0xae, 0x83, 0x5e, 0x08, 0x78, 0xc2, 0x85, 0x9f, 0xdd, 0x4c, 0x62, 0x71, 0xfd, 0xf5, 0xef,
+	0xfd, 0xae, 0xa1, 0xa5, 0x57, 0x23, 0x73, 0x9e, 0x09, 0x74, 0xc0, 0x1a, 0xf1, 0x85, 0xf2, 0x69,
+	0x53, 0x59, 0xe2, 0x43, 0xf8, 0xff, 0x2a, 0xfe, 0x76, 0xaf, 0x7f, 0xde, 0xa6, 0xba, 0xc1, 0xe7,
+	0xd0, 0x4c, 0xb9, 0x88, 0x6f, 0x62, 0x11, 0x77, 0xad, 0x82, 0x68, 0x0d, 0x9c, 0x7e, 0x19, 0xfd,
+	0xac, 0xc4, 0x69, 0xad, 0xf0, 0x7e, 0x9a, 0xd0, 0xac, 0x60, 0x7c, 0x06, 0xbb, 0x6a, 0x16, 0x4b,
+	0xd2, 0x62, 0x8d, 0x38, 0x9d, 0xa9, 0x69, 0x16, 0xdd, 0x40, 0xf1, 0x35, 0x1c, 0x9c, 0xe7, 0xc9,
+	0x97, 0x24, 0xd3, 0xfb, 0x2d, 0xe5, 0xa6, 0x92, 0x6f, 0x27, 0xb1, 0x07, 0x0f, 0x36, 0xf5, 0x96,
+	0xd2, 0x6f, 0xc2, 0x78, 0x0c, 0xcd, 0x5b, 0xbe, 0xd0, 0xd9, 0x76, 0x0e, 0xad, 0x22, 0xc2, 0x93,
+	0xcd, 0x08, 0xfd, 0x51, 0x29, 0x20, 0x99, 0xc8, 0x17, 0xb4, 0xd6, 0xbb, 0xef, 0xa0, 0xb3, 0x46,
+	0xc9, 0xbb, 0xdd, 0x96, 0x77, 0xb3, 0xa9, 0x2c, 0xe5, 0xdd, 0xe6, 0xf5, 0xdd, 0x6c, 0xaa, 0x9b,
+	0x63, 0xf3, 0xad, 0xe1, 0xfd, 0x32, 0xc0, 0x59, 0x79, 0x86, 0xff, 0xf0, 0xf0, 0xf8, 0x02, 0x6c,
+	0xae, 0xae, 0xba, 0x98, 0xc9, 0x90, 0x46, 0x6f, 0x77, 0xb0, 0x57, 0xc9, 0x49, 0x45, 0xd0, 0xa5,
+	0xc6, 0x9b, 0x83, 0xa3, 0xef, 0x14, 0xf0, 0xcf, 0x49, 0x96, 0x88, 0x64, 0x9a, 0x6d, 0xfd, 0x73,
+	0xb9, 0xd0, 0x94, 0x03, 0x94, 0xaf, 0x0e, 0x58, 0xf7, 0x38, 0x00, 0xd0, 0x23, 0x14, 0x6b, 0xa9,
+	0xa9, 0x58, 0x4d, 0x1d, 0xd7, 0x0c, 0x5d, 0x51, 0x1d, 0x85, 0x60, 0xd7, 0xfb, 0xe0, 0x23, 0xc0,
+	0xcb, 0x70, 0x14, 0x9e, 0x4f, 0xc2, 0x88, 0x5c, 0x91, 0x90, 0x45, 0xec, 0xe3, 0x05, 0x71, 0xfe,
+	0x43, 0x80, 0xc6, 0xe5, 0x45, 0xe0, 0x33, 0xe2, 0x18, 0xb8, 0x07, 0x9d, 0x61, 0x38, 0x64, 0x43,
+	0xff, 0x34, 0x1a, 0x33, 0x09, 0x99, 0x92, 0x0e, 0xc8, 0x29, 0x29, 0x6a, 0xeb, 0x28, 0x00, 0x58,
+	0x4e, 0xc2, 0xc7, 0xb0, 0x5f, 0x19, 0x8e, 0x19, 0x25, 0xfe, 0xd9, 0x8a, 0xa3, 0x06, 0xb4, 0xe3,
+	0x09, 0x61, 0x91, 0x1f, 0x06, 0xd1, 0xc4, 0x67, 0xef, 0x3f, 0x38, 0xe6, 0xe0, 0x87, 0x51, 0xf0,
+	0xca, 0x06, 0xdf, 0xd4, 0xd5, 0xc1, 0x7a, 0x94, 0xf2, 0x15, 0x74, 0xf7, 0xd7, 0x61, 0x95, 0xe6,
+	0xa5, 0x81, 0x04, 0x5a, 0x2b, 0xcf, 0x1a, 0xdd, 0x4a, 0xf5, 0xe7, 0x4b, 0xec, 0x76, 0xb7, 0x70,
+	0xa5, 0xcd, 0xa7, 0x86, 0xfa, 0xa0, 0xbc, 0xfa, 0x1d, 0x00, 0x00, 0xff, 0xff, 0xe6, 0x74, 0xdc,
+	0x12, 0x60, 0x04, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -292,6 +476,8 @@ const _ = grpc.SupportPackageIsVersion4
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type StreamClient interface {
 	Stream(ctx context.Context, in *StreamRequest, opts ...grpc.CallOption) (Stream_StreamClient, error)
+	// Gets the initial states and watches for updates
+	GetAndWatch(ctx context.Context, in *GetAndWatchRequest, opts ...grpc.CallOption) (Stream_GetAndWatchClient, error)
 }
 
 type streamClient struct {
@@ -334,9 +520,43 @@ func (x *streamStreamClient) Recv() (*StreamEvent, error) {
 	return m, nil
 }
 
+func (c *streamClient) GetAndWatch(ctx context.Context, in *GetAndWatchRequest, opts ...grpc.CallOption) (Stream_GetAndWatchClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Stream_serviceDesc.Streams[1], "/stream.Stream/GetAndWatch", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &streamGetAndWatchClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Stream_GetAndWatchClient interface {
+	Recv() (*GetAndWatchEvent, error)
+	grpc.ClientStream
+}
+
+type streamGetAndWatchClient struct {
+	grpc.ClientStream
+}
+
+func (x *streamGetAndWatchClient) Recv() (*GetAndWatchEvent, error) {
+	m := new(GetAndWatchEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // StreamServer is the server API for Stream service.
 type StreamServer interface {
 	Stream(*StreamRequest, Stream_StreamServer) error
+	// Gets the initial states and watches for updates
+	GetAndWatch(*GetAndWatchRequest, Stream_GetAndWatchServer) error
 }
 
 // UnimplementedStreamServer can be embedded to have forward compatible implementations.
@@ -345,6 +565,9 @@ type UnimplementedStreamServer struct {
 
 func (*UnimplementedStreamServer) Stream(req *StreamRequest, srv Stream_StreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method Stream not implemented")
+}
+func (*UnimplementedStreamServer) GetAndWatch(req *GetAndWatchRequest, srv Stream_GetAndWatchServer) error {
+	return status.Errorf(codes.Unimplemented, "method GetAndWatch not implemented")
 }
 
 func RegisterStreamServer(s *grpc.Server, srv StreamServer) {
@@ -372,6 +595,27 @@ func (x *streamStreamServer) Send(m *StreamEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Stream_GetAndWatch_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetAndWatchRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(StreamServer).GetAndWatch(m, &streamGetAndWatchServer{stream})
+}
+
+type Stream_GetAndWatchServer interface {
+	Send(*GetAndWatchEvent) error
+	grpc.ServerStream
+}
+
+type streamGetAndWatchServer struct {
+	grpc.ServerStream
+}
+
+func (x *streamGetAndWatchServer) Send(m *GetAndWatchEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 var _Stream_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "stream.Stream",
 	HandlerType: (*StreamServer)(nil),
@@ -380,6 +624,11 @@ var _Stream_serviceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Stream",
 			Handler:       _Stream_Stream_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetAndWatch",
+			Handler:       _Stream_GetAndWatch_Handler,
 			ServerStreams: true,
 		},
 	},

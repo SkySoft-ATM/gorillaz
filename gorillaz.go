@@ -7,7 +7,6 @@ import (
 	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
-	gmux "github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -35,26 +34,26 @@ type Gaz struct {
 	Env                string
 	Viper              *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
-	isReady                      *int32
-	streamRegistry               *streamRegistry
-	grpcListener                 net.Listener
-	grpcServerOptions            []grpc.ServerOption
-	configPath                   string
-	serviceAddress               string // optional address of the service that will be used for service discovery
-	streamConsumers              *streamConsumerRegistry
-	streamEndpointOptions        []StreamEndpointConfigOpt
-	httpListener                 net.Listener
-	httpSrv                      *http.Server
-	prometheusRegistry           *prometheus.Registry
-	bindConfigKeysAsFlag         bool
-	streamDefinitionsBroadcaster *gmux.StateBroadcaster
+	isReady               *int32
+	streamRegistry        *streamRegistry
+	grpcListener          net.Listener
+	grpcServerOptions     []grpc.ServerOption
+	configPath            string
+	serviceAddress        string // optional address of the service that will be used for service discovery
+	streamConsumers       *streamConsumerRegistry
+	streamEndpointOptions []StreamEndpointConfigOpt
+	httpListener          net.Listener
+	httpSrv               *http.Server
+	prometheusRegistry    *prometheus.Registry
+	bindConfigKeysAsFlag  bool
+	streamDefinitions     *GetAndWatchStreamProvider
 }
 
 type streamConsumerRegistry struct {
 	sync.Mutex
 	g                 *Gaz
 	endpointsByName   map[string]*streamEndpoint
-	endpointConsumers map[*streamEndpoint]map[*registeredConsumer]struct{}
+	endpointConsumers map[*streamEndpoint]map[StoppableStream]struct{}
 }
 
 type GazOption interface {
@@ -122,7 +121,7 @@ func New(options ...GazOption) *Gaz {
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
 		endpointsByName:   make(map[string]*streamEndpoint),
-		endpointConsumers: make(map[*streamEndpoint]map[*registeredConsumer]struct{}),
+		endpointConsumers: make(map[*streamEndpoint]map[StoppableStream]struct{}),
 	}
 
 	// first apply only init options
@@ -181,8 +180,6 @@ func New(options ...GazOption) *Gaz {
 		gaz.InitTracingFromConfig()
 	}
 
-	gaz.streamDefinitionsBroadcaster, _ = gmux.NewNonBlockingStateBroadcaster(100, 0)
-
 	// necessary to avoid weird 'transport closing' errors
 	// see https://github.com/grpc/grpc-go/issues/2443
 	// see https://github.com/grpc/grpc-go/issues/2160
@@ -208,11 +205,12 @@ func New(options ...GazOption) *Gaz {
 
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
-	gaz.streamRegistry = &streamRegistry{
-		g:          &gaz,
-		providers:  make(map[string]*StreamProvider),
-		serviceIds: make(map[string]RegistrationHandle),
+	gaz.streamRegistry = NewStreamRegistry(&gaz)
+	sdProvider, err := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
+	if err != nil {
+		Log.Fatal("Cannot create stream definitions provider", zap.Error(err))
 	}
+	gaz.streamDefinitions = sdProvider
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
 
 	Log.Info("Registering gRPC health server")
@@ -241,10 +239,6 @@ const (
 // Starts the router, once Run is launched, you should no longer add new handlers on the router.
 // It returns a channel that will be notified once the gRPC and http servers have been started.
 func (g *Gaz) Run() <-chan struct{} {
-	err := g.streamRegistry.createStreamDefinitionsStream()
-	if err != nil {
-		panic(err)
-	}
 	if he := g.Viper.GetBool("healthcheck.enabled"); he {
 		Sugar.Info("Activating health check")
 		g.InitHealthcheck()

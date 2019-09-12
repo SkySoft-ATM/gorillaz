@@ -38,6 +38,12 @@ type StreamConsumer interface {
 	streamEndpoint() *streamEndpoint
 }
 
+type StoppableStream interface {
+	Stop() bool
+	StreamName() string
+	streamEndpoint() *streamEndpoint
+}
+
 type registeredConsumer struct {
 	StreamConsumer
 	g *Gaz
@@ -162,16 +168,16 @@ func (g *Gaz) createConsumer(endpoints []string, streamName string, opts ...Cons
 	rc := registeredConsumer{g: r.g, StreamConsumer: sc}
 	consumers := r.endpointConsumers[e]
 	if consumers == nil {
-		consumers = make(map[*registeredConsumer]struct{})
+		consumers = make(map[StoppableStream]struct{})
 		r.endpointConsumers[e] = consumers
 	}
 	consumers[&rc] = struct{}{}
 	return &rc, nil
 }
 
-func (g *Gaz) deregister(c *registeredConsumer) {
+func (g *Gaz) deregister(c StoppableStream) {
 	r := g.streamConsumers
-	e := c.StreamConsumer.streamEndpoint()
+	e := c.streamEndpoint()
 	r.Lock()
 	defer r.Unlock()
 	consumers, ok := r.endpointConsumers[e]
@@ -337,19 +343,24 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 	}
 }
 
-func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt *stream.StreamEvent) {
+type metadataProvider interface {
+	GetMetadata() *stream.Metadata
+}
+
+func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt metadataProvider) {
 	monitoringHolder.receivedCounter.Inc()
 	nowMs := float64(time.Now().UnixNano()) / 1000000.0
-	streamTimestamp := streamEvt.Metadata.StreamTimestamp
+	metadata := streamEvt.GetMetadata()
+	streamTimestamp := metadata.StreamTimestamp
 	if streamTimestamp > 0 {
 		// convert from ns to ms
 		monitoringHolder.delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
 	}
-	eventTimestamp := streamEvt.Metadata.EventTimestamp
+	eventTimestamp := metadata.EventTimestamp
 	if eventTimestamp > 0 {
 		monitoringHolder.eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
 	}
-	originTimestamp := streamEvt.Metadata.OriginStreamTimestamp
+	originTimestamp := metadata.OriginStreamTimestamp
 	if originTimestamp > 0 {
 		monitoringHolder.originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
 	}
@@ -462,13 +473,13 @@ type gogoCodec struct{}
 
 // Marshal returns the wire format of v.
 func (c *gogoCodec) Marshal(v interface{}) ([]byte, error) {
-	var req = v.(*stream.StreamRequest)
+	var req = v.(proto.Message)
 	return proto.Marshal(req)
 }
 
 // Unmarshal parses the wire format into v.
 func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error {
-	evt := v.(*stream.StreamEvent)
+	evt := v.(proto.Message)
 	return proto.Unmarshal(data, evt)
 }
 
