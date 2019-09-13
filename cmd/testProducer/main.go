@@ -45,7 +45,7 @@ func main() {
 		time.Sleep(time.Nanosecond * 500)
 	}
 
-	g.CloseStream(streamName)
+	p.CloseStream()
 
 	time.Sleep(time.Second * 5)
 }

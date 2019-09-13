@@ -1,25 +1,15 @@
 package gorillaz
 
 import (
-	"context"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
-	"net"
 	"strings"
 	"sync"
-)
-
-const (
-	StreamProviderTag = "streamProvider"
-	streamDefinitions = "streamDefinitions"
 )
 
 // NewStreamProvider returns a new provider ready to be used.
@@ -45,7 +35,7 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 		return nil, err
 	}
 	p := &StreamProvider{
-		streamDef:   &stream.StreamDefinition{Name: streamName, DataType: dataType},
+		streamDef:   &StreamDefinition{Name: streamName, DataType: dataType},
 		config:      config,
 		broadcaster: broadcaster,
 		metrics:     pMetricHolder(g, streamName),
@@ -55,23 +45,20 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 	return p, nil
 }
 
-func (g *Gaz) CloseStream(streamName string) error {
-	log.Info("closing stream", zap.String("stream", streamName))
-	provider, ok := g.streamRegistry.find(streamName)
-	if !ok {
-		return fmt.Errorf("cannot find stream " + streamName)
-	}
-	g.streamRegistry.unregister(streamName)
-	provider.close()
-	return nil
-}
-
 type StreamProvider struct {
-	streamDef   *stream.StreamDefinition
+	streamDef   *StreamDefinition
 	config      *ProviderConfig
 	broadcaster *mux.Broadcaster
 	metrics     providerMetricsHolder
 	gaz         *Gaz
+}
+
+func (p *StreamProvider) streamDefinition() *StreamDefinition {
+	return p.streamDef
+}
+
+func (p *StreamProvider) streamType() stream.StreamType {
+	return stream.StreamType_STREAM
 }
 
 var pMetricHolderMu sync.Mutex
@@ -183,7 +170,8 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.broadcaster.SubmitBlocking(b)
 }
 
-func (p *StreamProvider) sendLoop(streamName string, strm stream.Stream_StreamServer, peer string) {
+func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
+	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
@@ -204,12 +192,12 @@ forloop:
 			}
 			evt := val.([]byte)
 			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
-				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer))
+				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 				broadcaster.Unregister(streamCh)
 				break forloop
 			}
 		case _ = <-strm.Context().Done():
-			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer))
+			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 			broadcaster.Unregister(streamCh)
 			break forloop
 
@@ -219,69 +207,11 @@ forloop:
 }
 
 func (p *StreamProvider) CloseStream() error {
-	return p.gaz.CloseStream(p.streamDef.Name)
+	return p.gaz.closeStream(p)
 }
 
 func (p *StreamProvider) close() {
 	p.broadcaster.Close()
-}
-
-func (g *Gaz) DiscoverStreamDefinitions(serviceName string) (StreamConsumer, error) {
-	return g.DiscoverAndConsumeServiceStream(serviceName, streamDefinitions)
-}
-
-type streamRegistry struct {
-	sync.RWMutex
-	g          *Gaz
-	providers  map[string]*StreamProvider
-	serviceIds map[string]RegistrationHandle // for each stream a service is registered in the service discovery
-}
-
-func (sr *streamRegistry) createStreamDefinitionsStream() error {
-	provider, err := sr.g.NewStreamProvider("streamDefinitions", "stream.StreamDefinition")
-	if err != nil {
-		return err
-	}
-	updates := make(chan *mux.StateUpdate, 100)
-	err = sr.g.streamDefinitionsBroadcaster.Register(updates)
-	if err != nil {
-		return err
-	}
-	go sr.runStreamDefinitions(updates, provider)
-	return nil
-}
-
-func (sr *streamRegistry) runStreamDefinitions(updates chan *mux.StateUpdate, provider *StreamProvider) {
-	defer sr.g.streamDefinitionsBroadcaster.Unregister(updates)
-	for {
-		select {
-		case u := <-updates:
-			var sd *stream.StreamDefinition
-			if u.UpdateType == mux.Delete {
-				sd = &stream.StreamDefinition{Name: u.Value.(string), IsDelete: true}
-			} else {
-				sd = u.Value.(*stream.StreamDefinition)
-			}
-			bytes, err := proto.Marshal(sd)
-			if err != nil {
-				Log.Error("Error encoding stream definition", zap.Error(err))
-			} else {
-				se := stream.Event{
-					Ctx:   nil,
-					Key:   []byte(sd.Name),
-					Value: bytes,
-				}
-				provider.Submit(&se)
-			}
-		}
-	}
-}
-
-func (r *streamRegistry) find(streamName string) (*StreamProvider, bool) {
-	r.RLock()
-	p, ok := r.providers[streamName]
-	r.RUnlock()
-	return p, ok
 }
 
 func GetFullStreamName(serviceName, streamName string) string {
@@ -295,67 +225,6 @@ func ParseStreamName(fullStreamName string) (string, string) {
 		return fullStreamName[:li], fullStreamName[li+1:]
 	}
 	return fullStreamName, ""
-}
-
-type StreamDefinitions []*stream.StreamDefinition
-
-func (r *streamRegistry) register(p *StreamProvider) {
-	streamName := p.streamDef.Name
-	r.Lock()
-	defer r.Unlock()
-	if _, found := r.providers[streamName]; found {
-		panic("cannot register 2 providers with the same streamName: " + streamName)
-	}
-	r.providers[streamName] = p
-	err := p.gaz.streamDefinitionsBroadcaster.Submit(streamName, p.streamDef)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func (r *streamRegistry) unregister(streamName string) {
-	r.Lock()
-	defer r.Unlock()
-	p, ok := r.providers[streamName]
-	if ok {
-		delete(r.providers, streamName)
-		p.gaz.streamDefinitionsBroadcaster.Delete(streamName)
-	}
-}
-
-// Stream implements streaming.proto Stream.
-// should not be called by the client
-func (r *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_StreamServer) error {
-	peer := GetGrpcClientAddress(strm.Context())
-	Log.Info("new stream consumer", zap.String("stream", req.Name), zap.String("peer", peer), zap.String("requester", req.RequesterName))
-	streamName := req.Name
-	r.RLock()
-	provider, ok := r.providers[req.Name]
-	r.RUnlock()
-	if !ok {
-		Log.Warn("unknown stream", zap.String("stream", streamName), zap.String("peer", peer), zap.String("requester", req.RequesterName))
-		return fmt.Errorf("unknown stream %s", streamName)
-	}
-	// we need to send some data because right now it is the only way to check on the client side if the stream connection is really established
-	header := metadata.Pairs("name", streamName)
-	err := strm.SendHeader(header)
-	if err != nil {
-		Log.Error("client might be disconnected %s", zap.Error(err), zap.String("peer", peer), zap.String("requester", req.RequesterName))
-		return nil
-	}
-	provider.sendLoop(streamName, strm, peer)
-	return nil
-}
-
-func GetGrpcClientAddress(ctx context.Context) string {
-	pr, ok := peer.FromContext(ctx)
-	if !ok {
-		return "no peer in context"
-	}
-	if pr.Addr == net.Addr(nil) {
-		return "no address found"
-	}
-	return pr.Addr.String()
 }
 
 // binaryCodec takes the received binary data and directly returns it, without serializing it with proto.
