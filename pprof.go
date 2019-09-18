@@ -16,11 +16,12 @@ func (g *Gaz) InitPprof(serverPort int) {
 		if err != nil {
 			panic(err)
 		}
+		Sugar.Infof("Starting pprof on port %d", listener.Addr().(*net.TCPAddr).Port)
 		err = http.Serve(listener, nil)
 		if err != nil {
 			Sugar.Errorf("error trying to setup HTTP endpoint on port %d: %v", listener.Addr().(*net.TCPAddr).Port, err)
 		} else {
-			Sugar.Infof("Started pprof on port %d", listener.Addr().(*net.TCPAddr).Port)
+			Sugar.Infof("Stopped pprof")
 		}
 	}()
 }
