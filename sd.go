@@ -195,6 +195,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([
 		Tags:        []string{},
 		Meta:        map[string]string{},
 	}
+	Sugar.Infof("Service %s with mocked to local gRPC server on port %d", serviceName, m.g.GrpcPort())
 	return []ServiceDefinition{result}, nil
 }
 
@@ -208,6 +209,7 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, ta
 		Tags:        []string{tag},
 		Meta:        map[string]string{},
 	}
+	Sugar.Infof("Service %s with tag %s mocked to local gRPC server on port %d", serviceName, tag, m.g.GrpcPort())
 	return []ServiceDefinition{result}, nil
 }
 
