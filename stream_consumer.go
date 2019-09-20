@@ -188,7 +188,7 @@ func (g *Gaz) deregister(c StoppableStream) {
 	}
 	delete(consumers, c)
 	if len(consumers) == 0 {
-		Log.Debug("Closing endpoint", zap.String("target", e.target))
+		Log.Info("Closing endpoint", zap.String("target", e.target))
 		err := e.close()
 		if err != nil {
 			Log.Warn("Error while closing endpoint", zap.String("target", e.target), zap.Error(err))
@@ -277,7 +277,7 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		st, err := client.Stream(ctx, req, callOpts...)
 		if err != nil {
 			cancel()
-			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
+			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
 			continue
 		}
 
@@ -288,7 +288,7 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 			if config.OnConnected != nil {
 				config.OnConnected(streamName)
 			}
-			Log.Debug("Stream connected", zap.String("streamName", streamName))
+			Log.Debug("Stream connected", zap.String("streamName", streamName), zap.String("target", se.target))
 
 			// at this point, the GRPC connection is established with the server
 			for !c.isStopped() {
@@ -299,7 +299,7 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 					if err == io.EOF {
 						return //standard error for closed stream
 					}
-					Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.Error(err))
+					Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.String("target", se.target), zap.Error(err))
 					if e, ok := status.FromError(err); ok {
 						switch e.Code() {
 						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
@@ -311,17 +311,17 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 				}
 
 				if streamEvt == nil {
-					Log.Warn("received a nil stream event", zap.String("stream", streamName))
+					Log.Warn("received a nil stream event", zap.String("stream", streamName), zap.String("target", se.target))
 					continue
 				}
 				if streamEvt.Metadata == nil {
-					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName))
+					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName), zap.String("target", se.target))
 					streamEvt.Metadata = &stream.Metadata{
 						KeyValue: make(map[string]string),
 					}
 				}
 
-				Log.Debug("event received", zap.String("stream", streamName))
+				Log.Debug("event received", zap.String("stream", streamName), zap.String("target", se.target))
 				monitorDelays(monitoringHolder, streamEvt)
 
 				evt := &stream.Event{
@@ -332,7 +332,11 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 				c.evtChan <- evt
 			}
 		} else {
-			Log.Warn("Stream created but not connected", zap.String("stream", streamName))
+			if mds == nil {
+				Log.Warn("Stream created but not connected, no header received", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+			} else {
+				Log.Warn("Stream created but not connected", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+			}
 			time.Sleep(5 * time.Second)
 		}
 		monitoringHolder.conGauge.Set(0)

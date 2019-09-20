@@ -142,7 +142,7 @@ func (se *streamEndpoint) reconnectGetAndWatchWhileNotStopped(c *getAndWatchCons
 		st, err := client.GetAndWatch(ctx, req, callOpts...)
 		if err != nil {
 			cancel()
-			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.Error(err))
+			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
 			continue
 		}
 
@@ -153,7 +153,7 @@ func (se *streamEndpoint) reconnectGetAndWatchWhileNotStopped(c *getAndWatchCons
 			if config.OnConnected != nil {
 				config.OnConnected(streamName)
 			}
-			Log.Debug("Stream connected", zap.String("streamName", streamName))
+			Log.Debug("Stream connected", zap.String("streamName", streamName), zap.String("target", se.target))
 
 			// at this point, the GRPC connection is established with the server
 			for !c.isStopped() {
@@ -162,9 +162,11 @@ func (se *streamEndpoint) reconnectGetAndWatchWhileNotStopped(c *getAndWatchCons
 
 				if err != nil {
 					if err == io.EOF {
+						Log.Debug("Stream closed", zap.String("stream", streamName), zap.String("target", se.target))
+						monitoringHolder.conGauge.Set(0)
 						return //standard error for closed stream
 					}
-					Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.Error(err))
+					Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.String("target", se.target), zap.Error(err))
 					if e, ok := status.FromError(err); ok {
 						switch e.Code() {
 						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
@@ -176,22 +178,26 @@ func (se *streamEndpoint) reconnectGetAndWatchWhileNotStopped(c *getAndWatchCons
 				}
 
 				if gwEvt == nil {
-					Log.Warn("received a nil stream event", zap.String("stream", streamName))
+					Log.Warn("received a nil stream event", zap.String("stream", streamName), zap.String("target", se.target))
 					continue
 				}
 				if gwEvt.Metadata == nil {
-					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName))
+					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName), zap.String("target", se.target))
 					gwEvt.Metadata = &stream.Metadata{
 						KeyValue: make(map[string]string),
 					}
 				}
-				Log.Debug("event received", zap.String("stream", streamName))
+				Log.Debug("event received", zap.String("stream", streamName), zap.String("target", se.target))
 				monitorDelays(monitoringHolder, gwEvt)
 
 				c.evtChan <- gwEvt
 			}
 		} else {
-			Log.Warn("Stream created but not connected", zap.String("stream", streamName))
+			if mds == nil {
+				Log.Warn("Stream created but not connected, no header received", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+			} else {
+				Log.Warn("Stream created but not connected", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+			}
 			time.Sleep(5 * time.Second)
 		}
 		monitoringHolder.conGauge.Set(0)
