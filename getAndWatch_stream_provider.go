@@ -111,8 +111,13 @@ forloop:
 			}
 
 			if su.UpdateType == mux.Delete {
-				key := su.Value.([]byte)
-				gwe.Key = key
+				key := su.Value.(string)
+				bytes, err := base64.StdEncoding.DecodeString(key)
+				if err != nil {
+					Log.Error("Unable to decode key", zap.String("key", key))
+					continue
+				}
+				gwe.Key = bytes
 				gwe.EventType = stream.EventType_DELETE
 			} else {
 				se := su.Value.(*stream.Event)
