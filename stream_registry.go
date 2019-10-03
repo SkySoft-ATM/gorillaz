@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"net"
+	"strconv"
 	"sync"
 )
 
@@ -28,6 +29,7 @@ type provider interface {
 	streamDefinition() *StreamDefinition
 	sendLoop(strm grpc.ServerStream, peer Peer)
 	streamType() stream.StreamType
+	sendHelloMessage(strm grpc.ServerStream, peer Peer) error
 }
 
 type streamRegistry struct {
@@ -103,9 +105,10 @@ func (sr *streamRegistry) unregister(streamName string) {
 	}
 }
 
-type NameProvider interface {
+type StreamRequest interface {
 	GetName() string
 	GetRequesterName() string
+	GetExpectHello() bool
 }
 
 // Stream implements streaming.proto Stream.
@@ -114,7 +117,7 @@ func (sr *streamRegistry) Stream(req *stream.StreamRequest, strm stream.Stream_S
 	return sr.publishOnStream(req, strm)
 }
 
-func (sr *streamRegistry) publishOnStream(np NameProvider, strm grpc.ServerStream) error {
+func (sr *streamRegistry) publishOnStream(np StreamRequest, strm grpc.ServerStream) error {
 	peer := getPeer(strm, np)
 	streamName := np.GetName()
 	requester := np.GetRequesterName()
@@ -126,18 +129,24 @@ func (sr *streamRegistry) publishOnStream(np NameProvider, strm grpc.ServerStrea
 		Log.Warn("unknown stream", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("requester", requester))
 		return fmt.Errorf("unknown stream %s", streamName)
 	}
-	// we need to send some data because right now it is the only way to check on the client side if the stream connection is really established
-	header := metadata.Pairs("name", streamName)
+	// we send some metadata for backward compatibility, it was previously used on the client side to check if the stream connection is really established
+	header := metadata.Pairs("name", streamName, "expectHello", strconv.FormatBool(np.GetExpectHello()))
 	err := strm.SendHeader(header)
 	if err != nil {
 		Log.Error("client might be disconnected %s", zap.Error(err), zap.String("peer", peer.address), zap.String("requester", requester))
-		return nil
+		return err
+	}
+	if np.GetExpectHello() {
+		err := provider.sendHelloMessage(strm, peer)
+		if err != nil {
+			return err
+		}
 	}
 	provider.sendLoop(strm, peer)
 	return nil
 }
 
-func getPeer(strm grpc.ServerStream, np NameProvider) Peer {
+func getPeer(strm grpc.ServerStream, np StreamRequest) Peer {
 	return Peer{GetGrpcClientAddress(strm.Context()), np.GetRequesterName()}
 }
 

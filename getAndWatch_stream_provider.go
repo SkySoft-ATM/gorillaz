@@ -82,6 +82,24 @@ func (p *GetAndWatchStreamProvider) Delete(key []byte) {
 	p.broadcaster.Delete(base64.StdEncoding.EncodeToString(key))
 }
 
+func (p *GetAndWatchStreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) error {
+	gwe := stream.GetAndWatchEvent{
+		Metadata: &stream.Metadata{
+			KeyValue: make(map[string]string),
+		},
+	}
+	evt, err := proto.Marshal(&gwe)
+	if err != nil {
+		Log.Error("Error while marshalling GetAndWatchEvent", zap.Error(err))
+		return err
+	}
+	if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
+		Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", p.streamDef.Name), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+		return err
+	}
+	return nil
+}
+
 func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
