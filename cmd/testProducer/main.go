@@ -35,9 +35,10 @@ func main() {
 		sp.LogFields(log.Int64("message", message))
 
 		v := []byte("something wonderful")
+
 		event := &stream.Event{
 			Value: v,
-			//	Ctx:   ctx,
+			Ctx:   opentracing.ContextWithSpan(context.Background(), sp),
 		}
 		p.Submit(event)
 		sp.Finish()

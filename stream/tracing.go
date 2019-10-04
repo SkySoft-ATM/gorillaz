@@ -71,9 +71,13 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	sp, ctx = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
-	sp.Finish()
+	sp = opentracing.SpanFromContext(ctx)
 
+	// create and close a span just to have a trace that a message was sent, it can always be useful
+	if sp == nil {
+		sp, ctx = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
+		sp.Finish()
+	}
 	err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
 	if err != nil {
 		err = fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)

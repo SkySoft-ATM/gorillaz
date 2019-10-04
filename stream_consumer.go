@@ -267,7 +267,7 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		}
 
 		client := stream.NewStreamClient(se.conn)
-		req := &stream.StreamRequest{Name: streamName, RequesterName: se.g.ServiceName}
+		req := &stream.StreamRequest{Name: streamName, RequesterName: se.g.ServiceName, ExpectHello: true}
 
 		var callOpts []grpc.CallOption
 		if config.UseGzip {
@@ -284,52 +284,56 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		//without this hack we do not know if the stream is really connected
 		mds, err := st.Header()
 		if err == nil && mds != nil {
-
-			if config.OnConnected != nil {
-				config.OnConnected(streamName)
+			var cs connectionStatus
+			if mds.Get("expectHello") != nil && len(mds.Get("expectHello")) > 0 {
+				cs = se.waitForHelloMessage(c, streamName, st)
+				if cs == closed {
+					Log.Warn("Stream closed after Hello message", zap.String("stream", streamName), zap.String("target", se.target))
+					return
+				}
+			} else {
+				cs = connected
 			}
-			Log.Debug("Stream connected", zap.String("streamName", streamName), zap.String("target", se.target))
 
-			// at this point, the GRPC connection is established with the server
-			for !c.isStopped() {
+			if cs == connected {
+				if config.OnConnected != nil {
+					config.OnConnected(streamName)
+				}
+				Log.Info("Stream connected", zap.String("streamName", streamName), zap.String("target", se.target))
 				monitoringHolder.conGauge.Set(1)
-				streamEvt, err := st.Recv()
+				// at this point, the GRPC connection is established with the server
+				for !c.isStopped() {
+					streamEvt, err := st.Recv()
 
-				if err != nil {
-					if err == io.EOF {
-						return //standard error for closed stream
+					if err != nil {
+						if err == io.EOF {
+							return //standard error for closed stream
+						}
+						se.backOffOnError(c, err)
+						break
 					}
-					Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.String("target", se.target), zap.Error(err))
-					if e, ok := status.FromError(err); ok {
-						switch e.Code() {
-						case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
-							codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
-							time.Sleep(5 * time.Second)
+
+					if streamEvt == nil {
+						Log.Warn("received a nil stream event", zap.String("stream", streamName), zap.String("target", se.target))
+						continue
+					}
+					if streamEvt.Metadata == nil {
+						Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName), zap.String("target", se.target))
+						streamEvt.Metadata = &stream.Metadata{
+							KeyValue: make(map[string]string),
 						}
 					}
-					break
-				}
 
-				if streamEvt == nil {
-					Log.Warn("received a nil stream event", zap.String("stream", streamName), zap.String("target", se.target))
-					continue
-				}
-				if streamEvt.Metadata == nil {
-					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName), zap.String("target", se.target))
-					streamEvt.Metadata = &stream.Metadata{
-						KeyValue: make(map[string]string),
+					Log.Debug("event received", zap.String("stream", streamName), zap.String("target", se.target))
+					monitorDelays(monitoringHolder, streamEvt)
+
+					evt := &stream.Event{
+						Key:   streamEvt.Key,
+						Value: streamEvt.Value,
+						Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
 					}
+					c.evtChan <- evt
 				}
-
-				Log.Debug("event received", zap.String("stream", streamName), zap.String("target", se.target))
-				monitorDelays(monitoringHolder, streamEvt)
-
-				evt := &stream.Event{
-					Key:   streamEvt.Key,
-					Value: streamEvt.Value,
-					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
-				}
-				c.evtChan <- evt
 			}
 		} else {
 			if mds == nil {
@@ -344,6 +348,38 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 			config.OnDisconnected(streamName)
 		}
 		cancel()
+	}
+}
+
+type connectionStatus int
+
+const (
+	connected connectionStatus = iota
+	notConnected
+	closed
+)
+
+func (se *streamEndpoint) waitForHelloMessage(c *consumer, streamName string, st stream.Stream_StreamClient) connectionStatus {
+	Log.Debug("Waiting for Hello message", zap.String("stream", streamName), zap.String("target", se.target))
+	_, err := st.Recv() //waiting for hello msg
+	if err == nil {
+		return connected
+	} else if err == io.EOF {
+		return closed //standard error for closed stream
+	} else {
+		se.backOffOnError(c, err)
+		return notConnected
+	}
+}
+
+func (se *streamEndpoint) backOffOnError(c *consumer, err error) {
+	Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.String("target", se.target), zap.Error(err))
+	if e, ok := status.FromError(err); ok {
+		switch e.Code() {
+		case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
+			codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
+			time.Sleep(5 * time.Second)
+		}
 	}
 }
 
