@@ -149,7 +149,11 @@ func (g *Gaz) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, erro
 }
 
 func NewMockedServiceDiscovery() (*MockedServiceDiscovery, Option) {
-	mock := MockedServiceDiscovery{mocked: []mockedService{}}
+	return NewMockedServiceDiscoveryWithDefinitions([]ServiceDefinition{})
+}
+
+func NewMockedServiceDiscoveryWithDefinitions(serviceDefs []ServiceDefinition) (*MockedServiceDiscovery, Option) {
+	mock := MockedServiceDiscovery{mocked: serviceDefs}
 	return &mock, Option{Opt: func(gaz *Gaz) error {
 		mock.mu.Lock()
 		mock.g = gaz
@@ -162,12 +166,7 @@ func NewMockedServiceDiscovery() (*MockedServiceDiscovery, Option) {
 type MockedServiceDiscovery struct {
 	g      *Gaz
 	mu     sync.RWMutex
-	mocked []mockedService
-}
-
-type mockedService struct {
-	serviceName, tag string
-	result           []ServiceDefinition
+	mocked []ServiceDefinition
 }
 
 func (m *MockedServiceDiscovery) UpdateGaz(g *Gaz) {
@@ -176,14 +175,12 @@ func (m *MockedServiceDiscovery) UpdateGaz(g *Gaz) {
 	m.g = g
 }
 
-func (m *MockedServiceDiscovery) MockService(serviceName, tag string, defs []ServiceDefinition) {
+func (m *MockedServiceDiscovery) MockService(defs []ServiceDefinition) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.mocked = append(m.mocked, mockedService{
-		serviceName: serviceName,
-		tag:         tag,
-		result:      defs,
-	})
+	for _, d := range defs {
+		m.mocked = append(m.mocked, d)
+	}
 }
 
 type MockedRegistrationHandle struct {
@@ -204,10 +201,14 @@ func (m *MockedServiceDiscovery) Register(d *ServiceDefinition) (RegistrationHan
 func (m *MockedServiceDiscovery) Resolve(serviceName string) ([]ServiceDefinition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	res := make([]ServiceDefinition, 0)
 	for _, mock := range m.mocked {
-		if mock.serviceName == serviceName {
-			return mock.result, nil
+		if mock.ServiceName == serviceName {
+			res = append(res, mock)
 		}
+	}
+	if len(res) > 0 {
+		return res, nil
 	}
 
 	result := ServiceDefinition{
@@ -224,10 +225,14 @@ func (m *MockedServiceDiscovery) Resolve(serviceName string) ([]ServiceDefinitio
 func (m *MockedServiceDiscovery) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	res := make([]ServiceDefinition, 0)
 	for _, mock := range m.mocked {
-		if mock.serviceName == serviceName && mock.tag == tag {
-			return mock.result, nil
+		if mock.ServiceName == serviceName && contains(mock.Tags, tag) {
+			res = append(res, mock)
 		}
+	}
+	if len(res) > 0 {
+		return res, nil
 	}
 	result := ServiceDefinition{
 		ServiceName: serviceName,
@@ -240,11 +245,23 @@ func (m *MockedServiceDiscovery) ResolveWithTag(serviceName, tag string) ([]Serv
 	return []ServiceDefinition{result}, nil
 }
 
+func contains(slice []string, e string) bool {
+	for _, i := range slice {
+		return i == e
+	}
+	return false
+}
+
 func (m *MockedServiceDiscovery) ResolveTags(tag string) (map[string][]ServiceDefinition, error) {
 	return nil, errors.New("unimplemented")
 }
 
 func WithMockedServiceDiscovery() Option {
 	_, r := NewMockedServiceDiscovery()
+	return r
+}
+
+func WithMockedServiceDiscoveryDefinitions(definitions []ServiceDefinition) Option {
+	_, r := NewMockedServiceDiscoveryWithDefinitions(definitions)
 	return r
 }

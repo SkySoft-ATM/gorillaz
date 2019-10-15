@@ -96,12 +96,14 @@ func StartNewSpan(spanName string) opentracing.Span {
 
 // Starts a child span from the span embedded in the given context.
 // If the context does not contain a span, a root span is created.
-func StartChildSpan(ctx context.Context, spanName string) opentracing.Span {
+func StartChildSpan(ctx context.Context, spanName string) (opentracing.Span, context.Context) {
 	span := opentracing.SpanFromContext(ctx)
 	if span == nil {
-		return StartNewSpan(spanName) // create root span
+		span := StartNewSpan(spanName)
+		return span, opentracing.ContextWithSpan(ctx, span) // create root span
 	}
-	return tracer.StartSpan(spanName, opentracing.ChildOf(span.Context()))
+
+	return tracer.StartSpan(spanName, opentracing.ChildOf(span.Context())), opentracing.ContextWithSpan(ctx, span)
 }
 
 func GetTraceId(span opentracing.Span) string {

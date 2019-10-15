@@ -99,6 +99,13 @@ func WithServiceName(sn string) InitOption {
 	}}
 }
 
+func WithTracingEnabled() InitOption {
+	return InitOption{func(g *Gaz) error {
+		g.Viper.Set("tracing.enabled", true)
+		return nil
+	}}
+}
+
 func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 	return Option{func(g *Gaz) error {
 		g.grpcServerOptions = o
