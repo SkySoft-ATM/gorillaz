@@ -43,28 +43,28 @@ func TestMockedServiceDiscoveryOfExternalService(t *testing.T) {
 	g := New(WithServiceName("test"), WithMockedServiceDiscoveryDefinitions([]ServiceDefinition{sd, zipkin}), WithTracingEnabled())
 
 	conn, err := g.GrpcDialService(serviceName, grpc.WithInsecure())
-	panicIf(err)
+	failIf(t, err)
 
 	cli := test.NewTestServiceClient(conn)
 	span, ctx := StartChildSpan(context.Background(), "ping")
 	name := "piiing"
 	pong, err := cli.Send(ctx, &test.Ping{Name: name})
-	panicIf(err)
+	failIf(t, err)
 	assert.Equal(t, GetTraceId(span), pong.GetTraceId())
 	assert.Equal(t, name, pong.GetName())
 }
 
 func startExternalService(t *testing.T) net.Listener {
 	grpcListener, err := net.Listen("tcp", ":0")
-	panicIf(err)
+	failIf(t, err)
 	server := grpc.NewServer(grpc.UnaryInterceptor(TracingServerInterceptor())) // this is done automatically for the gorillaz gRPC server
 	test.RegisterTestServiceServer(server, testService{t: t})
 	go server.Serve(grpcListener)
 	return grpcListener
 }
 
-func panicIf(err error) {
+func failIf(t *testing.T, err error) {
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 }
