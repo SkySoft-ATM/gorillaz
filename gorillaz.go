@@ -106,6 +106,10 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 	}}
 }
 
+func (g *Gaz) tracingEnabled() bool {
+	return g.Viper.GetBool("tracing.enabled")
+}
+
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
@@ -176,7 +180,7 @@ func New(options ...GazOption) *Gaz {
 		panic(err)
 	}
 
-	if gaz.Viper.GetBool("tracing.enabled") {
+	if gaz.tracingEnabled() {
 		gaz.InitTracingFromConfig()
 	}
 
@@ -201,6 +205,10 @@ func New(options ...GazOption) *Gaz {
 
 	for i, o := range gaz.grpcServerOptions {
 		serverOptions[3+i] = o
+	}
+
+	if gaz.tracingEnabled() {
+		serverOptions = append(serverOptions, grpc.UnaryInterceptor(TracingServerInterceptor()))
 	}
 
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
@@ -340,6 +348,10 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 	for i, o := range opts {
 		options[3+i] = o
 	}
+	if g.tracingEnabled() {
+		options = append(options, grpc.WithUnaryInterceptor(TracingClientInterceptor()))
+	}
+
 	return grpc.Dial("gorillaz:///"+target, options...)
 }
 
