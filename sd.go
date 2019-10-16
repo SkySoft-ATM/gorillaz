@@ -148,8 +148,12 @@ func (g *Gaz) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, erro
 	return g.ServiceDiscovery.ResolveWithTag(serviceName, tag)
 }
 
-func NewMockedServiceDiscovery() (*MockedServiceDiscoveryToLocalGrpcServer, Option) {
-	mock := MockedServiceDiscoveryToLocalGrpcServer{}
+func NewMockedServiceDiscovery() (*MockedServiceDiscovery, Option) {
+	return NewMockedServiceDiscoveryWithDefinitions([]ServiceDefinition{})
+}
+
+func NewMockedServiceDiscoveryWithDefinitions(serviceDefs []ServiceDefinition) (*MockedServiceDiscovery, Option) {
+	mock := MockedServiceDiscovery{mocked: serviceDefs}
 	return &mock, Option{Opt: func(gaz *Gaz) error {
 		mock.mu.Lock()
 		mock.g = gaz
@@ -159,15 +163,24 @@ func NewMockedServiceDiscovery() (*MockedServiceDiscoveryToLocalGrpcServer, Opti
 	}}
 }
 
-type MockedServiceDiscoveryToLocalGrpcServer struct {
-	g  *Gaz
-	mu sync.RWMutex
+type MockedServiceDiscovery struct {
+	g      *Gaz
+	mu     sync.RWMutex
+	mocked []ServiceDefinition
 }
 
-func (m *MockedServiceDiscoveryToLocalGrpcServer) UpdateGaz(g *Gaz) {
+func (m *MockedServiceDiscovery) UpdateGaz(g *Gaz) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.g = g
+}
+
+func (m *MockedServiceDiscovery) MockService(defs []ServiceDefinition) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range defs {
+		m.mocked = append(m.mocked, d)
+	}
 }
 
 type MockedRegistrationHandle struct {
@@ -181,13 +194,23 @@ func (m MockedRegistrationHandle) DeRegister(ctx context.Context) error {
 	return nil
 }
 
-func (m *MockedServiceDiscoveryToLocalGrpcServer) Register(d *ServiceDefinition) (RegistrationHandle, error) {
+func (m *MockedServiceDiscovery) Register(d *ServiceDefinition) (RegistrationHandle, error) {
 	return MockedRegistrationHandle{}, nil
 }
 
-func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([]ServiceDefinition, error) {
+func (m *MockedServiceDiscovery) Resolve(serviceName string) ([]ServiceDefinition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	res := make([]ServiceDefinition, 0)
+	for _, mock := range m.mocked {
+		if mock.ServiceName == serviceName {
+			res = append(res, mock)
+		}
+	}
+	if len(res) > 0 {
+		return res, nil
+	}
+
 	result := ServiceDefinition{
 		ServiceName: serviceName,
 		Addr:        "localhost",
@@ -195,13 +218,22 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) Resolve(serviceName string) ([
 		Tags:        []string{},
 		Meta:        map[string]string{},
 	}
-	Sugar.Infof("Service %s with mocked to local gRPC server on port %d", serviceName, m.g.GrpcPort())
+	Sugar.Debugf("Service %s with mocked to local gRPC server on port %d", serviceName, m.g.GrpcPort())
 	return []ServiceDefinition{result}, nil
 }
 
-func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
+func (m *MockedServiceDiscovery) ResolveWithTag(serviceName, tag string) ([]ServiceDefinition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	res := make([]ServiceDefinition, 0)
+	for _, mock := range m.mocked {
+		if mock.ServiceName == serviceName && contains(mock.Tags, tag) {
+			res = append(res, mock)
+		}
+	}
+	if len(res) > 0 {
+		return res, nil
+	}
 	result := ServiceDefinition{
 		ServiceName: serviceName,
 		Addr:        "localhost",
@@ -209,15 +241,29 @@ func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveWithTag(serviceName, ta
 		Tags:        []string{tag},
 		Meta:        map[string]string{},
 	}
-	Sugar.Infof("Service %s with tag %s mocked to local gRPC server on port %d", serviceName, tag, m.g.GrpcPort())
+	Sugar.Debugf("Service %s with tag %s mocked to local gRPC server on port %d", serviceName, tag, m.g.GrpcPort())
 	return []ServiceDefinition{result}, nil
 }
 
-func (m *MockedServiceDiscoveryToLocalGrpcServer) ResolveTags(tag string) (map[string][]ServiceDefinition, error) {
+func contains(slice []string, e string) bool {
+	for _, i := range slice {
+		if i == e {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *MockedServiceDiscovery) ResolveTags(tag string) (map[string][]ServiceDefinition, error) {
 	return nil, errors.New("unimplemented")
 }
 
 func WithMockedServiceDiscovery() Option {
 	_, r := NewMockedServiceDiscovery()
+	return r
+}
+
+func WithMockedServiceDiscoveryDefinitions(definitions []ServiceDefinition) Option {
+	_, r := NewMockedServiceDiscoveryWithDefinitions(definitions)
 	return r
 }

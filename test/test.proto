@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package test;
+
+service TestService {
+    rpc Send (Ping) returns (Pong);
+}
+
+message Ping {
+    string name = 1;
+}
+
+message Pong {
+    string name = 1;
+    string traceId = 2;
+}
+
