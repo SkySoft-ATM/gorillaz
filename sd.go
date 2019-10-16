@@ -247,7 +247,9 @@ func (m *MockedServiceDiscovery) ResolveWithTag(serviceName, tag string) ([]Serv
 
 func contains(slice []string, e string) bool {
 	for _, i := range slice {
-		return i == e
+		if i == e {
+			return true
+		}
 	}
 	return false
 }

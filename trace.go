@@ -217,6 +217,7 @@ func injectSpanContext(ctx context.Context, span opentracing.Span) context.Conte
 	err := span.Tracer().Inject(span.Context(), opentracing.HTTPHeaders, mdWriter)
 	if err != nil {
 		span.LogFields(zlog.String("error", "failed injecting span context in metadata"), zlog.Error(err))
+		Log.Warn("failed injecting span context in metadata", zap.Error(err))
 	}
 	return metadata.NewOutgoingContext(ctx, md)
 }
