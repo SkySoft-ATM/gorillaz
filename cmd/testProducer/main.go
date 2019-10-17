@@ -17,7 +17,7 @@ func main() {
 	flag.StringVar(&streamName, "stream", "", "stream to receive")
 	flag.Parse()
 
-	g := gorillaz.New(gorillaz.WithConfigPath("cmd/testProducer/configs"))
+	g := gorillaz.New(gorillaz.WithConfigPath("./configs"))
 	g.Run()
 
 	opt := func(config *gorillaz.ProviderConfig) {

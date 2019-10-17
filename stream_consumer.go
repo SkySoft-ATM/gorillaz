@@ -214,6 +214,7 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 	target := strings.Join(endpoints, ",")
 	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
+		grpc.WithBlock(),
 		grpc.WithBackoffMaxDelay(config.backoffMaxDelay),
 	)
 
@@ -261,6 +262,7 @@ func (se *streamEndpoint) consumeStream(streamName string, opts ...ConsumerConfi
 
 func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName string, config *ConsumerConfig, monitoringHolder consumerMonitoringHolder) {
 	for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
+		monitoringHolder.conGauge.Set(0)
 		waitTillReadyOrShutdown(streamName, se)
 		if se.conn.GetState() == connectivity.Shutdown {
 			break
@@ -273,9 +275,13 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		if config.UseGzip {
 			callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 		}
+
+		monitoringHolder.conAttemptCounter.Inc()
+
 		ctx, cancel := context.WithCancel(context.Background())
 		st, err := client.Stream(ctx, req, callOpts...)
 		if err != nil {
+			monitoringHolder.failedConCounter.Inc()
 			cancel()
 			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
 			continue
@@ -288,6 +294,8 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 			if mds.Get("expectHello") != nil && len(mds.Get("expectHello")) > 0 {
 				cs = se.waitForHelloMessage(c, streamName, st)
 				if cs == closed {
+					monitoringHolder.conGauge.Set(0)
+					monitoringHolder.failedConCounter.Inc()
 					Log.Warn("Stream closed after Hello message", zap.String("stream", streamName), zap.String("target", se.target))
 					return
 				}
@@ -301,11 +309,15 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 				}
 				Log.Info("Stream connected", zap.String("streamName", streamName), zap.String("target", se.target))
 				monitoringHolder.conGauge.Set(1)
+				monitoringHolder.successConCounter.Inc()
+
 				// at this point, the GRPC connection is established with the server
 				for !c.isStopped() {
 					streamEvt, err := st.Recv()
-
 					if err != nil {
+						monitoringHolder.conGauge.Set(0)
+						monitoringHolder.disconnectionCounter.Inc()
+
 						if err == io.EOF {
 							return //standard error for closed stream
 						}
@@ -336,6 +348,8 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 				}
 			}
 		} else {
+			monitoringHolder.conGauge.Set(0)
+			monitoringHolder.failedConCounter.Inc()
 			if mds == nil {
 				Log.Warn("Stream created but not connected, no header received", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
 			} else {
@@ -343,7 +357,6 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 			}
 			time.Sleep(5 * time.Second)
 		}
-		monitoringHolder.conGauge.Set(0)
 		if config.OnDisconnected != nil {
 			config.OnDisconnected(streamName)
 		}
@@ -421,12 +434,15 @@ func waitTillReadyOrShutdown(streamName string, se *streamEndpoint) {
 }
 
 type consumerMonitoringHolder struct {
-	receivedCounter    prometheus.Counter
-	conCounter         prometheus.Counter
-	conGauge           prometheus.Gauge
-	delaySummary       prometheus.Summary
-	originDelaySummary prometheus.Summary
-	eventDelaySummary  prometheus.Summary
+	receivedCounter      prometheus.Counter
+	conAttemptCounter    prometheus.Counter
+	disconnectionCounter prometheus.Counter
+	successConCounter    prometheus.Counter
+	failedConCounter     prometheus.Counter
+	conGauge             prometheus.Gauge
+	delaySummary         prometheus.Summary
+	originDelaySummary   prometheus.Summary
+	eventDelaySummary    prometheus.Summary
 }
 
 // map of metrics registered to Prometheus
@@ -452,9 +468,36 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerM
 			},
 		}),
 
-		conCounter: prometheus.NewCounter(prometheus.CounterOpts{
+		conAttemptCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_connection_attempts",
 			Help: "The total number of connections to the stream",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		successConCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "stream_consumer_connection_success",
+			Help: "The total number of successful connections to the stream",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		failedConCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "stream_consumer_connection_failure",
+			Help: "The total number of failed connection attempt to the stream",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		disconnectionCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "stream_consumer_disconnections",
+			Help: "The total number of disconnections to the stream",
 			ConstLabels: prometheus.Labels{
 				"stream":    streamName,
 				"endpoints": strings.Join(endpoints, ","),
@@ -500,8 +543,11 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerM
 		}),
 	}
 	g.RegisterCollector(m.receivedCounter)
-	g.RegisterCollector(m.conCounter)
+	g.RegisterCollector(m.conAttemptCounter)
 	g.RegisterCollector(m.conGauge)
+	g.RegisterCollector(m.successConCounter)
+	g.RegisterCollector(m.disconnectionCounter)
+	g.RegisterCollector(m.failedConCounter)
 	g.RegisterCollector(m.delaySummary)
 	g.RegisterCollector(m.originDelaySummary)
 	g.RegisterCollector(m.eventDelaySummary)
