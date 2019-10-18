@@ -214,7 +214,6 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 	target := strings.Join(endpoints, ",")
 	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
-		grpc.WithBlock(),
 		grpc.WithBackoffMaxDelay(config.backoffMaxDelay),
 	)
 
