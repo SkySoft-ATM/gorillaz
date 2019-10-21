@@ -3,7 +3,9 @@ package gorillaz
 import (
 	"bytes"
 	"fmt"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/skysoft-atm/gorillaz/stream"
+	"math"
 	"testing"
 	"time"
 )
@@ -179,6 +181,49 @@ func TestProducerReconnect(t *testing.T) {
 	assertReceived(t, "stream", consumer.EvtChan(), &stream.Event{Value: []byte("newValue")})
 }
 
+func TestConsumerMetrics(t *testing.T) {
+	streamName := "creamyCheese"
+
+	gp := New(WithServiceName("cheese_provider"))
+	gp.Run()
+	_, err := gp.NewStreamProvider(streamName, "cheesy.type", func(conf *ProviderConfig) {
+		conf.LazyBroadcast = false
+	})
+	if err != nil {
+		t.Fatalf("failed to create provider, %+v", err)
+	}
+
+	pAddr := fmt.Sprintf("localhost:%d", gp.GrpcPort())
+
+	gc := New(WithServiceName("cheese_consumer"))
+	gc.Run()
+
+	createConsumerWithAddr(t, gc, pAddr, streamName)
+	assertCounterEquals(t, gc, map[string]string{"stream": streamName}, "stream_consumer_connection_attempts", 1)
+	assertCounterEquals(t, gc, map[string]string{"stream": streamName}, "stream_consumer_connection_success", 1)
+	assertCounterEquals(t, gc, map[string]string{"stream": streamName}, "stream_consumer_connection_failure", 0)
+	assertCounterEquals(t, gc, map[string]string{"stream": streamName}, "stream_consumer_disconnections", 0)
+	transientFailure, _ := findMetric(gc, "stream_consumer_connection_status", map[string]string{"stream": streamName, "status": "TRANSIENT_FAILURE"})
+	if transientFailure != nil {
+		t.Errorf("expected no metric for TRANSIENT_FAILURE for stream before any error happens")
+	}
+
+	// cut the gRPC connection
+	gp.GrpcServer.Stop()
+	time.Sleep(8 * time.Second)
+	assertCounterEquals(t, gc, map[string]string{"stream": streamName}, "stream_consumer_disconnections", 1)
+	assertCounterMatch(t, gc, map[string]string{"stream": streamName, "status": "TRANSIENT_FAILURE"}, "stream_consumer_connection_status", func(t *testing.T, v float64) {
+		if v <= 0 {
+			t.Errorf("stream_consumer_connection_status TRANSIENT_FAILURE should be > 0")
+		}
+	})
+	assertCounterMatch(t, gc, map[string]string{"stream": streamName}, "stream_consumer_connection_status_checks", func(t *testing.T, v float64) {
+		if v <= 1 {
+			t.Errorf("stream_consumer_connection_status_checks should be > 1")
+		}
+	})
+}
+
 func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, expected *stream.Event) {
 	select {
 	case evt := <-ch:
@@ -191,6 +236,68 @@ func assertReceived(t *testing.T, streamName string, ch <-chan *stream.Event, ex
 	case <-time.After(time.Second * 5):
 		t.Errorf("no event received after 5 sec for stream %s", streamName)
 	}
+}
+
+func assertCounterEquals(t *testing.T, g *Gaz, labels map[string]string, name string, value float64) {
+	match := func(t *testing.T, counterValue float64) {
+		if math.Abs(value-counterValue) > 0.01 {
+			t.Errorf("expected value %.4f for counter %s for labels %s but got %.4f", value, name, labels, counterValue)
+		}
+	}
+	assertCounterMatch(t, g, labels, name, match)
+}
+
+func assertCounterMatch(t *testing.T, g *Gaz, labels map[string]string, name string, match func(*testing.T, float64)) {
+	metric, err := findMetric(g, name, labels)
+	if err != nil {
+		t.Fatalf("failed to find metric %s with labels %+v, %+v", name, labels, err)
+	}
+	counter := metric.Counter
+	if counter == nil {
+		t.Fatalf("no counter for metric %s with labels %+v", name, labels)
+	}
+	match(t, *counter.Value)
+}
+
+func findMetric(g *Gaz, metricName string, labelPairs map[string]string) (*io_prometheus_client.Metric, error) {
+	metricFamilies, err := g.prometheusRegistry.Gather()
+	if err != nil {
+		return nil, err
+	}
+
+	var metricFamily *io_prometheus_client.MetricFamily
+
+	for _, mf := range metricFamilies {
+		if mf == nil || mf.Name == nil {
+			continue
+		}
+		if *mf.Name == metricName {
+			metricFamily = mf
+			break
+		}
+	}
+	if metricFamily == nil {
+		return nil, fmt.Errorf("metric not found")
+	}
+
+	for _, m := range metricFamily.Metric {
+		var labelMatchs int
+		for k, v := range labelPairs {
+			for _, mkv := range m.Label {
+				if *mkv.Name == k {
+					if *mkv.Value == v {
+						labelMatchs++
+					}
+					break
+				}
+			}
+		}
+		if labelMatchs == len(labelPairs) {
+			return m, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no metric found with metric %s and label %+v", metricName, labelPairs)
 }
 
 func createConsumer(t *testing.T, g *Gaz, streamName string) StreamConsumer {
@@ -208,6 +315,35 @@ func createConsumer(t *testing.T, g *Gaz, streamName string) StreamConsumer {
 	}
 
 	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-connected:
+		return consumer
+	case <-time.After(time.Second * 3):
+		t.Errorf("consumer not created after 3 sec for stream %s", streamName)
+		t.FailNow()
+	}
+	return nil
+}
+
+func createConsumerWithAddr(t *testing.T, g *Gaz, endpoint, streamName string) StreamConsumer {
+	connected := make(chan bool, 1)
+
+	opt := func(config *ConsumerConfig) {
+		config.OnConnected = func(string) {
+			select {
+			case connected <- true:
+				// ok
+			default:
+				// nobody is listening, OK too
+			}
+		}
+	}
+
+	consumer, err := g.ConsumeStream([]string{endpoint}, streamName, opt)
 	if err != nil {
 		t.Fatal(err)
 	}

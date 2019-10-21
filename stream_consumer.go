@@ -32,9 +32,14 @@ type StreamEndpointConfig struct {
 }
 
 type StreamConsumer interface {
-	StreamName() string
+	streamConsumer
 	EvtChan() chan *stream.Event
 	Stop() bool //return previous 'stopped' state
+}
+
+type streamConsumer interface {
+	metrics() *consumerMetrics
+	StreamName() string
 	streamEndpoint() *streamEndpoint
 }
 
@@ -65,6 +70,7 @@ type consumer struct {
 	evtChan    chan *stream.Event
 	config     *ConsumerConfig
 	stopped    *int32
+	cMetrics   *consumerMetrics
 }
 
 func (c *consumer) streamEndpoint() *streamEndpoint {
@@ -85,6 +91,10 @@ func (c *consumer) Stop() bool {
 
 func (c *consumer) isStopped() bool {
 	return atomic.LoadInt32(c.stopped) == 1
+}
+
+func (c *consumer) metrics() *consumerMetrics {
+	return c.cMetrics
 }
 
 type streamEndpoint struct {
@@ -241,48 +251,49 @@ func (se *streamEndpoint) consumeStream(streamName string, opts ...ConsumerConfi
 	}
 
 	ch := make(chan *stream.Event, config.BufferLen)
+
 	c := &consumer{
 		endpoint:   se,
 		streamName: streamName,
 		evtChan:    ch,
 		config:     config,
 		stopped:    new(int32),
+		cMetrics:   consumerMonitoring(se.g, streamName, se.endpoints),
 	}
 
-	var monitoringHolder = consumerMonitoring(se.g, streamName, se.endpoints)
-
 	go func() {
-		se.reconnectWhileNotStopped(c, streamName, config, monitoringHolder)
+		c.reconnectWhileNotStopped()
 		Log.Info("Stream closed", zap.String("stream", c.streamName))
 		close(c.evtChan)
 	}()
 	return c
 }
 
-func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName string, config *ConsumerConfig, monitoringHolder consumerMonitoringHolder) {
-	for se.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
-		monitoringHolder.conGauge.Set(0)
-		waitTillReadyOrShutdown(streamName, se)
-		if se.conn.GetState() == connectivity.Shutdown {
+func (c *consumer) reconnectWhileNotStopped() {
+	for c.endpoint.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
+		c.cMetrics.conGauge.Set(0)
+		c.cMetrics.conAttemptCounter.Inc()
+
+		waitTillConnReadyOrShutdown(c)
+
+		if c.endpoint.conn.GetState() == connectivity.Shutdown {
 			break
 		}
 
-		client := stream.NewStreamClient(se.conn)
-		req := &stream.StreamRequest{Name: streamName, RequesterName: se.g.ServiceName, ExpectHello: true}
+		client := stream.NewStreamClient(c.endpoint.conn)
+		req := &stream.StreamRequest{Name: c.streamName, RequesterName: c.endpoint.g.ServiceName, ExpectHello: true}
 
 		var callOpts []grpc.CallOption
-		if config.UseGzip {
+		if c.config.UseGzip {
 			callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 		}
-
-		monitoringHolder.conAttemptCounter.Inc()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		st, err := client.Stream(ctx, req, callOpts...)
 		if err != nil {
-			monitoringHolder.failedConCounter.Inc()
+			c.cMetrics.failedConCounter.Inc()
 			cancel()
-			Log.Warn("Error while creating stream", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+			Log.Warn("Error while creating stream", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
 			continue
 		}
 
@@ -291,11 +302,11 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 		if err == nil && mds != nil {
 			var cs connectionStatus
 			if mds.Get("expectHello") != nil && len(mds.Get("expectHello")) > 0 {
-				cs = se.waitForHelloMessage(c, streamName, st)
+				cs = c.endpoint.waitForHelloMessage(c, c.streamName, st)
 				if cs == closed {
-					monitoringHolder.conGauge.Set(0)
-					monitoringHolder.failedConCounter.Inc()
-					Log.Warn("Stream closed after Hello message", zap.String("stream", streamName), zap.String("target", se.target))
+					c.cMetrics.conGauge.Set(0)
+					c.cMetrics.failedConCounter.Inc()
+					Log.Warn("Stream closed after Hello message", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
 					return
 				}
 			} else {
@@ -303,40 +314,40 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 			}
 
 			if cs == connected {
-				if config.OnConnected != nil {
-					config.OnConnected(streamName)
+				if c.config.OnConnected != nil {
+					c.config.OnConnected(c.streamName)
 				}
-				Log.Info("Stream connected", zap.String("streamName", streamName), zap.String("target", se.target))
-				monitoringHolder.conGauge.Set(1)
-				monitoringHolder.successConCounter.Inc()
+				Log.Info("Stream connected", zap.String("streamName", c.streamName), zap.String("target", c.endpoint.target))
+				c.cMetrics.conGauge.Set(1)
+				c.cMetrics.successConCounter.Inc()
 
 				// at this point, the GRPC connection is established with the server
 				for !c.isStopped() {
 					streamEvt, err := st.Recv()
 					if err != nil {
-						monitoringHolder.conGauge.Set(0)
-						monitoringHolder.disconnectionCounter.Inc()
+						c.cMetrics.conGauge.Set(0)
+						c.cMetrics.disconnectionCounter.Inc()
 
 						if err == io.EOF {
 							return //standard error for closed stream
 						}
-						se.backOffOnError(c, err)
+						c.backOffOnError(err)
 						break
 					}
 
 					if streamEvt == nil {
-						Log.Warn("received a nil stream event", zap.String("stream", streamName), zap.String("target", se.target))
+						Log.Warn("received a nil stream event", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
 						continue
 					}
 					if streamEvt.Metadata == nil {
-						Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", streamName), zap.String("target", se.target))
+						Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
 						streamEvt.Metadata = &stream.Metadata{
 							KeyValue: make(map[string]string),
 						}
 					}
 
-					Log.Debug("event received", zap.String("stream", streamName), zap.String("target", se.target))
-					monitorDelays(monitoringHolder, streamEvt)
+					Log.Debug("event received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
+					monitorDelays(c, streamEvt)
 
 					evt := &stream.Event{
 						Key:   streamEvt.Key,
@@ -347,17 +358,17 @@ func (se *streamEndpoint) reconnectWhileNotStopped(c *consumer, streamName strin
 				}
 			}
 		} else {
-			monitoringHolder.conGauge.Set(0)
-			monitoringHolder.failedConCounter.Inc()
+			c.cMetrics.conGauge.Set(0)
+			c.cMetrics.failedConCounter.Inc()
 			if mds == nil {
-				Log.Warn("Stream created but not connected, no header received", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+				Log.Warn("Stream created but not connected, no header received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
 			} else {
-				Log.Warn("Stream created but not connected", zap.String("stream", streamName), zap.String("target", se.target), zap.Error(err))
+				Log.Warn("Stream created but not connected", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
 			}
 			time.Sleep(5 * time.Second)
 		}
-		if config.OnDisconnected != nil {
-			config.OnDisconnected(streamName)
+		if c.config.OnDisconnected != nil {
+			c.config.OnDisconnected(c.streamName)
 		}
 		cancel()
 	}
@@ -379,13 +390,13 @@ func (se *streamEndpoint) waitForHelloMessage(c *consumer, streamName string, st
 	} else if err == io.EOF {
 		return closed //standard error for closed stream
 	} else {
-		se.backOffOnError(c, err)
+		c.backOffOnError(err)
 		return notConnected
 	}
 }
 
-func (se *streamEndpoint) backOffOnError(c *consumer, err error) {
-	Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.String("target", se.target), zap.Error(err))
+func (c *consumer) backOffOnError(err error) {
+	Log.Warn("received error on stream", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
 	if e, ok := status.FromError(err); ok {
 		switch e.Code() {
 		case codes.PermissionDenied, codes.ResourceExhausted, codes.Unavailable,
@@ -399,65 +410,85 @@ type metadataProvider interface {
 	GetMetadata() *stream.Metadata
 }
 
-func monitorDelays(monitoringHolder consumerMonitoringHolder, streamEvt metadataProvider) {
-	monitoringHolder.receivedCounter.Inc()
+func monitorDelays(c streamConsumer, evt metadataProvider) {
+	metrics := c.metrics()
+	metrics.receivedCounter.Inc()
 	nowMs := float64(time.Now().UnixNano()) / 1000000.0
-	metadata := streamEvt.GetMetadata()
+	metadata := evt.GetMetadata()
 	streamTimestamp := metadata.StreamTimestamp
 	if streamTimestamp > 0 {
 		// convert from ns to ms
-		monitoringHolder.delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
+		metrics.delaySummary.Observe(math.Max(0, nowMs-float64(streamTimestamp)/1000000.0))
 	}
 	eventTimestamp := metadata.EventTimestamp
 	if eventTimestamp > 0 {
-		monitoringHolder.eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
+		metrics.eventDelaySummary.Observe(math.Max(0, nowMs-float64(eventTimestamp)/1000000.0))
 	}
 	originTimestamp := metadata.OriginStreamTimestamp
 	if originTimestamp > 0 {
-		monitoringHolder.originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
+		metrics.originDelaySummary.Observe(math.Max(0, nowMs-float64(originTimestamp)/1000000.0))
 	}
 }
 
-func waitTillReadyOrShutdown(streamName string, se *streamEndpoint) {
-	var state connectivity.State
-	for state = se.conn.GetState(); state != connectivity.Ready && state != connectivity.Shutdown; state = se.conn.GetState() {
-		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
-		se.conn.WaitForStateChange(context.Background(), state)
+func waitTillConnReadyOrShutdown(c streamConsumer) {
+	metrics := c.metrics()
+	streamName := c.StreamName()
+	conn := c.streamEndpoint().conn
+
+	metrics.checkConnStatusCounter.Inc()
+	var state = conn.GetState()
+	metrics.connStatus.WithLabelValues(state.String()).Inc()
+
+	for state != connectivity.Ready && state != connectivity.Shutdown {
+		// count the number of connection status checks to know if a service has difficulties to establish a connection with a remote endpoint
+		metrics.checkConnStatusCounter.Inc()
+
+		state = conn.GetState()
+		metrics.connStatus.WithLabelValues(state.String()).Inc()
+
+		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		conn.WaitForStateChange(ctx, state)
+		cancel()
 	}
 	if state == connectivity.Ready {
-		Log.Debug("Stream endpoint is ready", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
+		Log.Debug("Stream endpoint is ready", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName))
+		return
 	}
 	if state == connectivity.Shutdown {
-		Log.Debug("Stream endpoint is in shutdown state", zap.Strings("endpoint", se.endpoints), zap.String("streamName", streamName))
+		Log.Debug("Stream endpoint is in shutdown state", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName))
+		return
 	}
 }
 
-type consumerMonitoringHolder struct {
-	receivedCounter      prometheus.Counter
-	conAttemptCounter    prometheus.Counter
-	disconnectionCounter prometheus.Counter
-	successConCounter    prometheus.Counter
-	failedConCounter     prometheus.Counter
-	conGauge             prometheus.Gauge
-	delaySummary         prometheus.Summary
-	originDelaySummary   prometheus.Summary
-	eventDelaySummary    prometheus.Summary
+type consumerMetrics struct {
+	receivedCounter        prometheus.Counter
+	conAttemptCounter      prometheus.Counter
+	checkConnStatusCounter prometheus.Counter
+	connStatus             *prometheus.CounterVec
+	disconnectionCounter   prometheus.Counter
+	successConCounter      prometheus.Counter
+	failedConCounter       prometheus.Counter
+	conGauge               prometheus.Gauge
+	delaySummary           prometheus.Summary
+	originDelaySummary     prometheus.Summary
+	eventDelaySummary      prometheus.Summary
 }
 
 // map of metrics registered to Prometheus
 // it's here because we cannot register twice to Prometheus the metrics with the same label
 // if we register several consumers on the same stream, we must be sure we don't register the metrics twice
-var consMonitoringMu sync.Mutex
-var consumerMonitorings = make(map[string]consumerMonitoringHolder)
+var consumerMetricsMu sync.Mutex
+var consumerMonitorings = make(map[string]*consumerMetrics)
 
-func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerMonitoringHolder {
-	consMonitoringMu.Lock()
-	defer consMonitoringMu.Unlock()
+func consumerMonitoring(g *Gaz, streamName string, endpoints []string) *consumerMetrics {
+	consumerMetricsMu.Lock()
+	defer consumerMetricsMu.Unlock()
 
 	if m, ok := consumerMonitorings[streamName]; ok {
 		return m
 	}
-	m := consumerMonitoringHolder{
+	m := &consumerMetrics{
 		receivedCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_received_events",
 			Help: "The total number of events received",
@@ -475,6 +506,24 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerM
 				"endpoints": strings.Join(endpoints, ","),
 			},
 		}),
+
+		checkConnStatusCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "stream_consumer_connection_status_checks",
+			Help: "The total number of checks of gRPC connection status",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}),
+
+		connStatus: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "stream_consumer_connection_status",
+			Help: "The total number of gRPC connection status",
+			ConstLabels: prometheus.Labels{
+				"stream":    streamName,
+				"endpoints": strings.Join(endpoints, ","),
+			},
+		}, []string{"status"}),
 
 		successConCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stream_consumer_connection_success",
@@ -543,6 +592,8 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) consumerM
 	}
 	g.RegisterCollector(m.receivedCounter)
 	g.RegisterCollector(m.conAttemptCounter)
+	g.RegisterCollector(m.checkConnStatusCounter)
+	g.RegisterCollector(m.connStatus)
 	g.RegisterCollector(m.conGauge)
 	g.RegisterCollector(m.successConCounter)
 	g.RegisterCollector(m.disconnectionCounter)
