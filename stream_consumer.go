@@ -279,99 +279,107 @@ func (c *consumer) reconnectWhileNotStopped() {
 		if c.endpoint.conn.GetState() == connectivity.Shutdown {
 			break
 		}
-
-		client := stream.NewStreamClient(c.endpoint.conn)
-		req := &stream.StreamRequest{Name: c.streamName, RequesterName: c.endpoint.g.ServiceName, ExpectHello: true}
-
-		var callOpts []grpc.CallOption
-		if c.config.UseGzip {
-			callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
+		retry := c.readStream()
+		if !retry {
+			break
 		}
+	}
+}
 
-		ctx, cancel := context.WithCancel(context.Background())
-		st, err := client.Stream(ctx, req, callOpts...)
-		if err != nil {
-			c.cMetrics.failedConCounter.Inc()
-			cancel()
-			Log.Warn("Error while creating stream", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
-			continue
-		}
+func (c *consumer) readStream() (retry bool) {
+	client := stream.NewStreamClient(c.endpoint.conn)
+	req := &stream.StreamRequest{Name: c.streamName, RequesterName: c.endpoint.g.ServiceName, ExpectHello: true}
 
-		//without this hack we do not know if the stream is really connected
-		mds, err := st.Header()
-		if err == nil && mds != nil {
-			var cs connectionStatus
-			if mds.Get("expectHello") != nil && len(mds.Get("expectHello")) > 0 {
-				cs = c.endpoint.waitForHelloMessage(c, c.streamName, st)
-				if cs == closed {
-					c.cMetrics.conGauge.Set(0)
-					c.cMetrics.failedConCounter.Inc()
-					Log.Warn("Stream closed after Hello message", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
-					return
-				}
-			} else {
-				cs = connected
-			}
+	var callOpts []grpc.CallOption
+	if c.config.UseGzip {
+		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
+	}
 
-			if cs == connected {
-				if c.config.OnConnected != nil {
-					c.config.OnConnected(c.streamName)
-				}
-				Log.Info("Stream connected", zap.String("streamName", c.streamName), zap.String("target", c.endpoint.target))
-				c.cMetrics.conGauge.Set(1)
-				c.cMetrics.successConCounter.Inc()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-				// at this point, the GRPC connection is established with the server
-				for !c.isStopped() {
-					streamEvt, err := st.Recv()
-					if err != nil {
-						c.cMetrics.conGauge.Set(0)
-						c.cMetrics.disconnectionCounter.Inc()
+	st, err := client.Stream(ctx, req, callOpts...)
+	if err != nil {
+		c.cMetrics.failedConCounter.Inc()
+		cancel()
+		Log.Warn("Error while creating stream", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
+		return true
+	}
 
-						if err == io.EOF {
-							return //standard error for closed stream
-						}
-						c.backOffOnError(err)
-						break
-					}
-
-					if streamEvt == nil {
-						Log.Warn("received a nil stream event", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
-						continue
-					}
-					if streamEvt.Metadata == nil {
-						Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
-						streamEvt.Metadata = &stream.Metadata{
-							KeyValue: make(map[string]string),
-						}
-					}
-
-					Log.Debug("event received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
-					monitorDelays(c, streamEvt)
-
-					evt := &stream.Event{
-						Key:   streamEvt.Key,
-						Value: streamEvt.Value,
-						Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
-					}
-					c.evtChan <- evt
-				}
+	//without this hack we do not know if the stream is really connected
+	mds, err := st.Header()
+	if err == nil && mds != nil {
+		var cs connectionStatus
+		if mds.Get("expectHello") != nil && len(mds.Get("expectHello")) > 0 {
+			cs = c.endpoint.waitForHelloMessage(c, c.streamName, st)
+			if cs == closed {
+				c.cMetrics.conGauge.Set(0)
+				c.cMetrics.failedConCounter.Inc()
+				Log.Warn("Stream closed after Hello message", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
+				return false
 			}
 		} else {
-			c.cMetrics.conGauge.Set(0)
-			c.cMetrics.failedConCounter.Inc()
-			if mds == nil {
-				Log.Warn("Stream created but not connected, no header received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
-			} else {
-				Log.Warn("Stream created but not connected", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
+			cs = connected
+		}
+
+		if cs == connected {
+			if c.config.OnConnected != nil {
+				c.config.OnConnected(c.streamName)
 			}
-			time.Sleep(5 * time.Second)
+			Log.Info("Stream connected", zap.String("streamName", c.streamName), zap.String("target", c.endpoint.target))
+			c.cMetrics.conGauge.Set(1)
+			c.cMetrics.successConCounter.Inc()
+
+			// at this point, the GRPC connection is established with the server
+			for !c.isStopped() {
+				streamEvt, err := st.Recv()
+				if err != nil {
+					c.cMetrics.conGauge.Set(0)
+					c.cMetrics.disconnectionCounter.Inc()
+
+					if err == io.EOF {
+						return false
+					}
+					c.backOffOnError(err)
+					break
+				}
+
+				if streamEvt == nil {
+					Log.Warn("received a nil stream event", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
+					continue
+				}
+				if streamEvt.Metadata == nil {
+					Log.Debug("received a nil stream.Metadata, creating an empty metadata", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
+					streamEvt.Metadata = &stream.Metadata{
+						KeyValue: make(map[string]string),
+					}
+				}
+
+				Log.Debug("event received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
+				monitorDelays(c, streamEvt)
+
+				evt := &stream.Event{
+					Key:   streamEvt.Key,
+					Value: streamEvt.Value,
+					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+				}
+				c.evtChan <- evt
+			}
 		}
-		if c.config.OnDisconnected != nil {
-			c.config.OnDisconnected(c.streamName)
+	} else {
+		c.cMetrics.conGauge.Set(0)
+		c.cMetrics.failedConCounter.Inc()
+		if mds == nil {
+			Log.Warn("Stream created but not connected, no header received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
+		} else {
+			Log.Warn("Stream created but not connected", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
 		}
-		cancel()
+		time.Sleep(5 * time.Second)
 	}
+	if c.config.OnDisconnected != nil {
+		c.config.OnDisconnected(c.streamName)
+	}
+	return true
 }
 
 type connectionStatus int
@@ -443,13 +451,13 @@ func waitTillConnReadyOrShutdown(c streamConsumer) {
 		// count the number of connection status checks to know if a service has difficulties to establish a connection with a remote endpoint
 		metrics.checkConnStatusCounter.Inc()
 
-		state = conn.GetState()
-		metrics.connStatus.WithLabelValues(state.String()).Inc()
-
 		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		conn.WaitForStateChange(ctx, state)
 		cancel()
+
+		state = conn.GetState()
+		metrics.connStatus.WithLabelValues(state.String()).Inc()
 	}
 	if state == connectivity.Ready {
 		Log.Debug("Stream endpoint is ready", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName))

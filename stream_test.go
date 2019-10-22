@@ -3,8 +3,10 @@ package gorillaz
 import (
 	"bytes"
 	"fmt"
-	io_prometheus_client "github.com/prometheus/client_model/go"
+	prom_client "github.com/prometheus/client_model/go"
 	"github.com/skysoft-atm/gorillaz/stream"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"math"
 	"testing"
 	"time"
@@ -184,7 +186,7 @@ func TestProducerReconnect(t *testing.T) {
 func TestConsumerMetrics(t *testing.T) {
 	streamName := "creamyCheese"
 
-	gp := New(WithServiceName("cheese_provider"))
+	gp := New(WithServiceName("cheese_provider"), WithGrpcServerOptions(grpc.KeepaliveParams(keepalive.ServerParameters{Time: time.Second, Timeout: time.Second})))
 	gp.Run()
 	_, err := gp.NewStreamProvider(streamName, "cheesy.type", func(conf *ProviderConfig) {
 		conf.LazyBroadcast = false
@@ -210,7 +212,7 @@ func TestConsumerMetrics(t *testing.T) {
 
 	// cut the gRPC connection
 	gp.GrpcServer.Stop()
-	time.Sleep(8 * time.Second)
+	time.Sleep(5 * time.Second)
 	assertCounterEquals(t, gc, map[string]string{"stream": streamName}, "stream_consumer_disconnections", 1)
 	assertCounterMatch(t, gc, map[string]string{"stream": streamName, "status": "TRANSIENT_FAILURE"}, "stream_consumer_connection_status", func(t *testing.T, v float64) {
 		if v <= 0 {
@@ -259,13 +261,13 @@ func assertCounterMatch(t *testing.T, g *Gaz, labels map[string]string, name str
 	match(t, *counter.Value)
 }
 
-func findMetric(g *Gaz, metricName string, labelPairs map[string]string) (*io_prometheus_client.Metric, error) {
+func findMetric(g *Gaz, metricName string, labelPairs map[string]string) (*prom_client.Metric, error) {
 	metricFamilies, err := g.prometheusRegistry.Gather()
 	if err != nil {
 		return nil, err
 	}
 
-	var metricFamily *io_prometheus_client.MetricFamily
+	var metricFamily *prom_client.MetricFamily
 
 	for _, mf := range metricFamilies {
 		if mf == nil || mf.Name == nil {

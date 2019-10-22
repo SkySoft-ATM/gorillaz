@@ -45,8 +45,4 @@ func main() {
 		message++
 		time.Sleep(time.Nanosecond * 500)
 	}
-
-	p.CloseStream()
-
-	time.Sleep(time.Second * 5)
 }
