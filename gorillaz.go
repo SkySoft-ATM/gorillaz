@@ -280,8 +280,8 @@ func (g *Gaz) Run() <-chan struct{} {
 	g.httpListener = httpListener
 
 	go func() {
-		// register /version to return the build version
-		g.Router.HandleFunc("/version", VersionHTML).Methods("GET")
+		// register /info to return the build version
+		g.Router.HandleFunc("/info", versionInfoHandler()).Methods("GET")
 		httpPort := g.HttpPort()
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
 		waitgroup.Done()

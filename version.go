@@ -1,15 +1,45 @@
 package gorillaz
 
 import (
-	"fmt"
+	"encoding/json"
 	"net/http"
 )
 
-var BuildVersion string
-var GoVersion string
+// set at build time, go build  -ldflags "-X github.com/skysoft-atm/gorillaz.ApplicationVersion=v0.3.2 -X github.com/skysoft-atm/gorillaz.ApplicationName=srv-cheesy-cheese -X github.com/skysoft-atm/gorillaz.ApplicationDescription=bla_pepito"
+var (
+	ApplicationVersion     string
+	ApplicationDescription string
+	ApplicationName        string
+)
 
-func VersionHTML(w http.ResponseWriter, r *http.Request) {
-	body := fmt.Sprintf("<html><body>build version: %s<br>go version: %s", BuildVersion, GoVersion)
-	w.Write([]byte(body))
-	w.WriteHeader(http.StatusOK)
+func versionInfoHandler() func(http.ResponseWriter, *http.Request) {
+	// generate the info value from ApplicationVersion, ApplicationDescription and ApplicationName
+	inf := Info{
+		App: App{
+			Version:     ApplicationVersion,
+			Description: ApplicationDescription,
+			Name:        ApplicationName,
+		},
+	}
+	info, err := json.MarshalIndent(inf, "", " ")
+
+	// there is no reason for this to happen, so panic
+	if err != nil {
+		panic("failed to marshal build information data")
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-Type", "application/json")
+		w.Write(info)
+	}
+}
+
+type Info struct {
+	App App `json:"app"`
+}
+
+type App struct {
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Name        string `json:"name"`
 }
