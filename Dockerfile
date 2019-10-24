@@ -1,4 +1,4 @@
-FROM golang:1.12.1
+FROM golang:1.13.3
 
 WORKDIR /go/src/github.com/skysoft-atm/gorillaz
 
