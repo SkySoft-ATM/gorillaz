@@ -14,7 +14,6 @@ import (
 const SdPrefix = "sd://"
 
 type ServiceDefinition struct {
-	sync.Mutex
 	ServiceName string
 	Addr        string
 	Port        int
@@ -42,8 +41,6 @@ type gorillazResolverBuilder struct {
 func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOption) (resolver.Resolver, error) {
 	var result resolver.Resolver
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	if strings.HasPrefix(target.Endpoint, SdPrefix) {
 		if g.gaz.ServiceDiscovery == nil {
 			return nil, errors.New("service discovery not initialized in gorillaz")
@@ -52,11 +49,11 @@ func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.Clie
 			serviceDiscovery: g.gaz.ServiceDiscovery,
 			name:             strings.TrimPrefix(target.Endpoint, SdPrefix),
 			cc:               cc,
-			closeFunc:        cancel,
+			closeChan:        make(chan struct{}),
 			tick:             time.NewTicker(1 * time.Second),
 			env:              g.gaz.Env,
 		}
-		go r.updater(ctx)
+		go r.updater()
 
 		result = r
 	} else {
@@ -80,7 +77,7 @@ func (*gorillazResolverBuilder) Scheme() string { return "gorillaz" }
 // serviceDiscoveryResolver is a
 // Resolver(https://godoc.org/google.golang.org/grpc/resolver#Resolver).
 type serviceDiscoveryResolver struct {
-	closeFunc        func()
+	closeChan        chan struct{}
 	serviceDiscovery ServiceDiscovery
 	name             string
 	cc               resolver.ClientConn
@@ -88,13 +85,19 @@ type serviceDiscoveryResolver struct {
 	env              string
 }
 
-func (r *serviceDiscoveryResolver) updater(ctx context.Context) {
+func (r *serviceDiscoveryResolver) updater() {
 	r.sendUpdate()
 	for {
 		select {
 		case <-r.tick.C:
 			r.sendUpdate()
-		case <-ctx.Done():
+		case <-r.closeChan:
+			r.tick.Stop()
+			select {
+			// just in case, consume any pending tick
+			case <-r.tick.C:
+				// nothing to do
+			}
 			return
 		}
 	}
@@ -116,8 +119,12 @@ func (r *serviceDiscoveryResolver) sendUpdate() {
 func (*serviceDiscoveryResolver) ResolveNow(o resolver.ResolveNowOption) {}
 
 func (r *serviceDiscoveryResolver) Close() {
-	r.closeFunc()
-	r.tick.Stop()
+	select {
+	case r.closeChan <- struct{}{}:
+		// nothing
+	default:
+		Log.Warn("serviceDiscoveryResolver is already closed")
+	}
 }
 
 // gorillazDefaultResolver is a
@@ -153,12 +160,12 @@ func NewMockedServiceDiscovery() (*MockedServiceDiscovery, Option) {
 }
 
 func NewMockedServiceDiscoveryWithDefinitions(serviceDefs []ServiceDefinition) (*MockedServiceDiscovery, Option) {
-	mock := MockedServiceDiscovery{mocked: serviceDefs}
-	return &mock, Option{Opt: func(gaz *Gaz) error {
+	mock := &MockedServiceDiscovery{mocked: serviceDefs}
+	return mock, Option{Opt: func(gaz *Gaz) error {
 		mock.mu.Lock()
 		mock.g = gaz
 		mock.mu.Unlock()
-		gaz.ServiceDiscovery = &mock
+		gaz.ServiceDiscovery = mock
 		return nil
 	}}
 }
@@ -183,12 +190,7 @@ func (m *MockedServiceDiscovery) MockService(defs []ServiceDefinition) {
 	}
 }
 
-type MockedRegistrationHandle struct {
-}
-
-func (m MockedRegistrationHandle) Update(c context.Context, d *ServiceDefinition) error {
-	return nil
-}
+type MockedRegistrationHandle struct{}
 
 func (m MockedRegistrationHandle) DeRegister(ctx context.Context) error {
 	return nil

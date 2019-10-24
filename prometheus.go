@@ -25,7 +25,20 @@ func (g *Gaz) InitPrometheus(path string) {
 		Name: "uptime_sec",
 		Help: "uptime in seconds",
 	})
+
+	// register the application build version so we can collect it in Prometheus
+	buildVersion := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name:        "app_info",
+		Help:        "application build information",
+		ConstLabels: prometheus.Labels{"version": ApplicationVersion, "name": ApplicationName, "description": ApplicationDescription},
+	})
+
 	g.RegisterCollector(upCounter)
+	g.RegisterCollector(buildVersion)
+
+	// the actual value is set in "version" label
+	buildVersion.Set(1)
+
 	go func() {
 		t := time.Tick(time.Second)
 		for {
