@@ -58,12 +58,12 @@ func (sr *streamRegistry) find(streamName string) (provider, bool) {
 func (g *Gaz) closeStream(p provider) error {
 	streamName := p.streamDefinition().Name
 	Log.Info("closing stream", zap.String("stream", streamName))
-	provider, ok := g.streamRegistry.find(streamName)
+	prov, ok := g.streamRegistry.find(streamName)
 	if !ok {
 		return fmt.Errorf("cannot find stream " + streamName)
 	}
 	g.streamRegistry.unregister(streamName)
-	provider.close()
+	prov.close()
 	return nil
 }
 

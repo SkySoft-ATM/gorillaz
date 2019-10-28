@@ -99,7 +99,7 @@ func StartNewSpan(spanName string) opentracing.Span {
 func StartChildSpan(ctx context.Context, spanName string) (opentracing.Span, context.Context) {
 	span := opentracing.SpanFromContext(ctx)
 	if span == nil {
-		span := StartNewSpan(spanName)
+		span = StartNewSpan(spanName)
 		return span, opentracing.ContextWithSpan(ctx, span) // create root span
 	}
 
