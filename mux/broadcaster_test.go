@@ -7,30 +7,6 @@ import (
 	"time"
 )
 
-// this function will consume the given amount of messages and block
-func consumeAndBlock(amountToConsume int, channel <-chan interface{}) {
-	go func(c <-chan interface{}) {
-		for i := 0; i < amountToConsume; i++ {
-			<-c
-		}
-		fmt.Println("consumeAndBlock is now blocking")
-		time.Sleep(30000 * time.Second)
-	}(channel)
-}
-
-func consume(channel <-chan interface{}, numberOfMessages int, finished chan<- bool) {
-	go func(c <-chan interface{}) {
-		i := 0
-		for {
-			<-c
-			i++
-			if i == numberOfMessages {
-				finished <- true
-			}
-		}
-	}(channel)
-}
-
 func backpressureForConsumer(consumerName string, consumer chan string) func(value interface{}) {
 	return func(value interface{}) {
 		fmt.Println("on back pressure " + consumerName)

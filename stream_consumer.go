@@ -210,11 +210,6 @@ func (g *Gaz) deregister(c StoppableStream) {
 	}
 }
 
-// Returns the stream endpoint for the given service name that will be discovered thanks to the service discovery mechanism
-func (g *Gaz) newServiceStreamEndpoint(serviceName string, opts ...StreamEndpointConfigOpt) (*streamEndpoint, error) {
-	return g.newStreamEndpoint([]string{SdPrefix + serviceName})
-}
-
 func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfigOpt) (*streamEndpoint, error) {
 	config := defaultStreamEndpointConfig()
 	for _, opt := range opts {

@@ -156,7 +156,7 @@ forloop:
 				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 				break forloop
 			}
-		case _ = <-strm.Context().Done():
+		case <-strm.Context().Done():
 			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 			break forloop
 
