@@ -30,10 +30,6 @@ func consumeState(channel <-chan *StateUpdate, wg *sync.WaitGroup) {
 	}(channel)
 }
 
-var keyExtractor = func(f interface{}) interface{} {
-	return f.(string)[0]
-}
-
 func countDownOnBackpressure(consumerName string, consumer chan string, wg *sync.WaitGroup) func(config *ConsumerConfig) error {
 	return func(config *ConsumerConfig) error {
 		config.OnBackpressure(func(value interface{}) {

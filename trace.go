@@ -26,19 +26,14 @@ type TracingConfig struct {
 // You should have provided the following configurations, either in the config file or with flags:
 // zipkin.collector.url
 func (g *Gaz) InitTracingFromConfig() {
-	var collectorUrl string
+	collectorUrl := g.Viper.GetString("tracing.collector.url")
 	if g.ServiceDiscovery != nil {
-		var err error
-		collectorUrl, err = g.resolveZipkinUrlFromServiceDiscovery()
-		if err != nil {
-			Log.Info("Error while resolving zipkin from service discovery", zap.Error(err))
-			collectorUrl = g.Viper.GetString("tracing.collector.url")
-		} else if err != nil {
-			Log.Info("No zipkin instance found in service discovery")
-			collectorUrl = g.Viper.GetString("tracing.collector.url")
+		discovered, err := g.resolveZipkinUrlFromServiceDiscovery()
+		if err != nil || discovered == "" {
+			Log.Error("Error while resolving zipkin from service discovery", zap.String("fallback_url", collectorUrl), zap.Error(err))
+		} else {
+			collectorUrl = discovered
 		}
-	} else {
-		collectorUrl = g.Viper.GetString("tracing.collector.url")
 	}
 
 	g.InitTracing(

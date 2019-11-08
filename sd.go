@@ -97,6 +97,8 @@ func (r *serviceDiscoveryResolver) updater() {
 			// just in case, consume any pending tick
 			case <-r.tick.C:
 				// nothing to do
+			default:
+				// ok
 			}
 			return
 		}
@@ -185,9 +187,7 @@ func (m *MockedServiceDiscovery) UpdateGaz(g *Gaz) {
 func (m *MockedServiceDiscovery) MockService(defs []ServiceDefinition) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, d := range defs {
-		m.mocked = append(m.mocked, d)
-	}
+	m.mocked = append(m.mocked, defs...)
 }
 
 type MockedRegistrationHandle struct{}

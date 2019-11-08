@@ -75,7 +75,7 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
 
 	// create and close a span just to have a trace that a message was sent, it can always be useful
 	if sp == nil {
-		sp, ctx = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
+		sp, _ = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
 		sp.Finish()
 	}
 	err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
