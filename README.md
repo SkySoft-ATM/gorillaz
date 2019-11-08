@@ -1,6 +1,6 @@
-# gorillaz: a Go common library
-
 [![Build Status](https://travis-ci.com/SkySoft-ATM/gorillaz.svg?branch=master)](https://travis-ci.com/SkySoft-ATM/gorillaz)
+
+# gorillaz: a Go common library
 
 ## Gorillaz offers:
 
