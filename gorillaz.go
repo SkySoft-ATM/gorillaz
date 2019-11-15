@@ -125,8 +125,8 @@ func New(options ...GazOption) *Gaz {
 
 	// expose Go metrics and process metrics as Prometheus DefaultRegistry would
 	// https://github.com/prometheus/client_golang/blob/v1.1.0/prometheus/registry.go#L60
-	gaz.prometheusRegistry.Register(prometheus.NewGoCollector())
-	gaz.prometheusRegistry.Register(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	gaz.prometheusRegistry.MustRegister(prometheus.NewGoCollector())
+	gaz.prometheusRegistry.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
 
 	gaz.httpSrv = &http.Server{Handler: gaz.Router}
 	gaz.streamConsumers = &streamConsumerRegistry{

@@ -106,9 +106,8 @@ func (b *StateBroadcaster) Unregister(newch StateUpdateChan) {
 }
 
 // Shut this StateBroadcaster down.
-func (b *StateBroadcaster) Close() error {
+func (b *StateBroadcaster) Close() {
 	close(b.reg)
-	return nil
 }
 
 // Submit a new object to all subscribers

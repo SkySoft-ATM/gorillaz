@@ -104,10 +104,10 @@ func pMetricHolder(g *Gaz, streamName string) providerMetricsHolder {
 			},
 		}),
 	}
-	g.RegisterCollector(h.sentCounter)
-	g.RegisterCollector(h.backPressureCounter)
-	g.RegisterCollector(h.clientCounter)
-	g.RegisterCollector(h.lastEventTimestamp)
+	g.prometheusRegistry.MustRegister(h.sentCounter)
+	g.prometheusRegistry.MustRegister(h.backPressureCounter)
+	g.prometheusRegistry.MustRegister(h.clientCounter)
+	g.prometheusRegistry.MustRegister(h.lastEventTimestamp)
 	pMetrics[streamName] = h
 	return h
 }
@@ -193,13 +193,17 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
 	p.metrics.clientCounter.Inc()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
-	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
+	err := broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
 		config.OnBackpressure(func(interface{}) {
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
 		return nil
 	})
+	if err != nil {
+		// errors in broadcaster.Register means one option cannot be applied, this means something is really wrong
+		Log.Fatal("failed to register to broadcaster", zap.Error(err))
+	}
 
 forloop:
 	for {

@@ -44,33 +44,25 @@ func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 }
 
 // Shut this StateBroadcaster down.
-func (b *Broadcaster) Close() error {
+func (b *Broadcaster) Close() {
 	closed := make(chan bool)
 	b.closeReq <- closed
 	<-closed
-	return nil
 }
 
 // Submit a new object to all subscribers, this call can block if the input channel is full
-func (b *Broadcaster) SubmitBlocking(i interface{}) error {
-	if b != nil && i != nil {
-		b.input <- i
-		return nil
-	}
-	return fmt.Errorf("nil value")
+func (b *Broadcaster) SubmitBlocking(i interface{}) {
+	b.input <- i
 }
 
 // Submit a new object to all subscribers, this call will drop the message if the input channel is full
 func (b *Broadcaster) SubmitNonBlocking(i interface{}) error {
-	if b != nil && i != nil {
-		select {
-		case b.input <- i:
-			return nil
-		default:
-			return fmt.Errorf("value dropped")
-		}
+	select {
+	case b.input <- i:
+		return nil
+	default:
+		return fmt.Errorf("value dropped")
 	}
-	return fmt.Errorf("nil value")
 }
 
 func (b *Broadcaster) broadcast(m interface{}) {

@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"encoding/json"
+	"go.uber.org/zap"
 	"net/http"
 )
 
@@ -30,7 +31,10 @@ func versionInfoHandler() func(http.ResponseWriter, *http.Request) {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
-		w.Write(info)
+		_, err := w.Write(info)
+		if err != nil {
+			Log.Error("failed to write response", zap.Error(err))
+		}
 	}
 }
 

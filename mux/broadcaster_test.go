@@ -83,7 +83,7 @@ func TestBackpressureOnProducer(t *testing.T) {
 	failIfError(err, t)
 	var sent = make(chan bool, 1)
 	go func() {
-		_ = b.SubmitBlocking("someValue")
+		b.SubmitBlocking("someValue")
 		sent <- true
 	}()
 	timeout := make(chan bool, 1)
@@ -130,8 +130,7 @@ func TestNoBackpressureOnProducerWithEagerBroadcast(t *testing.T) {
 	failIfError(err, t)
 	var sent = make(chan bool, 1)
 	go func() {
-		err = b.SubmitBlocking("someValue")
-		failIfError(err, t)
+		b.SubmitBlocking("someValue")
 		sent <- true
 	}()
 	timeout := make(chan bool, 1)
