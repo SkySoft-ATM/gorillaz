@@ -193,17 +193,13 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
 	p.metrics.clientCounter.Inc()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
-	err := broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
+	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
 		config.OnBackpressure(func(interface{}) {
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
 		return nil
 	})
-	if err != nil {
-		// errors in broadcaster.Register means one option cannot be applied, this means something is really wrong
-		Log.Fatal("failed to register to broadcaster", zap.Error(err))
-	}
 
 forloop:
 	for {

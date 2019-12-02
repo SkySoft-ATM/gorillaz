@@ -23,17 +23,16 @@ type Broadcaster struct {
 }
 
 // Register a new channel to receive broadcasts
-func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) error {
+func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) {
 	done := make(chan bool)
 	config := &ConsumerConfig{}
 	for _, option := range options {
 		if err := option(config); err != nil {
-			return err
+			panic("failed to register to broadcaster, option returned an error, " + err.Error())
 		}
 	}
 	b.reg <- registration{consumer{*config, newch}, done}
 	<-done
-	return nil
 }
 
 // Unregister a channel so that it no longer receives broadcasts.

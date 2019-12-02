@@ -66,17 +66,16 @@ func (su *StateUpdate) IsDelete() bool {
 }
 
 // Register a new channel to receive broadcasts
-func (b *StateBroadcaster) Register(newch StateUpdateChan, options ...ConsumerOptionFunc) error {
+func (b *StateBroadcaster) Register(newch StateUpdateChan, options ...ConsumerOptionFunc) {
 	done := make(chan bool)
 	config := &ConsumerConfig{}
 	for _, option := range options {
 		if err := option(config); err != nil {
-			return err
+			panic("failed to register to state broadcaster, option returned an error, " + err.Error())
 		}
 	}
 	b.reg <- stateRegistration{stateConsumer{*config, newch}, done}
 	<-done
-	return nil
 }
 
 type getCurrentState struct {

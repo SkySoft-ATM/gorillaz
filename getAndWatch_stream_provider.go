@@ -106,16 +106,13 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) 
 	defer p.metrics.clientCounter.Dec()
 	broadcaster := p.broadcaster
 	streamCh := make(chan *mux.StateUpdate, p.config.SubscriberInputBufferLen)
-	err := broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
+	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
 		config.OnBackpressure(func(interface{}) {
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
 		return nil
 	})
-	if err != nil {
-		Log.Fatal("failed to register to broadcaster", zap.Error(err))
-	}
 	defer broadcaster.Unregister(streamCh)
 
 forloop:
@@ -149,7 +146,7 @@ forloop:
 				}
 				gwe.Key = se.Key
 				gwe.Value = se.Value
-				err = stream.ContextToMetadata(se.Ctx, gwe.Metadata)
+				err := stream.ContextToMetadata(se.Ctx, gwe.Metadata)
 				if err != nil {
 					Log.Error("failed to inject context data into metadata", zap.Error(err))
 				}
