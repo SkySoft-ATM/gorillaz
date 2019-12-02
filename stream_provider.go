@@ -104,10 +104,10 @@ func pMetricHolder(g *Gaz, streamName string) providerMetricsHolder {
 			},
 		}),
 	}
-	g.RegisterCollector(h.sentCounter)
-	g.RegisterCollector(h.backPressureCounter)
-	g.RegisterCollector(h.clientCounter)
-	g.RegisterCollector(h.lastEventTimestamp)
+	g.prometheusRegistry.MustRegister(h.sentCounter)
+	g.prometheusRegistry.MustRegister(h.backPressureCounter)
+	g.prometheusRegistry.MustRegister(h.clientCounter)
+	g.prometheusRegistry.MustRegister(h.lastEventTimestamp)
 	pMetrics[streamName] = h
 	return h
 }
