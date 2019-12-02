@@ -30,20 +30,30 @@ func TestBackpressureOnConsumer(t *testing.T) {
 		panic(err)
 	}
 
+	fastStarted := make(chan bool)
 	fastConsumerChan := make(chan interface{})
 	go func() {
+		fastStarted <- true
 		for range fastConsumerChan {
 			// poll as fast as possible
 		}
 	}()
 
+	// wait for fast consumer started
+	<-fastStarted
+
+	slowStarted := make(chan bool)
 	slowConsumerChan := make(chan interface{})
 	go func() {
 		// only consume 5 messages and stop working to simulate slow consumption after 5 messages
+		slowStarted <- true
 		for i := 0; i < 5; i++ {
 			<-slowConsumerChan
 		}
 	}()
+
+	// wait for slow consumer to have started
+	<-slowStarted
 
 	var backPressureChan = make(chan string, 2*toSend+1)
 
@@ -83,7 +93,7 @@ func TestBackpressureOnProducer(t *testing.T) {
 	failIfError(err, t)
 	var sent = make(chan bool, 1)
 	go func() {
-		_ = b.SubmitBlocking("someValue")
+		b.SubmitBlocking("someValue")
 		sent <- true
 	}()
 	timeout := make(chan bool, 1)
@@ -130,8 +140,7 @@ func TestNoBackpressureOnProducerWithEagerBroadcast(t *testing.T) {
 	failIfError(err, t)
 	var sent = make(chan bool, 1)
 	go func() {
-		err = b.SubmitBlocking("someValue")
-		failIfError(err, t)
+		b.SubmitBlocking("someValue")
 		sent <- true
 	}()
 	timeout := make(chan bool, 1)

@@ -6,7 +6,6 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/log"
 	"github.com/skysoft-atm/gorillaz"
-	_ "net/http/pprof"
 	"time"
 )
 import "github.com/skysoft-atm/gorillaz/stream"

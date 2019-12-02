@@ -33,8 +33,8 @@ func (g *Gaz) InitPrometheus(path string) {
 		ConstLabels: prometheus.Labels{"version": ApplicationVersion, "name": ApplicationName, "description": ApplicationDescription},
 	})
 
-	g.RegisterCollector(upCounter)
-	g.RegisterCollector(buildVersion)
+	g.prometheusRegistry.MustRegister(upCounter)
+	g.prometheusRegistry.MustRegister(buildVersion)
 
 	// the actual value is set in "version" label
 	buildVersion.Set(1)

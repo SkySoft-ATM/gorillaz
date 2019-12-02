@@ -593,17 +593,17 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) *consumer
 			},
 		}),
 	}
-	g.RegisterCollector(m.receivedCounter)
-	g.RegisterCollector(m.conAttemptCounter)
-	g.RegisterCollector(m.checkConnStatusCounter)
-	g.RegisterCollector(m.connStatus)
-	g.RegisterCollector(m.conGauge)
-	g.RegisterCollector(m.successConCounter)
-	g.RegisterCollector(m.disconnectionCounter)
-	g.RegisterCollector(m.failedConCounter)
-	g.RegisterCollector(m.delaySummary)
-	g.RegisterCollector(m.originDelaySummary)
-	g.RegisterCollector(m.eventDelaySummary)
+	g.prometheusRegistry.MustRegister(m.receivedCounter)
+	g.prometheusRegistry.MustRegister(m.conAttemptCounter)
+	g.prometheusRegistry.MustRegister(m.checkConnStatusCounter)
+	g.prometheusRegistry.MustRegister(m.connStatus)
+	g.prometheusRegistry.MustRegister(m.conGauge)
+	g.prometheusRegistry.MustRegister(m.successConCounter)
+	g.prometheusRegistry.MustRegister(m.disconnectionCounter)
+	g.prometheusRegistry.MustRegister(m.failedConCounter)
+	g.prometheusRegistry.MustRegister(m.delaySummary)
+	g.prometheusRegistry.MustRegister(m.originDelaySummary)
+	g.prometheusRegistry.MustRegister(m.eventDelaySummary)
 	consumerMonitorings[streamName] = m
 	return m
 }

@@ -146,7 +146,10 @@ forloop:
 				}
 				gwe.Key = se.Key
 				gwe.Value = se.Value
-				stream.ContextToMetadata(se.Ctx, gwe.Metadata)
+				err := stream.ContextToMetadata(se.Ctx, gwe.Metadata)
+				if err != nil {
+					Log.Error("failed to inject context data into metadata", zap.Error(err))
+				}
 			}
 			evt, err := proto.Marshal(&gwe)
 			if err != nil {

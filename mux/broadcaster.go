@@ -23,17 +23,16 @@ type Broadcaster struct {
 }
 
 // Register a new channel to receive broadcasts
-func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) error {
+func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) {
 	done := make(chan bool)
 	config := &ConsumerConfig{}
 	for _, option := range options {
 		if err := option(config); err != nil {
-			return err
+			panic("failed to register to broadcaster, option returned an error, " + err.Error())
 		}
 	}
 	b.reg <- registration{consumer{*config, newch}, done}
 	<-done
-	return nil
 }
 
 // Unregister a channel so that it no longer receives broadcasts.
@@ -44,33 +43,25 @@ func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 }
 
 // Shut this StateBroadcaster down.
-func (b *Broadcaster) Close() error {
+func (b *Broadcaster) Close() {
 	closed := make(chan bool)
 	b.closeReq <- closed
 	<-closed
-	return nil
 }
 
 // Submit a new object to all subscribers, this call can block if the input channel is full
-func (b *Broadcaster) SubmitBlocking(i interface{}) error {
-	if b != nil && i != nil {
-		b.input <- i
-		return nil
-	}
-	return fmt.Errorf("nil value")
+func (b *Broadcaster) SubmitBlocking(i interface{}) {
+	b.input <- i
 }
 
 // Submit a new object to all subscribers, this call will drop the message if the input channel is full
 func (b *Broadcaster) SubmitNonBlocking(i interface{}) error {
-	if b != nil && i != nil {
-		select {
-		case b.input <- i:
-			return nil
-		default:
-			return fmt.Errorf("value dropped")
-		}
+	select {
+	case b.input <- i:
+		return nil
+	default:
+		return fmt.Errorf("value dropped")
 	}
-	return fmt.Errorf("nil value")
 }
 
 func (b *Broadcaster) broadcast(m interface{}) {
