@@ -22,7 +22,7 @@ import (
 
 const (
 	StreamConsumerReceivedEvents         = "stream_consumer_received_events"
-	StreamConsumerConnectionAttemps      = "stream_consumer_connection_attempts"
+	StreamConsumerConnectionAttempts     = "stream_consumer_connection_attempts"
 	StreamConsumerConnectionStatusChecks = "stream_consumer_connection_status_checks"
 	StreamConsumerConnectionStatus       = "stream_consumer_connection_status"
 	StreamConsumerConnectionSuccess      = "stream_consumer_connection_success"
@@ -38,7 +38,7 @@ const StreamEndpointsLabel = "endpoints"
 
 func IsStreamConsumerMetric(m string) bool {
 	switch m {
-	case StreamConsumerReceivedEvents, StreamConsumerConnectionAttemps, StreamConsumerConnectionStatusChecks, StreamConsumerConnectionStatus,
+	case StreamConsumerReceivedEvents, StreamConsumerConnectionAttempts, StreamConsumerConnectionStatusChecks, StreamConsumerConnectionStatus,
 		StreamConsumerConnectionSuccess, StreamConsumerConnectionFailure, StreamConsumerDisconnections, StreamConsumerConnected, StreamConsumerDelayMs,
 		StreamConsumerOriginDelayMs, StreamConsumerEventDelayMs:
 		return true
@@ -528,7 +528,7 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) *consumer
 		}),
 
 		conAttemptCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: StreamConsumerConnectionAttemps,
+			Name: StreamConsumerConnectionAttempts,
 			Help: "The total number of connections to the stream",
 			ConstLabels: prometheus.Labels{
 				StreamNameLabel:      streamName,
