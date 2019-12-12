@@ -15,7 +15,6 @@ the full state immediately, otherwise values will be dropped on backpressure.
 package mux
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -110,12 +109,10 @@ func (b *StateBroadcaster) Close() {
 }
 
 // Submit a new object to all subscribers
-func (b *StateBroadcaster) Submit(k interface{}, v interface{}) error {
+func (b *StateBroadcaster) Submit(k interface{}, v interface{}) {
 	if b != nil && k != nil {
 		b.input <- keyValue{k, v}
-		return nil
 	}
-	return fmt.Errorf("nil key")
 }
 
 func (b *StateBroadcaster) Update(key interface{}, uf func(interface{}) interface{}) {
@@ -234,7 +231,7 @@ func (b *StateBroadcaster) GetCurrentState() map[interface{}]interface{} {
 
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
 // ttl defines a time to live for values sent to the state broadcaster, 0 means no expiry
-func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) (*StateBroadcaster, error) {
+func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...BroadcasterOptionFunc) *StateBroadcaster {
 	b := &StateBroadcaster{
 		input:             make(chan keyValue, bufLen),
 		get:               make(chan getCurrentState),
@@ -247,11 +244,9 @@ func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...Br
 		BroadcasterConfig: &BroadcasterConfig{},
 	}
 	for _, option := range options {
-		if err := option(b.BroadcasterConfig); err != nil {
-			return nil, err
-		}
+		option(b.BroadcasterConfig)
 	}
 
 	go b.run(ttl)
-	return b, nil
+	return b
 }

@@ -31,7 +31,7 @@ type ConsumerConfig struct {
 	onBackpressure func(value interface{})
 }
 
-type BroadcasterOptionFunc func(*BroadcasterConfig) error
+type BroadcasterOptionFunc func(*BroadcasterConfig)
 
 type ConsumerOptionFunc func(*ConsumerConfig) error
 
@@ -50,7 +50,6 @@ func (b *BroadcasterConfig) EagerBroadcast(eager bool) {
 	b.eagerBroadcast = eager
 }
 
-var LazyBroadcast BroadcasterOptionFunc = func(bc *BroadcasterConfig) error {
+var LazyBroadcast BroadcasterOptionFunc = func(bc *BroadcasterConfig) {
 	bc.eagerBroadcast = false
-	return nil
 }

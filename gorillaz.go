@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -221,10 +220,7 @@ func New(options ...GazOption) *Gaz {
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
 	gaz.streamRegistry = NewStreamRegistry(&gaz)
-	sdProvider, err := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
-	if err != nil {
-		Log.Fatal("Cannot create stream definitions provider", zap.Error(err))
-	}
+	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
 	gaz.streamDefinitions = sdProvider
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
 
@@ -278,6 +274,8 @@ func (g *Gaz) Run() <-chan struct{} {
 		Log.Panic("HTTP Listen failed", zap.Error(err))
 	}
 	g.httpListener = httpListener
+
+	go publishMetrics(g)
 
 	go func() {
 		// register /info to return the build version
@@ -349,7 +347,7 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 		PermitWithoutStream: true,
 	})
 	options := make([]grpc.DialOption, len(opts)+3)
-	options[0] = grpc.WithBalancerName(roundrobin.Name)
+	options[0] = grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`)
 	options[1] = grpc.WithBackoffMaxDelay(5 * time.Second)
 	options[2] = clientKeepAlive
 	for i, o := range opts {

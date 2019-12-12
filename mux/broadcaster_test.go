@@ -25,10 +25,7 @@ func TestBackpressureOnConsumer(t *testing.T) {
 
 	toSend := 20
 
-	b, err := NewNonBlockingBroadcaster(toSend)
-	if err != nil {
-		panic(err)
-	}
+	b := NewNonBlockingBroadcaster(toSend)
 
 	fastStarted := make(chan bool)
 	fastConsumerChan := make(chan interface{})
@@ -82,15 +79,8 @@ func TestBackpressureOnConsumer(t *testing.T) {
 	}
 }
 
-func failIfError(err error, t *testing.T) {
-	if err != nil {
-		t.Fail()
-	}
-}
-
 func TestBackpressureOnProducer(t *testing.T) {
-	b, err := NewNonBlockingBroadcaster(0, LazyBroadcast)
-	failIfError(err, t)
+	b := NewNonBlockingBroadcaster(0, LazyBroadcast)
 	var sent = make(chan bool, 1)
 	go func() {
 		b.SubmitBlocking("someValue")
@@ -110,8 +100,7 @@ func TestBackpressureOnProducer(t *testing.T) {
 }
 
 func TestProducerDropsMessageOnBackpressure(t *testing.T) {
-	b, err := NewNonBlockingBroadcaster(0, LazyBroadcast)
-	failIfError(err, t)
+	b := NewNonBlockingBroadcaster(0, LazyBroadcast)
 	var sent = make(chan bool, 1)
 	go func() {
 		err := b.SubmitNonBlocking("someValue")
@@ -136,8 +125,7 @@ func TestProducerDropsMessageOnBackpressure(t *testing.T) {
 }
 
 func TestNoBackpressureOnProducerWithEagerBroadcast(t *testing.T) {
-	b, err := NewNonBlockingBroadcaster(0)
-	failIfError(err, t)
+	b := NewNonBlockingBroadcaster(0)
 	var sent = make(chan bool, 1)
 	go func() {
 		b.SubmitBlocking("someValue")
