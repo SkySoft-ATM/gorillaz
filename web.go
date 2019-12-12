@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 	"io/ioutil"
 	"net/http"
+	"path/filepath"
 	"time"
 )
 
@@ -14,7 +15,7 @@ import (
 func ServeFileFunc(file string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
-		b, err := ioutil.ReadFile(file)
+		b, err := ioutil.ReadFile(filepath.Clean(file))
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 		} else {
