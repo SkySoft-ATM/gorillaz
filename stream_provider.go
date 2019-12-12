@@ -22,7 +22,7 @@ const (
 
 func IsStreamProviderMetric(m string) bool {
 	switch m {
-	case StreamBackpressureDropped, StreamConnectedClients, StreamLastEventTimestamp:
+	case StreamEventSent, StreamBackpressureDropped, StreamConnectedClients, StreamLastEventTimestamp:
 		return true
 	default:
 		return false
