@@ -56,3 +56,11 @@ func (g *Gaz) RegisterCollector(c prometheus.Collector) error {
 	}
 	return nil
 }
+
+// register the collector successfully or panic
+func (g *Gaz) MustRegisterCollector(c prometheus.Collector) {
+	err := g.prometheusRegistry.Register(c)
+	if err != nil {
+		panic("could not register collector, "+err.Error())
+	}
+}
