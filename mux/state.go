@@ -110,9 +110,15 @@ func (b *StateBroadcaster) Close() {
 
 // Submit a new object to all subscribers
 func (b *StateBroadcaster) Submit(k interface{}, v interface{}) {
-	if b != nil && k != nil {
-		b.input <- keyValue{k, v}
+	if b == nil {
+		panic("state broadcaster is nil")
 	}
+	if k == nil {
+		panic("cannot broadcast nil key")
+	}
+
+	b.input <- keyValue{k, v}
+
 }
 
 func (b *StateBroadcaster) Update(key interface{}, uf func(interface{}) interface{}) {

@@ -66,6 +66,8 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 		return nil, nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	go readLoop(ctx, cancel, conn)
+
 	go func() {
 		ticker := time.NewTicker(c.PingPeriod)
 		defer func() {
@@ -110,6 +112,20 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 	return messageChan, ctx, nil
 }
 
+func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn) {
+	for {
+		if _, _, err := c.NextReader(); err != nil { // we will get an error if a 'close' control message is received
+			cancel()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
+}
+
 // Publishes the given broadcaster on a websocket, the buffer size configures the buffer on the channel reading from the broadcaster
 func PublishPeriodicallyOverWebsocket(supplier func() *WsMessage, period time.Duration, opts ...WebsocketOption) func(w http.ResponseWriter, r *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
@@ -129,6 +145,7 @@ func PublishPeriodicallyOverWebsocket(supplier func() *WsMessage, period time.Du
 					ws <- wsm
 				}
 			case <-ctx.Done():
+				tick.Stop()
 				return
 			}
 		}
