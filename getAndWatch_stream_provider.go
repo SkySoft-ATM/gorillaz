@@ -45,7 +45,7 @@ func defaultGetAndWatchConfig() *GetAndWatchConfig {
 
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
-func (g *Gaz) NewGetAndWatchStreamProvider(streamName, dataType string, opts ...GetAndWatchConfigOpt) (*GetAndWatchStreamProvider, error) {
+func (g *Gaz) NewGetAndWatchStreamProvider(streamName, dataType string, opts ...GetAndWatchConfigOpt) *GetAndWatchStreamProvider {
 	Log.Info("creating stream", zap.String("stream", streamName))
 
 	config := defaultGetAndWatchConfig()
@@ -53,11 +53,7 @@ func (g *Gaz) NewGetAndWatchStreamProvider(streamName, dataType string, opts ...
 		opt(config)
 	}
 
-	broadcaster, err := mux.NewNonBlockingStateBroadcaster(config.InputBufferLen, config.Ttl)
-	if err != nil {
-		Log.Error("could not create state broadcaster", zap.Error(err))
-		return nil, err
-	}
+	broadcaster := mux.NewNonBlockingStateBroadcaster(config.InputBufferLen, config.Ttl)
 
 	p := &GetAndWatchStreamProvider{
 		streamDef:   &StreamDefinition{Name: streamName, DataType: dataType},
@@ -67,15 +63,15 @@ func (g *Gaz) NewGetAndWatchStreamProvider(streamName, dataType string, opts ...
 		gaz:         g,
 	}
 	g.streamRegistry.register(p)
-	return p, nil
+	return p
 }
 
 // Submit pushes the event to all subscribers and stores it by its key for new subscribers appearing on the stream
-func (p *GetAndWatchStreamProvider) Submit(evt *stream.Event) error {
+func (p *GetAndWatchStreamProvider) Submit(evt *stream.Event) {
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	return p.broadcaster.Submit(base64.StdEncoding.EncodeToString(evt.Key), evt)
+	p.broadcaster.Submit(base64.StdEncoding.EncodeToString(evt.Key), evt)
 }
 
 func (p *GetAndWatchStreamProvider) Delete(key []byte) {

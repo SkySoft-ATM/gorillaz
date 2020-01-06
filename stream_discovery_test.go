@@ -41,7 +41,7 @@ loop:
 		select {
 		case e := <-streamConsumer.EvtChan():
 			values = append(values, e.Value)
-			if len(values) == 2 { // expecting to receive the first existing streams
+			if len(values) == 3 { // expecting to receive the first existing streams
 				break loop
 			}
 		case <-timer.C:
