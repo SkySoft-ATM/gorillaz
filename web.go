@@ -42,8 +42,11 @@ type WsMessage struct {
 	Data        []byte
 }
 
-// Upgrades the http request to a websocket connection
-func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, opts ...WebsocketOption) (chan<- *WsMessage, context.Context, error) {
+// Upgrades the http request to a websocket connection and returns
+// - a channel to publish websocket messages
+// - a channel signaling that an error occurred and the publication has stopped
+// - an error if the upgrade was not successful
+func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, opts ...WebsocketOption) (chan<- *WsMessage, <-chan struct{}, error) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -61,10 +64,6 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 	if err != nil {
 		return nil, nil, err
 	}
-	err = conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
-	if err != nil {
-		return nil, nil, err
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	err = conn.SetReadDeadline(time.Now().Add(c.PongWait))
@@ -78,6 +77,7 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 		ticker := time.NewTicker(c.PingPeriod)
 		defer func() {
 			ticker.Stop()
+			cancel()
 			err := conn.Close()
 			if err != nil {
 				Log.Debug("Could not close websocket connection", zap.Error(err))
@@ -85,14 +85,17 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 		}()
 		for {
 			select {
-			case msg := <-messageChan:
+			case msg, ok := <-messageChan:
+				if !ok {
+					Log.Info("Websocket publication stopped by producer")
+					return
+				}
 				err := conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 				if err != nil {
 					Log.Debug("Could not set write deadline on websocket connection", zap.Error(err))
 				}
 				if err := conn.WriteMessage(msg.MessageType, msg.Data); err != nil {
 					Log.Debug("Could not write message over websocket", zap.Error(err))
-					cancel()
 					return
 				}
 			case <-ticker.C:
@@ -102,7 +105,6 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 				}
 				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 					Log.Debug("Could not send ping message over websocket", zap.Error(err))
-					cancel()
 					return
 				}
 			case <-ctx.Done():
@@ -110,7 +112,7 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 			}
 		}
 	}()
-	return messageChan, ctx, nil
+	return messageChan, ctx.Done(), nil
 }
 
 func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, readTimeout time.Duration) {
@@ -134,11 +136,12 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 // Publishes the given broadcaster on a websocket, the buffer size configures the buffer on the channel reading from the broadcaster
 func PublishPeriodicallyOverWebsocket(supplier func() *WsMessage, period time.Duration, opts ...WebsocketOption) func(w http.ResponseWriter, r *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
-		ws, ctx, err := UpgradeToWebsocketWithContext(rw, req, opts...)
+		ws, stopChan, err := UpgradeToWebsocketWithContext(rw, req, opts...)
 		if err != nil {
 			Log.Error("Error on connectionStateSubscription", zap.Error(err))
 			return
 		}
+		defer close(ws)
 
 		tick := time.NewTicker(period)
 
@@ -149,7 +152,7 @@ func PublishPeriodicallyOverWebsocket(supplier func() *WsMessage, period time.Du
 				if wsm != nil {
 					ws <- wsm
 				}
-			case <-ctx.Done():
+			case <-stopChan:
 				tick.Stop()
 				return
 			}
@@ -160,26 +163,31 @@ func PublishPeriodicallyOverWebsocket(supplier func() *WsMessage, period time.Du
 // Publishes the given broadcaster on a websocket, the buffer size configures the buffer on the channel reading from the broadcaster
 func PublishOverWebsocket(sb *mux.Broadcaster, bufferSize int, transform func(interface{}) *WsMessage, opts ...WebsocketOption) func(w http.ResponseWriter, r *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
-		ws, ctx, err := UpgradeToWebsocketWithContext(rw, req, opts...)
+		ws, stopChan, err := UpgradeToWebsocketWithContext(rw, req, opts...)
 		if err != nil {
 			Log.Error("Error on connectionStateSubscription", zap.Error(err))
 			return
 		}
+		defer close(ws)
 
 		updateChan := make(chan interface{}, bufferSize)
 		sb.Register(updateChan)
+		defer sb.Unregister(updateChan)
 		if err != nil {
 			Log.Error("Unable to register state update channel", zap.Error(err))
 			return
 		}
 		for {
 			select {
-			case u := <-updateChan:
+			case u, ok := <-updateChan:
+				if !ok {
+					return
+				}
 				wsm := transform(u)
 				if wsm != nil {
 					ws <- wsm
 				}
-			case <-ctx.Done():
+			case <-stopChan:
 				return
 			}
 		}
@@ -189,22 +197,27 @@ func PublishOverWebsocket(sb *mux.Broadcaster, bufferSize int, transform func(in
 // Publishes the given state broadcaster on a websocket, the buffer size configures the buffer on the channel reading from the state broadcaster
 func PublishStateOverWebsocket(sb *mux.StateBroadcaster, bufferSize int, transform func(*mux.StateUpdate) *WsMessage, opts ...WebsocketOption) func(w http.ResponseWriter, r *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
-		ws, ctx, err := UpgradeToWebsocketWithContext(rw, req, opts...)
+		ws, stopChan, err := UpgradeToWebsocketWithContext(rw, req, opts...)
 		if err != nil {
 			Log.Error("Error on connectionStateSubscription", zap.Error(err))
 			return
 		}
+		defer close(ws)
 
 		updateChan := make(chan *mux.StateUpdate, bufferSize)
 		sb.Register(updateChan)
+		defer sb.Unregister(updateChan)
 		for {
 			select {
-			case u := <-updateChan:
+			case u, ok := <-updateChan:
+				if !ok {
+					return
+				}
 				wsm := transform(u)
 				if wsm != nil {
 					ws <- wsm
 				}
-			case <-ctx.Done():
+			case <-stopChan:
 				return
 			}
 		}
