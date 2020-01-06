@@ -20,15 +20,6 @@ const (
 	StreamLastEventTimestamp  = "stream_last_evt_timestamp"
 )
 
-func IsStreamProviderMetric(m string) bool {
-	switch m {
-	case StreamEventSent, StreamBackpressureDropped, StreamConnectedClients, StreamLastEventTimestamp:
-		return true
-	default:
-		return false
-	}
-}
-
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
 func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {

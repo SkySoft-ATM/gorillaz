@@ -36,18 +36,6 @@ const (
 
 const StreamEndpointsLabel = "endpoints"
 
-func IsStreamConsumerMetric(m string) bool {
-	switch m {
-	case StreamConsumerReceivedEvents, StreamConsumerConnectionAttempts, StreamConsumerConnectionStatusChecks, StreamConsumerConnectionStatus,
-		StreamConsumerConnectionSuccess, StreamConsumerConnectionFailure, StreamConsumerDisconnections, StreamConsumerConnected, StreamConsumerDelayMs,
-		StreamConsumerOriginDelayMs, StreamConsumerEventDelayMs:
-		return true
-
-	default:
-		return false
-	}
-}
-
 type ConsumerConfig struct {
 	BufferLen      int // BufferLen is the size of the channel of the consumer
 	OnConnected    func(streamName string)
