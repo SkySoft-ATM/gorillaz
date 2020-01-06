@@ -51,7 +51,7 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 	c := WebsocketConfig{
 		WriteWait:  10 * time.Second,
 		PongWait:   60 * time.Second,
-		PingPeriod: (60 * time.Second * 9) / 10,
+		PingPeriod: (60 * time.Second * 9) / 10, // must be less than PongWait
 	}
 	for _, o := range opts {
 		o(&c)
@@ -66,7 +66,13 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 		return nil, nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	go readLoop(ctx, cancel, conn)
+
+	err = conn.SetReadDeadline(time.Now().Add(c.PongWait))
+	if err != nil {
+		Log.Debug("Could not set read deadline", zap.Error(err))
+	}
+	conn.SetPongHandler(func(string) error { _ = conn.SetReadDeadline(time.Now().Add(c.PongWait)); return nil })
+	go readLoop(ctx, cancel, conn, c.PongWait)
 
 	go func() {
 		ticker := time.NewTicker(c.PingPeriod)
@@ -75,11 +81,6 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 			err := conn.Close()
 			if err != nil {
 				Log.Debug("Could not close websocket connection", zap.Error(err))
-			}
-			// empty the ticker channel
-			select {
-			case <-ticker.C:
-			default:
 			}
 		}()
 		for {
@@ -112,7 +113,7 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 	return messageChan, ctx, nil
 }
 
-func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn) {
+func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, readTimeout time.Duration) {
 	for {
 		if _, _, err := c.NextReader(); err != nil { // we will get an error if a 'close' control message is received
 			cancel()
@@ -122,6 +123,10 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn)
 		case <-ctx.Done():
 			return
 		default:
+		}
+		err := c.SetReadDeadline(time.Now().Add(readTimeout))
+		if err != nil {
+			Log.Debug("Could not set read deadline", zap.Error(err))
 		}
 	}
 }
