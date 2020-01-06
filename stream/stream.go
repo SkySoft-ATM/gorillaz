@@ -10,9 +10,13 @@ type Event struct {
 	Key, Value []byte
 }
 
-const eventTimeNs = "event_time_ns"
-const streamTimestampNs = "stream_timestamp_ns"
-const originStreamTimestampNs = "origin_stream_timestamp_ns"
+// The key type is unexported to prevent collisions with context keys defined in
+// other packages.
+type key string
+
+const eventTimeNs = key("event_time_ns")
+const streamTimestampNs = key("stream_timestamp_ns")
+const originStreamTimestampNs = key("origin_stream_timestamp_ns")
 
 // StreamTimestamp returns the time when the event was sent from the producer in Epoch in nanoseconds
 func StreamTimestamp(e *Event) int64 {

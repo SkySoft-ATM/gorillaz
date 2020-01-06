@@ -1,6 +1,9 @@
 syntax = "proto3";
 
+import "metrics.proto";
+
 package stream;
+
 
 service Stream {
     rpc Stream (StreamRequest) returns (stream StreamEvent);
@@ -58,4 +61,8 @@ enum StreamType {
     UNKNOWN_STREAM_TYPE = 0;
     STREAM = 1;
     GET_AND_WATCH = 2;
+}
+
+message Metrics {
+    repeated io.prometheus.client.MetricFamily metrics = 1;
 }

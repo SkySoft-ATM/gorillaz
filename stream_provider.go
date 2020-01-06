@@ -12,6 +12,14 @@ import (
 	"sync"
 )
 
+const (
+	StreamNameLabel           = "stream"
+	StreamEventSent           = "stream_event_sent"
+	StreamBackpressureDropped = "stream_backpressure_dropped"
+	StreamConnectedClients    = "stream_connected_clients"
+	StreamLastEventTimestamp  = "stream_last_evt_timestamp"
+)
+
 // NewStreamProvider returns a new provider ready to be used.
 // only one instance of provider should be created for a given streamName
 func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderConfigOpt) (*StreamProvider, error) {
@@ -23,16 +31,11 @@ func (g *Gaz) NewStreamProvider(streamName, dataType string, opts ...ProviderCon
 	}
 
 	var broadcaster *mux.Broadcaster
-	var err error
 
 	if config.LazyBroadcast {
-		broadcaster, err = mux.NewNonBlockingBroadcaster(config.InputBufferLen, mux.LazyBroadcast)
+		broadcaster = mux.NewNonBlockingBroadcaster(config.InputBufferLen, mux.LazyBroadcast)
 	} else {
-		broadcaster, err = mux.NewNonBlockingBroadcaster(config.InputBufferLen)
-	}
-	if err != nil {
-		Log.Error("could not create stream broadcaster", zap.Error(err))
-		return nil, err
+		broadcaster = mux.NewNonBlockingBroadcaster(config.InputBufferLen)
 	}
 	p := &StreamProvider{
 		streamDef:   &StreamDefinition{Name: streamName, DataType: dataType},
@@ -73,34 +76,34 @@ func pMetricHolder(g *Gaz, streamName string) providerMetricsHolder {
 
 	h := providerMetricsHolder{
 		sentCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_event_sent",
+			Name: StreamEventSent,
 			Help: "The total number of messages sent",
 			ConstLabels: prometheus.Labels{
-				"stream": streamName,
+				StreamNameLabel: streamName,
 			},
 		}),
 
 		backPressureCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_backpressure_dropped",
+			Name: StreamBackpressureDropped,
 			Help: "The total number of messages dropped due to backpressure",
 			ConstLabels: prometheus.Labels{
-				"stream": streamName,
+				StreamNameLabel: streamName,
 			},
 		}),
 
 		clientCounter: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "stream_connected_clients",
+			Name: StreamConnectedClients,
 			Help: "The total number of clients connected",
 			ConstLabels: prometheus.Labels{
-				"stream": streamName,
+				StreamNameLabel: streamName,
 			},
 		}),
 
 		lastEventTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "stream_last_evt_timestamp",
+			Name: StreamLastEventTimestamp,
 			Help: "Timestamp of the last event produced",
 			ConstLabels: prometheus.Labels{
-				"stream": streamName,
+				StreamNameLabel: streamName,
 			},
 		}),
 	}

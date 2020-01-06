@@ -137,7 +137,7 @@ func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
 
 // NewBroadcaster creates a new Broadcaster with the given input channel buffer length.
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
-func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*Broadcaster, error) {
+func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) *Broadcaster {
 	b := &Broadcaster{
 		closeReq:          make(chan chan bool),
 		input:             make(chan interface{}, bufLen),
@@ -148,11 +148,9 @@ func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) (*B
 	}
 
 	for _, option := range options {
-		if err := option(b.BroadcasterConfig); err != nil {
-			return nil, err
-		}
+		option(b.BroadcasterConfig)
 	}
 
 	go b.run()
-	return b, nil
+	return b
 }

@@ -20,6 +20,22 @@ import (
 	"time"
 )
 
+const (
+	StreamConsumerReceivedEvents         = "stream_consumer_received_events"
+	StreamConsumerConnectionAttempts     = "stream_consumer_connection_attempts"
+	StreamConsumerConnectionStatusChecks = "stream_consumer_connection_status_checks"
+	StreamConsumerConnectionStatus       = "stream_consumer_connection_status"
+	StreamConsumerConnectionSuccess      = "stream_consumer_connection_success"
+	StreamConsumerConnectionFailure      = "stream_consumer_connection_failure"
+	StreamConsumerDisconnections         = "stream_consumer_disconnections"
+	StreamConsumerConnected              = "stream_consumer_connected"
+	StreamConsumerDelayMs                = "stream_consumer_delay_ms"
+	StreamConsumerOriginDelayMs          = "stream_consumer_origin_delay_ms"
+	StreamConsumerEventDelayMs           = "stream_consumer_event_delay_ms"
+)
+
+const StreamEndpointsLabel = "endpoints"
+
 type ConsumerConfig struct {
 	BufferLen      int // BufferLen is the size of the channel of the consumer
 	OnConnected    func(streamName string)
@@ -268,9 +284,7 @@ func (c *consumer) reconnectWhileNotStopped() {
 	for c.endpoint.conn.GetState() != connectivity.Shutdown && !c.isStopped() {
 		c.cMetrics.conGauge.Set(0)
 		c.cMetrics.conAttemptCounter.Inc()
-
 		waitTillConnReadyOrShutdown(c)
-
 		if c.endpoint.conn.GetState() == connectivity.Shutdown {
 			break
 		}
@@ -300,7 +314,6 @@ func (c *consumer) readStream() (retry bool) {
 		Log.Warn("Error while creating stream", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target), zap.Error(err))
 		return true
 	}
-
 	//without this hack we do not know if the stream is really connected
 	mds, err := st.Header()
 	if err == nil && mds != nil {
@@ -491,105 +504,106 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) *consumer
 	if m, ok := consumerMonitorings[streamName]; ok {
 		return m
 	}
+
 	m := &consumerMetrics{
 		receivedCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_consumer_received_events",
+			Name: StreamConsumerReceivedEvents,
 			Help: "The total number of events received",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		conAttemptCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_consumer_connection_attempts",
+			Name: StreamConsumerConnectionAttempts,
 			Help: "The total number of connections to the stream",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		checkConnStatusCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_consumer_connection_status_checks",
+			Name: StreamConsumerConnectionStatusChecks,
 			Help: "The total number of checks of gRPC connection status",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		connStatus: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "stream_consumer_connection_status",
+			Name: StreamConsumerConnectionStatus,
 			Help: "The total number of gRPC connection status",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}, []string{"status"}),
 
 		successConCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_consumer_connection_success",
+			Name: StreamConsumerConnectionSuccess,
 			Help: "The total number of successful connections to the stream",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		failedConCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_consumer_connection_failure",
+			Name: StreamConsumerConnectionFailure,
 			Help: "The total number of failed connection attempt to the stream",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		disconnectionCounter: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "stream_consumer_disconnections",
+			Name: StreamConsumerDisconnections,
 			Help: "The total number of disconnections to the stream",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		conGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "stream_consumer_connected",
+			Name: StreamConsumerConnected,
 			Help: "1 if connected, otherwise 0",
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		delaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
-			Name:       "stream_consumer_delay_ms",
+			Name:       StreamConsumerDelayMs,
 			Help:       "distribution of delay between when messages are sent to from the consumer and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 
 		originDelaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
-			Name:       "stream_consumer_origin_delay_ms",
+			Name:       StreamConsumerOriginDelayMs,
 			Help:       "distribution of delay between when messages were created by the first producer in the chain of streams, and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 		eventDelaySummary: prometheus.NewSummary(prometheus.SummaryOpts{
-			Name:       "stream_consumer_event_delay_ms",
+			Name:       StreamConsumerEventDelayMs,
 			Help:       "distribution of delay between when messages were created and when they are received, in milliseconds",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 			ConstLabels: prometheus.Labels{
-				"stream":    streamName,
-				"endpoints": strings.Join(endpoints, ","),
+				StreamNameLabel:      streamName,
+				StreamEndpointsLabel: strings.Join(endpoints, ","),
 			},
 		}),
 	}
