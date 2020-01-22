@@ -46,11 +46,7 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 	var blockingClientChan = make(chan string, numberOfStateMessagesSent)
 	var nonBlockingClientChan = make(chan string, numberOfStateMessagesSent)
 
-	b, err := NewNonBlockingStateBroadcaster(50, 0)
-
-	if err != nil {
-		t.Fail()
-	}
+	b := NewNonBlockingStateBroadcaster(50, 0)
 
 	var wg sync.WaitGroup
 	wg.Add(2 * numberOfStateMessagesSent)
@@ -85,7 +81,7 @@ func TestBackpressureOnStateBroadcaster(t *testing.T) {
 
 func TestFullStateSentToSubscriber(t *testing.T) {
 
-	b, _ := NewNonBlockingStateBroadcaster(50, 0)
+	b := NewNonBlockingStateBroadcaster(50, 0)
 
 	chan1 := make(chan *StateUpdate, 20)
 	chan2 := make(chan *StateUpdate, 20)
@@ -147,7 +143,7 @@ loop:
 }
 
 func TestTtl(t *testing.T) {
-	b, _ := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond)
+	b := NewNonBlockingStateBroadcaster(50, 1*time.Millisecond)
 
 	chan1 := make(chan *StateUpdate, 20)
 
@@ -174,7 +170,7 @@ func TestTtl(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 
-	b, _ := NewNonBlockingStateBroadcaster(50, 0)
+	b := NewNonBlockingStateBroadcaster(50, 0)
 
 	chan1 := make(chan *StateUpdate, 20)
 	chan2 := make(chan *StateUpdate, 20)
@@ -205,7 +201,7 @@ func TestDelete(t *testing.T) {
 
 func TestStateCleared(t *testing.T) {
 
-	b, _ := NewNonBlockingStateBroadcaster(50, 0)
+	b := NewNonBlockingStateBroadcaster(50, 0)
 
 	b.Submit("A", "A1")
 	time.Sleep(50 * time.Millisecond)

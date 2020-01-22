@@ -34,16 +34,14 @@ type provider interface {
 
 type streamRegistry struct {
 	sync.RWMutex
-	g          *Gaz
-	providers  map[string]provider
-	serviceIds map[string]RegistrationHandle // for each stream a service is registered in the service discovery
+	g         *Gaz
+	providers map[string]provider
 }
 
 func newStreamRegistry(g *Gaz) *streamRegistry {
 	sr := &streamRegistry{
-		g:          g,
-		providers:  make(map[string]provider),
-		serviceIds: make(map[string]RegistrationHandle),
+		g:         g,
+		providers: make(map[string]provider),
 	}
 	return sr
 }
@@ -88,10 +86,7 @@ func (sr *streamRegistry) register(p provider) {
 	se := stream.Event{Ctx: nil, Key: []byte(streamName), Value: bytes}
 
 	if sr.g.streamDefinitions != nil {
-		err = sr.g.streamDefinitions.Submit(&se)
-		if err != nil {
-			panic(err)
-		}
+		sr.g.streamDefinitions.Submit(&se)
 	}
 }
 

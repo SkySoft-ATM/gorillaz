@@ -40,9 +40,9 @@ func (g *Gaz) InitPrometheus(path string) {
 	buildVersion.Set(1)
 
 	go func() {
-		t := time.Tick(time.Second)
+		t := time.NewTicker(time.Second)
 		for {
-			<-t
+			<-t.C
 			upCounter.Inc()
 		}
 	}()
