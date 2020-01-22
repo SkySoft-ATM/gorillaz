@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -220,7 +219,7 @@ func New(options ...GazOption) *Gaz {
 
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
-	gaz.streamRegistry = NewStreamRegistry(&gaz)
+	gaz.streamRegistry = newStreamRegistry(&gaz)
 	sdProvider, err := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
 	if err != nil {
 		Log.Fatal("Cannot create stream definitions provider", zap.Error(err))

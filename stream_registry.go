@@ -39,7 +39,7 @@ type streamRegistry struct {
 	serviceIds map[string]RegistrationHandle // for each stream a service is registered in the service discovery
 }
 
-func NewStreamRegistry(g *Gaz) *streamRegistry {
+func newStreamRegistry(g *Gaz) *streamRegistry {
 	sr := &streamRegistry{
 		g:          g,
 		providers:  make(map[string]provider),
