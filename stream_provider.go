@@ -128,6 +128,7 @@ type ProviderConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
+	DisconnectOnBackPressure bool                    // if DisconnectOnBackpressure, in case of backpressure, disconnect the consumer
 }
 
 func defaultProviderConfig() *ProviderConfig {
@@ -201,6 +202,9 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
+		if p.config.DisconnectOnBackPressure {
+			config.DisconnectOnBackpressure()
+		}
 		return nil
 	})
 

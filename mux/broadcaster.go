@@ -20,6 +20,7 @@ type Broadcaster struct {
 	unreg    chan unregistration
 	outputs  map[chan<- interface{}]ConsumerConfig
 	*BroadcasterConfig
+	subscriberCount uint64
 }
 
 // Register a new channel to receive broadcasts
@@ -75,6 +76,9 @@ func (b *Broadcaster) broadcast(m interface{}) {
 			if subConfig.onBackpressure != nil {
 				subConfig.onBackpressure(m)
 			}
+			if subConfig.disconnectOnBackpressure {
+				b.unregister(ch)
+			}
 		}
 	}
 	if b.postBroadcast != nil {
@@ -84,21 +88,17 @@ func (b *Broadcaster) broadcast(m interface{}) {
 
 // onBackPressureState can be nil
 func (b *Broadcaster) run() {
-	subscriberCount := 0
-
-waitForSub:
-	// if lazy, wait for the first registration before doing anything
-	if !b.eagerBroadcast {
-		select {
-		case r := <-b.reg:
-			subscriberCount = b.addSubscriber(r, subscriberCount)
-		case closed := <-b.closeReq:
-			closed <- true
-			return
-		}
-	}
-
 	for {
+		// if lazy, if there is no more subscriber, do not consume any value until there is at least 1 subscriber
+		for !b.eagerBroadcast && b.subscriberCount == 0 {
+			select {
+			case r := <-b.reg:
+				b.addSubscriber(r)
+			case closed := <-b.closeReq:
+				closed <- true
+				return
+			}
+		}
 		select {
 		case closed := <-b.closeReq:
 			close(b.input)
@@ -110,29 +110,36 @@ waitForSub:
 			for sub := range b.outputs {
 				close(sub)
 			}
+			// cleanup b.outputs
+			for sub := range b.outputs {
+				delete(b.outputs, sub)
+			}
 			closed <- true
 			return
 		case r := <-b.reg:
-			subscriberCount = b.addSubscriber(r, subscriberCount)
+			b.addSubscriber(r)
 		case u := <-b.unreg:
-			delete(b.outputs, u.channel)
-			subscriberCount--
+			b.unregister(u.channel)
 			u.done <- true
-
-			// if lazy, if there is no more subscriber, block until there is at least 1 subscriber
-			if !b.eagerBroadcast && subscriberCount == 0 {
-				goto waitForSub
-			}
 		case m := <-b.input:
 			b.broadcast(m)
 		}
 	}
 }
 
-func (b *Broadcaster) addSubscriber(r registration, subscriberCount int) int {
+func (b *Broadcaster) unregister(ch chan<- interface{}) {
+	// check if the channel was not already unregistered
+	if _, ok := b.outputs[ch]; ok {
+		delete(b.outputs, ch)
+		close(ch)
+		b.subscriberCount--
+	}
+}
+
+func (b *Broadcaster) addSubscriber(r registration) {
 	b.outputs[r.consumer.channel] = r.consumer.config
+	b.subscriberCount++
 	r.done <- true
-	return subscriberCount + 1
 }
 
 // NewBroadcaster creates a new Broadcaster with the given input channel buffer length.
