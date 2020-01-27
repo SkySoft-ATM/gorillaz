@@ -7,6 +7,8 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -97,7 +99,7 @@ func (p *GetAndWatchStreamProvider) sendHelloMessage(strm grpc.ServerStream, pee
 	return nil
 }
 
-func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
+func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
 	defer p.metrics.clientCounter.Dec()
@@ -115,12 +117,16 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) 
 	})
 	defer broadcaster.Unregister(streamCh)
 
-forloop:
 	for {
 		select {
 		case su, ok := <-streamCh:
 			if !ok {
-				break forloop //channel closed
+				// if the broadcaster is closed, then there are no more values to be sent to consumers
+				if broadcaster.Closed() {
+					return nil
+				}
+				// otherwise, it's just for this consumer, it's because the consumer is not consuming fast enough
+				return status.Error(codes.DataLoss, "not consuming fast enough")
 			}
 			gwe := stream.GetAndWatchEvent{
 				Metadata: &stream.Metadata{
@@ -154,14 +160,15 @@ forloop:
 			evt, err := proto.Marshal(&gwe)
 			if err != nil {
 				Log.Error("Error while marshalling GetAndWatchEvent", zap.Error(err))
+				return err
 			}
 			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
 				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-				break forloop
+				return err
 			}
 		case <-strm.Context().Done():
 			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-			break forloop
+			return strm.Context().Err()
 
 		}
 	}

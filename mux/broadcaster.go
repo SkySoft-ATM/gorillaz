@@ -11,6 +11,7 @@ package mux
 
 import (
 	"fmt"
+	"sync/atomic"
 )
 
 type Broadcaster struct {
@@ -21,6 +22,7 @@ type Broadcaster struct {
 	outputs  map[chan<- interface{}]ConsumerConfig
 	*BroadcasterConfig
 	subscriberCount uint64
+	closed          uint32
 }
 
 // Register a new channel to receive broadcasts
@@ -45,9 +47,14 @@ func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 
 // Shut this StateBroadcaster down.
 func (b *Broadcaster) Close() {
+	atomic.StoreUint32(&b.closed, 1)
 	closed := make(chan bool)
 	b.closeReq <- closed
 	<-closed
+}
+
+func (b *Broadcaster) Closed() bool {
+	return atomic.LoadUint32(&b.closed) > 0
 }
 
 // Submit a new object to all subscribers, this call can block if the input channel is full

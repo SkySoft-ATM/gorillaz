@@ -8,6 +8,8 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strings"
 	"sync"
 )
@@ -192,9 +194,12 @@ func (p *StreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) err
 	return nil
 }
 
-func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
+func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
+	defer func() {
+		p.metrics.clientCounter.Dec()
+	}()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
 	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
@@ -208,27 +213,31 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
 		return nil
 	})
 
-forloop:
+	defer func() {
+		broadcaster.Unregister(streamCh)
+	}()
+
 	for {
 		select {
 		case val, ok := <-streamCh:
 			if !ok {
-				break forloop //channel closed
+				// if the broadcaster is closed, then there are no more values to be sent, there is no error
+				if broadcaster.Closed() {
+					return nil
+				}
+				// otherwise, the consumer gets disconnected because it's not consuming fast enough
+				return status.Error(codes.DataLoss, "not consuming fast enough")
 			}
 			evt := val.([]byte)
-			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
+			if err := strm.SendMsg(evt); err != nil {
 				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-				broadcaster.Unregister(streamCh)
-				break forloop
+				return err
 			}
 		case <-strm.Context().Done():
 			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-			broadcaster.Unregister(streamCh)
-			break forloop
-
+			return strm.Context().Err()
 		}
 	}
-	p.metrics.clientCounter.Dec()
 }
 
 func (p *StreamProvider) CloseStream() error {

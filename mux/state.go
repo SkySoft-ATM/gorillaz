@@ -15,6 +15,7 @@ the full state immediately, otherwise values will be dropped on backpressure.
 package mux
 
 import (
+	"sync/atomic"
 	"time"
 )
 
@@ -44,6 +45,7 @@ type StateBroadcaster struct {
 	outputs map[StateUpdateChan]ConsumerConfig
 	state   map[interface{}]ttlValue
 	update  chan update
+	closed  uint32
 	*BroadcasterConfig
 }
 
@@ -105,7 +107,12 @@ func (b *StateBroadcaster) Unregister(newch StateUpdateChan) {
 
 // Shut this StateBroadcaster down.
 func (b *StateBroadcaster) Close() {
+	atomic.StoreUint32(&b.closed, 1)
 	close(b.reg)
+}
+
+func (b *StateBroadcaster) Closed() bool {
+	return atomic.LoadUint32(&b.closed) > 0
 }
 
 // Submit a new object to all subscribers
@@ -151,6 +158,9 @@ func (b *StateBroadcaster) broadcast(m *StateUpdate) {
 			config := b.outputs[ch]
 			if config.onBackpressure != nil {
 				config.onBackpressure(m)
+			}
+			if config.disconnectOnBackpressure {
+				b.unregister(ch)
 			}
 		}
 	}
@@ -209,7 +219,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 				return
 			}
 		case u := <-b.unreg:
-			delete(b.outputs, u.channel)
+			b.unregister(u.channel)
 			u.done <- true
 		case m := <-b.input:
 			key := m.key
@@ -233,6 +243,13 @@ func (b *StateBroadcaster) GetCurrentState() map[interface{}]interface{} {
 	callback := make(chan map[interface{}]interface{}, 1)
 	b.get <- getCurrentState{callback: callback}
 	return <-callback
+}
+
+func (b *StateBroadcaster) unregister(c StateUpdateChan) {
+	if _, found := b.outputs[c]; found {
+		delete(b.outputs, c)
+		close(c)
+	}
 }
 
 // NewBroadcaster creates a new StateBroadcaster with the given input channel buffer length.
