@@ -38,7 +38,7 @@ type gorillazResolverBuilder struct {
 	gaz *Gaz
 }
 
-func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOption) (resolver.Resolver, error) {
+func (g *gorillazResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	var result resolver.Resolver
 
 	if strings.HasPrefix(target.Endpoint, SdPrefix) {
@@ -118,7 +118,7 @@ func (r *serviceDiscoveryResolver) sendUpdate() {
 	r.cc.UpdateState(resolver.State{Addresses: addrs})
 }
 
-func (*serviceDiscoveryResolver) ResolveNow(o resolver.ResolveNowOption) {}
+func (*serviceDiscoveryResolver) ResolveNow(o resolver.ResolveNowOptions) {}
 
 func (r *serviceDiscoveryResolver) Close() {
 	select {
@@ -139,8 +139,8 @@ type gorillazDefaultResolver struct {
 func (r *gorillazDefaultResolver) start() {
 	r.cc.UpdateState(resolver.State{Addresses: r.addresses})
 }
-func (*gorillazDefaultResolver) ResolveNow(o resolver.ResolveNowOption) {}
-func (*gorillazDefaultResolver) Close()                                 {}
+func (*gorillazDefaultResolver) ResolveNow(o resolver.ResolveNowOptions) {}
+func (*gorillazDefaultResolver) Close()                                  {}
 
 func (g *Gaz) Register(d *ServiceDefinition) (RegistrationHandle, error) {
 	if g.ServiceDiscovery == nil {

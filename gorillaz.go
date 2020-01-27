@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -347,7 +348,15 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 	})
 	options := make([]grpc.DialOption, len(opts)+3)
 	options[0] = grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`)
-	options[1] = grpc.WithBackoffMaxDelay(5 * time.Second)
+	options[1] = grpc.WithConnectParams(grpc.ConnectParams{
+		MinConnectTimeout: 2 * time.Second,
+		Backoff: backoff.Config{
+			Multiplier: 1.6,
+			Jitter:     0.2,
+			BaseDelay:  200 * time.Millisecond,
+			MaxDelay:   5 * time.Second,
+		},
+	})
 	options[2] = clientKeepAlive
 	for i, o := range opts {
 		options[3+i] = o
