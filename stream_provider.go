@@ -168,8 +168,8 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	b, err := proto.Marshal(streamEvent)
-	if err != nil {
+	b, err2 := proto.Marshal(streamEvent)
+	if err2 != nil {
 		Log.Error("error while marshaling stream.StreamEvent, cannot send event", zap.Error(err))
 		return
 	}
