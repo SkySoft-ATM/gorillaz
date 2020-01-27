@@ -89,10 +89,6 @@ func TestStreamEvents(t *testing.T) {
 		Value: []byte("testooValue"),
 	}
 
-	// TODO: not great to sleep here, but connected just means we were able to connect the streaming provider
-	// it doesn't mean the registration is done on the server side, so we must wait for the registration to be successful
-	time.Sleep(time.Second * 1)
-
 	provider1.Submit(evt1)
 	provider2.Submit(evt2)
 
