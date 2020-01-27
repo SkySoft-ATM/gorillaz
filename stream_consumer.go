@@ -239,7 +239,7 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 		grpc.WithConnectParams(grpc.ConnectParams{
 			MinConnectTimeout: 2 * time.Second,
 			Backoff: backoff.Config{
-				BaseDelay:  500 * time.Millisecond,
+				BaseDelay:  100 * time.Millisecond,
 				Multiplier: 1.6,
 				MaxDelay:   config.backoffMaxDelay,
 				Jitter:     0.2,

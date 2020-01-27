@@ -342,12 +342,9 @@ func (g *Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grp
 }
 
 func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	clientKeepAlive := grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		Time:                15 * time.Second,
-		PermitWithoutStream: true,
-	})
 	options := make([]grpc.DialOption, len(opts)+3)
 	options[0] = grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`)
+
 	options[1] = grpc.WithConnectParams(grpc.ConnectParams{
 		MinConnectTimeout: 2 * time.Second,
 		Backoff: backoff.Config{
@@ -357,7 +354,10 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 			MaxDelay:   5 * time.Second,
 		},
 	})
-	options[2] = clientKeepAlive
+	options[2] = grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time:                15 * time.Second,
+		PermitWithoutStream: true,
+	})
 	for i, o := range opts {
 		options[3+i] = o
 	}
