@@ -7,6 +7,8 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -30,6 +32,7 @@ type GetAndWatchConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	Ttl                      time.Duration
+	DisconnectOnBackpressure bool // Disconnect consumer if not able to consume fast enough
 }
 
 func defaultGetAndWatchConfig() *GetAndWatchConfig {
@@ -96,7 +99,7 @@ func (p *GetAndWatchStreamProvider) sendHelloMessage(strm grpc.ServerStream, pee
 	return nil
 }
 
-func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
+func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
 	defer p.metrics.clientCounter.Dec()
@@ -107,16 +110,23 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) 
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
+		if p.config.DisconnectOnBackpressure {
+			config.DisconnectOnBackpressure()
+		}
 		return nil
 	})
 	defer broadcaster.Unregister(streamCh)
 
-forloop:
 	for {
 		select {
 		case su, ok := <-streamCh:
 			if !ok {
-				break forloop //channel closed
+				// if the broadcaster is closed, then there are no more values to be sent to consumers
+				if broadcaster.Closed() {
+					return nil
+				}
+				// otherwise, it's just for this consumer, it's because the consumer is not consuming fast enough
+				return status.Error(codes.DataLoss, "not consuming fast enough")
 			}
 			gwe := stream.GetAndWatchEvent{
 				Metadata: &stream.Metadata{
@@ -150,14 +160,15 @@ forloop:
 			evt, err := proto.Marshal(&gwe)
 			if err != nil {
 				Log.Error("Error while marshalling GetAndWatchEvent", zap.Error(err))
+				return err
 			}
 			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
 				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-				break forloop
+				return err
 			}
 		case <-strm.Context().Done():
 			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-			break forloop
+			return strm.Context().Err()
 
 		}
 	}

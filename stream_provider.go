@@ -8,6 +8,8 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strings"
 	"sync"
 )
@@ -128,6 +130,7 @@ type ProviderConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
+	DisconnectOnBackPressure bool                    // if DisconnectOnBackpressure, in case of backpressure, disconnect the consumer
 }
 
 func defaultProviderConfig() *ProviderConfig {
@@ -165,8 +168,8 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	b, err := proto.Marshal(streamEvent)
-	if err != nil {
+	b, err2 := proto.Marshal(streamEvent)
+	if err2 != nil {
 		Log.Error("error while marshaling stream.StreamEvent, cannot send event", zap.Error(err))
 		return
 	}
@@ -191,9 +194,12 @@ func (p *StreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) err
 	return nil
 }
 
-func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
+func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
+	defer func() {
+		p.metrics.clientCounter.Dec()
+	}()
 	broadcaster := p.broadcaster
 	streamCh := make(chan interface{}, p.config.SubscriberInputBufferLen)
 	broadcaster.Register(streamCh, func(config *mux.ConsumerConfig) error {
@@ -201,30 +207,37 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) {
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
+		if p.config.DisconnectOnBackPressure {
+			config.DisconnectOnBackpressure()
+		}
 		return nil
 	})
 
-forloop:
+	defer func() {
+		broadcaster.Unregister(streamCh)
+	}()
+
 	for {
 		select {
 		case val, ok := <-streamCh:
 			if !ok {
-				break forloop //channel closed
+				// if the broadcaster is closed, then there are no more values to be sent, there is no error
+				if broadcaster.Closed() {
+					return nil
+				}
+				// otherwise, the consumer gets disconnected because it's not consuming fast enough
+				return status.Error(codes.DataLoss, "not consuming fast enough")
 			}
 			evt := val.([]byte)
-			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
+			if err := strm.SendMsg(evt); err != nil {
 				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-				broadcaster.Unregister(streamCh)
-				break forloop
+				return err
 			}
 		case <-strm.Context().Done():
 			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
-			broadcaster.Unregister(streamCh)
-			break forloop
-
+			return strm.Context().Err()
 		}
 	}
-	p.metrics.clientCounter.Dec()
 }
 
 func (p *StreamProvider) CloseStream() error {
