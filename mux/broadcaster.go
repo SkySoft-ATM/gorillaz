@@ -15,7 +15,7 @@ import (
 )
 
 type Broadcaster struct {
-	closeReq chan chan bool
+	closeReq chan chan struct{}
 	input    chan interface{}
 	reg      chan registration
 	unreg    chan unregistration
@@ -26,7 +26,7 @@ type Broadcaster struct {
 
 // Register a new channel to receive broadcasts
 func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOptionFunc) {
-	done := make(chan bool)
+	done := make(chan struct{})
 	config := &ConsumerConfig{}
 	for _, option := range options {
 		if err := option(config); err != nil {
@@ -39,7 +39,7 @@ func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOpti
 
 // Unregister a channel so that it no longer receives broadcasts.
 func (b *Broadcaster) Unregister(newch chan<- interface{}) {
-	done := make(chan bool)
+	done := make(chan struct{})
 	b.unreg <- unregistration{newch, done}
 	<-done
 }
@@ -47,7 +47,7 @@ func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 // Shut this StateBroadcaster down.
 func (b *Broadcaster) Close() {
 	atomic.StoreUint32(&b.closed, 1)
-	closed := make(chan bool)
+	closed := make(chan struct{})
 	b.closeReq <- closed
 	<-closed
 }
@@ -100,11 +100,11 @@ func (b *Broadcaster) run() {
 			select {
 			case u := <-b.unreg:
 				// there is currently no registration
-				u.done <- true
+				u.done <- struct{}{}
 			case r := <-b.reg:
 				b.addSubscriber(r)
 			case closed := <-b.closeReq:
-				closed <- true
+				closed <- struct{}{}
 				return
 			}
 		} else {
@@ -112,7 +112,7 @@ func (b *Broadcaster) run() {
 			case closed := <-b.closeReq:
 				close(b.input)
 				if len(b.outputs) == 0 {
-					closed <- true
+					closed <- struct{}{}
 					return
 				}
 				// if there are still messages to broadcast, do it
@@ -127,13 +127,13 @@ func (b *Broadcaster) run() {
 				for sub := range b.outputs {
 					delete(b.outputs, sub)
 				}
-				closed <- true
+				closed <- struct{}{}
 				return
 			case r := <-b.reg:
 				b.addSubscriber(r)
 			case u := <-b.unreg:
 				b.unregister(u.channel)
-				u.done <- true
+				u.done <- struct{}{}
 			case m := <-b.input:
 				b.broadcast(m)
 			}
@@ -151,14 +151,14 @@ func (b *Broadcaster) unregister(ch chan<- interface{}) {
 
 func (b *Broadcaster) addSubscriber(r registration) {
 	b.outputs[r.consumer.channel] = r.consumer.config
-	r.done <- true
+	r.done <- struct{}{}
 }
 
 // NewBroadcaster creates a new Broadcaster with the given input channel buffer length.
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
 func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) *Broadcaster {
 	b := &Broadcaster{
-		closeReq:          make(chan chan bool),
+		closeReq:          make(chan chan struct{}),
 		input:             make(chan interface{}, bufLen),
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),

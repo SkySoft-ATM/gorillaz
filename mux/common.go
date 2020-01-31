@@ -4,12 +4,12 @@ import "time"
 
 type registration struct {
 	consumer consumer
-	done     chan<- bool
+	done     chan<- struct{}
 }
 
 type unregistration struct {
 	channel chan<- interface{}
-	done    chan<- bool
+	done    chan<- struct{}
 }
 
 type consumer struct {

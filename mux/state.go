@@ -68,7 +68,7 @@ func (su *StateUpdate) IsDelete() bool {
 
 // Register a new channel to receive broadcasts
 func (b *StateBroadcaster) Register(newch StateUpdateChan, options ...ConsumerOptionFunc) {
-	done := make(chan bool)
+	done := make(chan struct{})
 	config := &ConsumerConfig{}
 	for _, option := range options {
 		if err := option(config); err != nil {
@@ -85,12 +85,12 @@ type getCurrentState struct {
 
 type stateRegistration struct {
 	consumer stateConsumer
-	done     chan<- bool
+	done     chan<- struct{}
 }
 
 type stateUnregistration struct {
 	channel StateUpdateChan
-	done    chan<- bool
+	done    chan<- struct{}
 }
 
 type stateConsumer struct {
@@ -100,7 +100,7 @@ type stateConsumer struct {
 
 // Unregister a channel so that it no longer receives broadcasts.
 func (b *StateBroadcaster) Unregister(newch StateUpdateChan) {
-	done := make(chan bool)
+	done := make(chan struct{})
 	b.unreg <- stateUnregistration{newch, done}
 	<-done
 }
@@ -210,7 +210,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 					}
 
 				}
-				r.done <- true
+				r.done <- struct{}{}
 			} else {
 				// close all registered output channel to notify them that the StateBroadcaster is closed
 				for output := range b.outputs {
@@ -220,7 +220,7 @@ func (b *StateBroadcaster) run(ttl time.Duration) {
 			}
 		case u := <-b.unreg:
 			b.unregister(u.channel)
-			u.done <- true
+			u.done <- struct{}{}
 		case m := <-b.input:
 			key := m.key
 			var expiresAt time.Time

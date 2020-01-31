@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	prom_client "github.com/prometheus/client_model/go"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -354,4 +355,64 @@ func createConsumerWithAddr(t *testing.T, g *Gaz, endpoint, streamName string) S
 		t.FailNow()
 	}
 	return nil
+}
+
+func TestDisconnectOnBackpressure(t *testing.T) {
+	_, sdOption := NewMockedServiceDiscovery()
+	g := New(WithServiceName("test"), sdOption)
+	<-g.Run()
+	defer g.Shutdown()
+
+	streamName := "TestDisconnectOnBackpressure"
+
+	backPressureHappened := make(chan struct{}, 1)
+
+	provider, err := g.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
+		conf.LazyBroadcast = true
+		conf.DisconnectOnBackPressure = true
+		conf.OnBackPressure = func(streamName string) {
+			backPressureHappened <- struct{}{}
+		}
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	clientDisconnected := make(chan struct{}, 1)
+
+	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, func(cc *ConsumerConfig) {
+		cc.OnDisconnected = func(streamName string) {
+			clientDisconnected <- struct{}{}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer consumer.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	backPressureOnProvider := false
+	disconnectOnClient := false
+
+	for {
+
+		if backPressureOnProvider && disconnectOnClient {
+			return //works as expected
+		}
+
+		provider.Submit(&stream.Event{Value: []byte("a value")})
+		select {
+		case <-ctx.Done():
+			t.Error("Backpressure not seen on time")
+		case <-backPressureHappened:
+			backPressureOnProvider = true
+		case <-clientDisconnected:
+			disconnectOnClient = true
+		default:
+			//send some more
+		}
+	}
 }
