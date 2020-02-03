@@ -370,6 +370,8 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 	provider, err := g.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
 		conf.LazyBroadcast = true
 		conf.DisconnectOnBackPressure = true
+		conf.InputBufferLen = 10
+		conf.SubscriberInputBufferLen = 10
 		conf.OnBackPressure = func(streamName string) {
 			backPressureHappened <- struct{}{}
 		}
