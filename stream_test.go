@@ -368,7 +368,7 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 	backPressureHappened := make(chan struct{}, 1)
 
 	provider, err := g.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
-		conf.LazyBroadcast = true
+		conf.LazyBroadcast = false
 		conf.DisconnectOnBackPressure = true
 		conf.InputBufferLen = 10
 		conf.SubscriberInputBufferLen = 10
@@ -393,7 +393,7 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 	}
 	defer consumer.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	backPressureOnProvider := false
@@ -404,11 +404,20 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 		if backPressureOnProvider && disconnectOnClient {
 			return //works as expected
 		}
-
-		provider.Submit(&stream.Event{Value: []byte("a value")})
+		if !backPressureOnProvider {
+			// needs more messages
+			provider.Submit(&stream.Event{Value: []byte("a value")})
+		} else {
+			// consume message on the client to avoid blocking the disconnect signal
+			select {
+			case <-consumer.EvtChan():
+			default:
+			}
+		}
 		select {
 		case <-ctx.Done():
 			t.Error("Backpressure not seen on time")
+			return
 		case <-backPressureHappened:
 			backPressureOnProvider = true
 		case <-clientDisconnected:
