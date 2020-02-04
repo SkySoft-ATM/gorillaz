@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/health"
-	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/resolver"
@@ -34,6 +33,7 @@ type Gaz struct {
 	Viper              *viper.Viper
 	// use int32 because sync.atomic package doesn't support boolean out of the box
 	isReady               *int32
+	healthServer          *health.Server
 	streamRegistry        *streamRegistry
 	grpcListener          net.Listener
 	grpcServerOptions     []grpc.ServerOption
@@ -223,11 +223,6 @@ func New(options ...GazOption) *Gaz {
 	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
 	gaz.streamDefinitions = sdProvider
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
-
-	Log.Info("Registering gRPC health server")
-	healthServer := health.NewServer()
-	healthServer.SetServingStatus("Stream", grpc_health_v1.HealthCheckResponse_SERVING)
-	grpc_health_v1.RegisterHealthServer(gaz.GrpcServer, healthServer)
 
 	Log.Info("Registering gorillaz gRPC resolver")
 	resolver.Register(&gorillazResolverBuilder{gaz: &gaz})

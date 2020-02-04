@@ -505,3 +505,76 @@ func TestReconnectAfterInactivity(t *testing.T) {
 	t.FailNow()
 }
 
+func TestStreamHealth(t *testing.T) {
+	var streamName = "stream_heatlh"
+
+	g1 := New(WithServiceName("g1"))
+	<- g1.Run()
+	g1.SetReady(true)
+	provider1,err := g1.NewStreamProvider(streamName, "candies", func(c *ProviderConfig){
+		c.LazyBroadcast= true
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	defer g1.Shutdown()
+
+	g2 := New(WithServiceName("g1"))
+	<- g2.Run()
+	provider2,err := g2.NewStreamProvider(streamName, "candies", func(c *ProviderConfig){
+		c.LazyBroadcast= true
+	})
+	if err != nil {
+		panic(err)
+	}
+	g2.SetReady(true)
+
+	defer g2.Shutdown()
+	g := New(WithServiceName("consumber"))
+
+	consumer,err := g.ConsumeStream([]string{fmt.Sprintf("localhost:%d", g1.GrpcPort()), fmt.Sprintf("localhost:%d", g2.GrpcPort())}, streamName)
+	newEvent := func(i int) *stream.Event {
+		return &stream.Event{Key: []byte(strconv.Itoa(i)), Value: []byte(strconv.Itoa(i))}
+	}
+
+	fromEvent := func(event *stream.Event) int {
+		v,err := strconv.Atoi(string(event.Key))
+		if err != nil {
+			panic(err)
+		}
+		return v
+	}
+
+	go func() {
+		provider1.Submit(newEvent(0))
+		provider1.Submit(newEvent(1))
+		g1.SetReady(false)
+		time.Sleep(3*time.Second)
+		g1.SetReady(true)
+		provider1.Submit(newEvent(2))
+		provider1.Submit(newEvent(3))
+	}()
+
+	go func() {
+		time.Sleep(time.Second)
+		provider2.Submit(newEvent(10))
+		provider2.Submit(newEvent(11))
+		g2.SetReady(false)
+		time.Sleep(3*time.Millisecond)
+		g2.SetReady(true)
+		provider2.Submit(newEvent(12))
+		provider2.Submit(newEvent(13))
+	}()
+
+	v1 := fromEvent(<-consumer.EvtChan())
+	v2 := fromEvent(<-consumer.EvtChan())
+	v3 := fromEvent(<-consumer.EvtChan())
+	v4 := fromEvent(<-consumer.EvtChan())
+
+	t.Log(v1, v2, v3, v4)
+	t.FailNow()
+
+
+}
+

@@ -1,6 +1,8 @@
 package gorillaz
 
 import (
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"net/http"
 	"sync/atomic"
 )
@@ -18,6 +20,10 @@ func (g *Gaz) InitHealthcheck() {
 	live := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
+	g.healthServer = health.NewServer()
+	grpc_health_v1.RegisterHealthServer(g.GrpcServer, g.healthServer)
+	g.healthServer.SetServingStatus("Stream", grpc_health_v1.HealthCheckResponse_UNKNOWN)
+
 
 	g.Router.HandleFunc("/ready", ready).Methods("GET")
 	g.Router.HandleFunc("/live", live).Methods("GET")
@@ -27,7 +33,9 @@ func (g *Gaz) InitHealthcheck() {
 func (g *Gaz) SetReady(status bool) {
 	var statusInt int32
 	if status {
+		g.healthServer.SetServingStatus("Stream", grpc_health_v1.HealthCheckResponse_SERVING)
 		statusInt = 1
 	}
+	g.healthServer.SetServingStatus("Stream", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 	atomic.StoreInt32(g.isReady, statusInt)
 }
