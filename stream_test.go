@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -418,3 +419,80 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 		}
 	}
 }
+
+
+
+func TestReconnectAfterInactivity(t *testing.T) {
+	g1 := New(WithServiceName("provider1"))
+	<-g1.Run()
+	defer g1.Shutdown()
+
+	g2 := New(WithServiceName("provider2"))
+	<-g2.Run()
+	defer g2.Shutdown()
+
+	g := New(WithServiceName("consumer"))
+	<-g.Run()
+	defer g.Shutdown()
+
+	streamName := "TestReconnectOnInactivity"
+
+	provider1, err := g1.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
+		conf.LazyBroadcast = true
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	provider2, err := g2.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
+		conf.LazyBroadcast = true
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	addresses := []string{fmt.Sprintf("localhost:%d, localhost:%d", g1.GrpcPort(), g2.GrpcPort())}
+
+	consumer, err := g.ConsumeStream(addresses, streamName, WithReconnectAfterInactivity(400*time.Millisecond))
+
+	defer consumer.Stop()
+
+	newEvent := func(i int) *stream.Event {
+		return &stream.Event{Key: []byte(strconv.Itoa(i)), Value: []byte(strconv.Itoa(i))}
+	}
+
+	fromEvent := func(event *stream.Event) int {
+		v,err := strconv.Atoi(string(event.Key))
+		if err != nil {
+			panic(err)
+		}
+		return v
+	}
+
+	go func() {
+		provider1.Submit(newEvent(0))
+		provider1.Submit(newEvent(1))
+		time.Sleep(600*time.Millisecond)
+		provider1.Submit(newEvent(2))
+		provider1.Submit(newEvent(3))
+	}()
+
+	go func() {
+		provider2.Submit(newEvent(10))
+		provider2.Submit(newEvent(11))
+		time.Sleep(600*time.Millisecond)
+		provider2.Submit(newEvent(12))
+		provider2.Submit(newEvent(13))
+	}()
+
+	v1 := fromEvent(<-consumer.EvtChan())
+	v2 := fromEvent(<-consumer.EvtChan())
+	v3 := fromEvent(<-consumer.EvtChan())
+	v4 := fromEvent(<-consumer.EvtChan())
+
+	t.Log(v1, v2, v3, v4)
+	t.FailNow()
+}
+
