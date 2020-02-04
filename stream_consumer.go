@@ -42,6 +42,7 @@ type ConsumerConfig struct {
 	OnConnected    func(streamName string)
 	OnDisconnected func(streamName string)
 	UseGzip        bool
+	HealthCheck func(context.Context, context.CancelFunc, <- chan *stream.Event)
 }
 
 type StreamEndpointConfig struct {
@@ -90,6 +91,7 @@ type consumer struct {
 	cMetrics   *consumerMetrics
 }
 
+
 func (c *consumer) streamEndpoint() *streamEndpoint {
 	return c.endpoint
 }
@@ -130,7 +132,7 @@ func defaultConsumerConfig() *ConsumerConfig {
 
 func defaultStreamEndpointConfig() *StreamEndpointConfig {
 	return &StreamEndpointConfig{
-		backoffMaxDelay: 5 * time.Second,
+		backoffMaxDelay: 2 * time.Second,
 	}
 }
 
@@ -138,7 +140,6 @@ func BackoffMaxDelay(duration time.Duration) StreamEndpointConfigOpt {
 	return func(config *StreamEndpointConfig) {
 		config.backoffMaxDelay = duration
 	}
-
 }
 
 type ConsumerConfigOpt func(*ConsumerConfig)
@@ -146,6 +147,33 @@ type ConsumerConfigOpt func(*ConsumerConfig)
 type StreamEndpointConfigOpt func(config *StreamEndpointConfig)
 
 type EndpointType uint8
+
+func WithReconnectAfterInactivity(timeout time.Duration) ConsumerConfigOpt {
+	return func(c *ConsumerConfig){
+		c.HealthCheck = func(ctx context.Context, cancel context.CancelFunc, evtCh <- chan *stream.Event){
+			t := time.NewTimer(timeout)
+			for {
+				select {
+				case <-ctx.Done():
+					stopTimer(t)
+					return
+				case <-evtCh:
+					stopTimer(t)
+					t.Reset(timeout)
+				case <-t.C:
+					Log.Info("disconnect stream reader after inactivity")
+					cancel()
+					stopTimer(t)
+					return
+				}
+			}
+		}
+	}
+}
+
+func stopTimer(t *time.Timer){
+
+}
 
 // Add options for the stream endpoint creation, this can be used when stream endpoints are created under the hood by the methods below.
 func WithStreamEndpointOptions(opts ...StreamEndpointConfigOpt) Option {
@@ -316,6 +344,13 @@ func (c *consumer) readStream() (retry bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var healthCh chan *stream.Event
+
+	if c.config.HealthCheck != nil {
+		healthCh = make(chan *stream.Event, c.config.BufferLen)
+		go c.config.HealthCheck(ctx, cancel, healthCh)
+	}
+
 	st, err := client.Stream(ctx, req, callOpts...)
 	if err != nil {
 		c.cMetrics.failedConCounter.Inc()
@@ -347,7 +382,7 @@ func (c *consumer) readStream() (retry bool) {
 			c.cMetrics.conGauge.Set(1)
 			c.cMetrics.successConCounter.Inc()
 
-			// at this point, the GRPC connection is established with the server
+			// at this point, the gRPC connection is established with the server
 			for !c.isStopped() {
 				streamEvt, err := st.Recv()
 				if err != nil {
@@ -379,6 +414,14 @@ func (c *consumer) readStream() (retry bool) {
 					Key:   streamEvt.Key,
 					Value: streamEvt.Value,
 					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+				}
+				if healthCh != nil {
+					select {
+						case healthCh <- evt:
+							// ok
+						default:
+							Log.Warn("failed to forward event to health check, buffer is full")
+					}
 				}
 				c.evtChan <- evt
 			}
