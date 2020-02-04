@@ -392,7 +392,7 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 	}
 	defer consumer.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	backPressureOnProvider := false
