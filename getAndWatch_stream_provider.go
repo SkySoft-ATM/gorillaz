@@ -32,7 +32,6 @@ type GetAndWatchConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	Ttl                      time.Duration
-	DisconnectOnBackpressure bool // Disconnect consumer if not able to consume fast enough
 }
 
 func defaultGetAndWatchConfig() *GetAndWatchConfig {
@@ -99,7 +98,7 @@ func (p *GetAndWatchStreamProvider) sendHelloMessage(strm grpc.ServerStream, pee
 	return nil
 }
 
-func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
+func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, opts sendLoopOpts) error {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
 	defer p.metrics.clientCounter.Dec()
@@ -110,7 +109,7 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) 
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
-		if p.config.DisconnectOnBackpressure {
+		if opts.disconnectOnBackpressure {
 			config.DisconnectOnBackpressure()
 		}
 		return nil

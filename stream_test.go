@@ -369,8 +369,6 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 
 	provider, err := g.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
 		conf.LazyBroadcast = true
-		conf.DisconnectOnBackPressure = true
-		conf.InputBufferLen = 10
 		conf.SubscriberInputBufferLen = 10
 		conf.OnBackPressure = func(streamName string) {
 			backPressureHappened <- struct{}{}
@@ -387,13 +385,14 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 		cc.OnDisconnected = func(streamName string) {
 			clientDisconnected <- struct{}{}
 		}
+		cc.DisconnectOnBackpressure = true
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer consumer.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	backPressureOnProvider := false
@@ -405,7 +404,8 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 			return //works as expected
 		}
 
-		provider.Submit(&stream.Event{Value: []byte("a value")})
+		provider.SubmitNonBlocking(&stream.Event{Value: []byte("a value")})
+
 		select {
 		case <-ctx.Done():
 			t.Error("Backpressure not seen on time")

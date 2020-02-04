@@ -12,9 +12,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"io"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +24,7 @@ import (
 )
 
 const (
+	// Prometheus metrics
 	StreamConsumerReceivedEvents         = "stream_consumer_received_events"
 	StreamConsumerConnectionAttempts     = "stream_consumer_connection_attempts"
 	StreamConsumerConnectionStatusChecks = "stream_consumer_connection_status_checks"
@@ -33,15 +36,18 @@ const (
 	StreamConsumerDelayMs                = "stream_consumer_delay_ms"
 	StreamConsumerOriginDelayMs          = "stream_consumer_origin_delay_ms"
 	StreamConsumerEventDelayMs           = "stream_consumer_event_delay_ms"
+	// gRPC headers
+	DisconnectOnBackPressureHeader = "disco-on-backpressure"
 )
 
 const StreamEndpointsLabel = "endpoints"
 
 type ConsumerConfig struct {
-	BufferLen      int // BufferLen is the size of the channel of the consumer
-	OnConnected    func(streamName string)
-	OnDisconnected func(streamName string)
-	UseGzip        bool
+	BufferLen                int // BufferLen is the size of the channel of the consumer
+	OnConnected              func(streamName string)
+	OnDisconnected           func(streamName string)
+	UseGzip                  bool
+	DisconnectOnBackpressure bool
 }
 
 type StreamEndpointConfig struct {
@@ -316,6 +322,8 @@ func (c *consumer) readStream() (retry bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	ctx = metadata.AppendToOutgoingContext(ctx, DisconnectOnBackPressureHeader, strconv.FormatBool(c.config.DisconnectOnBackpressure))
+
 	st, err := client.Stream(ctx, req, callOpts...)
 	if err != nil {
 		c.cMetrics.failedConCounter.Inc()
@@ -428,6 +436,12 @@ func (c *consumer) backOffOnError(err error) {
 			codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
 			time.Sleep(5 * time.Second)
 		}
+	}
+}
+
+func WithDisconnectOnBackpressure() ConsumerConfigOpt {
+	return func(c *ConsumerConfig) {
+		c.DisconnectOnBackpressure = true
 	}
 }
 

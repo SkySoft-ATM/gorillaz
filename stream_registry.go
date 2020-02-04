@@ -27,9 +27,13 @@ type StreamDefinition struct {
 type provider interface {
 	close()
 	streamDefinition() *StreamDefinition
-	sendLoop(strm grpc.ServerStream, peer Peer) error
+	sendLoop(strm grpc.ServerStream, peer Peer, opts sendLoopOpts) error
 	streamType() stream.StreamType
 	sendHelloMessage(strm grpc.ServerStream, peer Peer) error
+}
+
+type sendLoopOpts struct {
+	disconnectOnBackpressure bool
 }
 
 type streamRegistry struct {
@@ -116,6 +120,20 @@ func (sr *streamRegistry) publishOnStream(np StreamRequest, strm grpc.ServerStre
 	peer := getPeer(strm, np)
 	streamName := np.GetName()
 	requester := np.GetRequesterName()
+
+	opts := sendLoopOpts{}
+	if md, ok := metadata.FromIncomingContext(strm.Context()); ok {
+		v := md.Get(DisconnectOnBackPressureHeader)
+		if len(v) > 0 {
+			deco, err := strconv.ParseBool(v[0])
+			if err == nil {
+				opts.disconnectOnBackpressure = deco
+			} else {
+				Log.Warn("failed to parse header into boolean", zap.String("header", DisconnectOnBackPressureHeader), zap.String("value", v[0]), zap.Error(err))
+			}
+		}
+	}
+
 	Log.Info("new stream consumer", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("requester", requester))
 	sr.RLock()
 	provider, ok := sr.providers[streamName]
@@ -137,7 +155,7 @@ func (sr *streamRegistry) publishOnStream(np StreamRequest, strm grpc.ServerStre
 			return err
 		}
 	}
-	return provider.sendLoop(strm, peer)
+	return provider.sendLoop(strm, peer, opts)
 }
 
 func getPeer(strm grpc.ServerStream, np StreamRequest) Peer {

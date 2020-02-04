@@ -130,7 +130,6 @@ type ProviderConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
-	DisconnectOnBackPressure bool                    // if DisconnectOnBackpressure, in case of backpressure, disconnect the consumer
 }
 
 func defaultProviderConfig() *ProviderConfig {
@@ -153,6 +152,24 @@ var LazyBroadcast = func(p *ProviderConfig) {
 
 // Submit pushes the event to all subscribers
 func (p *StreamProvider) Submit(evt *stream.Event) {
+	b, err := p.marshal(evt)
+	if err != nil {
+		Log.Error("failed to marshal event", zap.String("key", string(evt.Key)), zap.Error(err))
+		return
+	}
+	p.broadcaster.SubmitBlocking(b)
+}
+
+// Submit pushes the event to all subscribers
+func (p *StreamProvider) SubmitNonBlocking(evt *stream.Event) error {
+	b, err := p.marshal(evt)
+	if err != nil {
+		return err
+	}
+	return p.broadcaster.SubmitNonBlocking(b)
+}
+
+func (p *StreamProvider) marshal(evt *stream.Event) ([]byte, error) {
 	streamEvent := &stream.StreamEvent{
 		Metadata: &stream.Metadata{
 			KeyValue: make(map[string]string),
@@ -160,7 +177,7 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	}
 	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata)
 	if err != nil {
-		Log.Error("error while creating Metadata from event.Context", zap.Error(err))
+		Log.Error("error while creating Metadata from event.Context", zap.String("key", string(evt.Key)), zap.Error(err))
 	}
 	streamEvent.Key = evt.Key
 	streamEvent.Value = evt.Value
@@ -168,12 +185,7 @@ func (p *StreamProvider) Submit(evt *stream.Event) {
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
-	b, err2 := proto.Marshal(streamEvent)
-	if err2 != nil {
-		Log.Error("error while marshaling stream.StreamEvent, cannot send event", zap.Error(err))
-		return
-	}
-	p.broadcaster.SubmitBlocking(b)
+	return proto.Marshal(streamEvent)
 }
 
 func (p *StreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) error {
@@ -194,7 +206,7 @@ func (p *StreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) err
 	return nil
 }
 
-func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
+func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, opts sendLoopOpts) error {
 	streamName := p.streamDef.Name
 	p.metrics.clientCounter.Inc()
 	defer func() {
@@ -207,7 +219,7 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer) error {
 			p.config.OnBackPressure(streamName)
 			p.metrics.backPressureCounter.Inc()
 		})
-		if p.config.DisconnectOnBackPressure {
+		if opts.disconnectOnBackpressure {
 			config.DisconnectOnBackpressure()
 		}
 		return nil
