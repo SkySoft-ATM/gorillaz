@@ -8,6 +8,7 @@ import (
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
@@ -235,7 +236,15 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 	target := strings.Join(endpoints, ",")
 	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
-		grpc.WithBackoffMaxDelay(config.backoffMaxDelay),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			MinConnectTimeout: 2 * time.Second,
+			Backoff: backoff.Config{
+				BaseDelay:  100 * time.Millisecond,
+				Multiplier: 1.6,
+				MaxDelay:   config.backoffMaxDelay,
+				Jitter:     0.2,
+			},
+		}),
 	)
 
 	if err != nil {

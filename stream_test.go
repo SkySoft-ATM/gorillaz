@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	prom_client "github.com/prometheus/client_model/go"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -88,10 +89,6 @@ func TestStreamEvents(t *testing.T) {
 		Key:   []byte("testooKey"),
 		Value: []byte("testooValue"),
 	}
-
-	// TODO: not great to sleep here, but connected just means we were able to connect the streaming provider
-	// it doesn't mean the registration is done on the server side, so we must wait for the registration to be successful
-	time.Sleep(time.Second * 1)
 
 	provider1.Submit(evt1)
 	provider2.Submit(evt2)
@@ -358,4 +355,75 @@ func createConsumerWithAddr(t *testing.T, g *Gaz, endpoint, streamName string) S
 		t.FailNow()
 	}
 	return nil
+}
+
+func TestDisconnectOnBackpressure(t *testing.T) {
+	_, sdOption := NewMockedServiceDiscovery()
+	g := New(WithServiceName("test"), sdOption)
+	<-g.Run()
+	defer g.Shutdown()
+
+	streamName := "TestDisconnectOnBackpressure"
+
+	backPressureHappened := make(chan struct{}, 1)
+
+	provider, err := g.NewStreamProvider(streamName, "dummy.type", func(conf *ProviderConfig) {
+		conf.LazyBroadcast = false
+		conf.DisconnectOnBackPressure = true
+		conf.InputBufferLen = 10
+		conf.SubscriberInputBufferLen = 10
+		conf.OnBackPressure = func(streamName string) {
+			backPressureHappened <- struct{}{}
+		}
+	})
+	if err != nil {
+		t.Errorf("cannot start provider, %+v", err)
+		return
+	}
+
+	clientDisconnected := make(chan struct{}, 1)
+
+	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, func(cc *ConsumerConfig) {
+		cc.OnDisconnected = func(streamName string) {
+			clientDisconnected <- struct{}{}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer consumer.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	backPressureOnProvider := false
+	disconnectOnClient := false
+
+	for {
+
+		if backPressureOnProvider && disconnectOnClient {
+			return //works as expected
+		}
+		if !backPressureOnProvider {
+			// needs more messages
+			provider.Submit(&stream.Event{Value: []byte("a value")})
+		} else {
+			// consume message on the client to avoid blocking the disconnect signal
+			select {
+			case <-consumer.EvtChan():
+			default:
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Error("Backpressure not seen on time")
+			return
+		case <-backPressureHappened:
+			backPressureOnProvider = true
+		case <-clientDisconnected:
+			disconnectOnClient = true
+		default:
+			//send some more
+		}
+	}
 }

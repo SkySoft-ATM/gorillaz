@@ -27,7 +27,7 @@ type StreamDefinition struct {
 type provider interface {
 	close()
 	streamDefinition() *StreamDefinition
-	sendLoop(strm grpc.ServerStream, peer Peer)
+	sendLoop(strm grpc.ServerStream, peer Peer) error
 	streamType() stream.StreamType
 	sendHelloMessage(strm grpc.ServerStream, peer Peer) error
 }
@@ -38,7 +38,7 @@ type streamRegistry struct {
 	providers map[string]provider
 }
 
-func NewStreamRegistry(g *Gaz) *streamRegistry {
+func newStreamRegistry(g *Gaz) *streamRegistry {
 	sr := &streamRegistry{
 		g:         g,
 		providers: make(map[string]provider),
@@ -137,8 +137,7 @@ func (sr *streamRegistry) publishOnStream(np StreamRequest, strm grpc.ServerStre
 			return err
 		}
 	}
-	provider.sendLoop(strm, peer)
-	return nil
+	return provider.sendLoop(strm, peer)
 }
 
 func getPeer(strm grpc.ServerStream, np StreamRequest) Peer {

@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	_ "github.com/coreos/etcd/clientv3"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -219,7 +219,7 @@ func New(options ...GazOption) *Gaz {
 
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
-	gaz.streamRegistry = NewStreamRegistry(&gaz)
+	gaz.streamRegistry = newStreamRegistry(&gaz)
 	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
 	gaz.streamDefinitions = sdProvider
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
@@ -342,14 +342,22 @@ func (g *Gaz) GrpcDialService(serviceName string, opts ...grpc.DialOption) (*grp
 }
 
 func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	clientKeepAlive := grpc.WithKeepaliveParams(keepalive.ClientParameters{
+	options := make([]grpc.DialOption, len(opts)+3)
+	options[0] = grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`)
+
+	options[1] = grpc.WithConnectParams(grpc.ConnectParams{
+		MinConnectTimeout: 2 * time.Second,
+		Backoff: backoff.Config{
+			Multiplier: 1.6,
+			Jitter:     0.2,
+			BaseDelay:  200 * time.Millisecond,
+			MaxDelay:   5 * time.Second,
+		},
+	})
+	options[2] = grpc.WithKeepaliveParams(keepalive.ClientParameters{
 		Time:                15 * time.Second,
 		PermitWithoutStream: true,
 	})
-	options := make([]grpc.DialOption, len(opts)+3)
-	options[0] = grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`)
-	options[1] = grpc.WithBackoffMaxDelay(5 * time.Second)
-	options[2] = clientKeepAlive
 	for i, o := range opts {
 		options[3+i] = o
 	}
