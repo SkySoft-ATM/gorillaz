@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -11,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -59,6 +61,7 @@ type GazOption interface {
 	apply(*Gaz) error
 }
 
+
 type InitOption struct {
 	Init func(g *Gaz) error
 }
@@ -105,9 +108,17 @@ func WithTracingEnabled() InitOption {
 	}}
 }
 
+// WithGrpcTLSConfig set up TLS configuration for gRPC server
+func WithGrpcTLSConfig(config *tls.Config) InitOption {
+	return InitOption{Init: func(g *Gaz) error {
+		g.grpcServerOptions = append(g.grpcServerOptions, grpc.Creds(credentials.NewTLS(config)))
+		return nil
+	}}
+}
+
 func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 	return Option{func(g *Gaz) error {
-		g.grpcServerOptions = o
+		g.grpcServerOptions = append(g.grpcServerOptions, o...)
 		return nil
 	}}
 }

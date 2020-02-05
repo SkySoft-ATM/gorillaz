@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
 	"io"
@@ -46,6 +48,8 @@ type ConsumerConfig struct {
 
 type StreamEndpointConfig struct {
 	backoffMaxDelay time.Duration
+	secure bool
+	dialOpts []grpc.DialOption
 }
 
 type StreamConsumer interface {
@@ -155,6 +159,14 @@ func WithStreamEndpointOptions(opts ...StreamEndpointConfigOpt) Option {
 	}}
 }
 
+// WithTransportCredentials can be specify TLS configuration to connect to a streaming endpoint
+func (g *Gaz) WithTransportCredentials(config *tls.Config) StreamEndpointConfigOpt {
+	return func(c *StreamEndpointConfig){
+		c.secure = true
+		c.dialOpts = append(c.dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(config)))
+	}
+}
+
 // Call this method to create a stream consumer with the full stream name (pattern: "serviceName.streamName")
 // The service name is resolved via service discovery
 // Under the hood we make sure that only 1 subscription is done for a service, even if multiple streams are created on the same service
@@ -233,19 +245,28 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 		opt(config)
 	}
 
-	target := strings.Join(endpoints, ",")
-	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
+	dialOpts := config.dialOpts
+
+	// if TLS is not setup
+	if !config.secure{
+		dialOpts = append(dialOpts, grpc.WithInsecure())
+	}
+
+	// build backoff parameter
+	dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			MinConnectTimeout: 2 * time.Second,
 			Backoff: backoff.Config{
-				BaseDelay:  100 * time.Millisecond,
+				BaseDelay:  10 * time.Millisecond,
 				Multiplier: 1.6,
 				MaxDelay:   config.backoffMaxDelay,
 				Jitter:     0.2,
 			},
 		}),
 	)
+
+	target := strings.Join(endpoints, ",")
+	conn, err := g.GrpcDial(target,dialOpts...)
 
 	if err != nil {
 		return nil, err
