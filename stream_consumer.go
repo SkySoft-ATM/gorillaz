@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	// Prometheus metrics
 	StreamConsumerReceivedEvents         = "stream_consumer_received_events"
 	StreamConsumerConnectionAttempts     = "stream_consumer_connection_attempts"
 	StreamConsumerConnectionStatusChecks = "stream_consumer_connection_status_checks"
@@ -38,10 +39,11 @@ const (
 const StreamEndpointsLabel = "endpoints"
 
 type ConsumerConfig struct {
-	BufferLen      int // BufferLen is the size of the channel of the consumer
-	OnConnected    func(streamName string)
-	OnDisconnected func(streamName string)
-	UseGzip        bool
+	BufferLen                int // BufferLen is the size of the channel of the consumer
+	OnConnected              func(streamName string)
+	OnDisconnected           func(streamName string)
+	UseGzip                  bool
+	DisconnectOnBackpressure bool
 }
 
 type StreamEndpointConfig struct {
@@ -306,7 +308,12 @@ func (c *consumer) reconnectWhileNotStopped() {
 
 func (c *consumer) readStream() (retry bool) {
 	client := stream.NewStreamClient(c.endpoint.conn)
-	req := &stream.StreamRequest{Name: c.streamName, RequesterName: c.endpoint.g.ServiceName, ExpectHello: true}
+	req := &stream.StreamRequest{
+		Name:                     c.streamName,
+		RequesterName:            c.endpoint.g.ServiceName,
+		ExpectHello:              true,
+		DisconnectOnBackpressure: c.config.DisconnectOnBackpressure,
+	}
 
 	var callOpts []grpc.CallOption
 	if c.config.UseGzip {
@@ -428,6 +435,12 @@ func (c *consumer) backOffOnError(err error) {
 			codes.Unimplemented, codes.NotFound, codes.Unauthenticated, codes.Unknown:
 			time.Sleep(5 * time.Second)
 		}
+	}
+}
+
+func WithDisconnectOnBackpressure() ConsumerConfigOpt {
+	return func(c *ConsumerConfig) {
+		c.DisconnectOnBackpressure = true
 	}
 }
 
