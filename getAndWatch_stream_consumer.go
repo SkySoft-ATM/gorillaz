@@ -142,7 +142,12 @@ func (c *getAndWatchConsumer) reconnectGetAndWatchWhileNotStopped() {
 
 func (c *getAndWatchConsumer) readGetAndWatchStream() (retry bool) {
 	client := stream.NewStreamClient(c.endpoint.conn)
-	req := &stream.GetAndWatchRequest{Name: c.streamName, RequesterName: c.endpoint.g.ServiceName}
+	req := &stream.GetAndWatchRequest{
+		Name:                     c.streamName,
+		RequesterName:            c.endpoint.g.ServiceName,
+		ExpectHello:              true,
+		DisconnectOnBackpressure: c.config.DisconnectOnBackpressure,
+	}
 
 	var callOpts []grpc.CallOption
 	if c.config.UseGzip {

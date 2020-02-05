@@ -12,11 +12,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"io"
 	"math"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,8 +34,6 @@ const (
 	StreamConsumerDelayMs                = "stream_consumer_delay_ms"
 	StreamConsumerOriginDelayMs          = "stream_consumer_origin_delay_ms"
 	StreamConsumerEventDelayMs           = "stream_consumer_event_delay_ms"
-	// gRPC headers
-	DisconnectOnBackPressureHeader = "disco-on-backpressure"
 )
 
 const StreamEndpointsLabel = "endpoints"
@@ -312,7 +308,12 @@ func (c *consumer) reconnectWhileNotStopped() {
 
 func (c *consumer) readStream() (retry bool) {
 	client := stream.NewStreamClient(c.endpoint.conn)
-	req := &stream.StreamRequest{Name: c.streamName, RequesterName: c.endpoint.g.ServiceName, ExpectHello: true}
+	req := &stream.StreamRequest{
+		Name:                     c.streamName,
+		RequesterName:            c.endpoint.g.ServiceName,
+		ExpectHello:              true,
+		DisconnectOnBackpressure: c.config.DisconnectOnBackpressure,
+	}
 
 	var callOpts []grpc.CallOption
 	if c.config.UseGzip {
@@ -321,8 +322,6 @@ func (c *consumer) readStream() (retry bool) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	ctx = metadata.AppendToOutgoingContext(ctx, DisconnectOnBackPressureHeader, strconv.FormatBool(c.config.DisconnectOnBackpressure))
 
 	st, err := client.Stream(ctx, req, callOpts...)
 	if err != nil {

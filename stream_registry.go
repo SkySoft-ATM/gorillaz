@@ -108,6 +108,7 @@ type StreamRequest interface {
 	GetName() string
 	GetRequesterName() string
 	GetExpectHello() bool
+	GetDisconnectOnBackpressure() bool
 }
 
 // Stream implements streaming.proto Stream.
@@ -121,17 +122,8 @@ func (sr *streamRegistry) publishOnStream(np StreamRequest, strm grpc.ServerStre
 	streamName := np.GetName()
 	requester := np.GetRequesterName()
 
-	opts := sendLoopOpts{}
-	if md, ok := metadata.FromIncomingContext(strm.Context()); ok {
-		v := md.Get(DisconnectOnBackPressureHeader)
-		if len(v) > 0 {
-			deco, err := strconv.ParseBool(v[0])
-			if err == nil {
-				opts.disconnectOnBackpressure = deco
-			} else {
-				Log.Warn("failed to parse header into boolean", zap.String("header", DisconnectOnBackPressureHeader), zap.String("value", v[0]), zap.Error(err))
-			}
-		}
+	opts := sendLoopOpts{
+		disconnectOnBackpressure: np.GetDisconnectOnBackpressure(),
 	}
 
 	Log.Info("new stream consumer", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("requester", requester))
