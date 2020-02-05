@@ -16,12 +16,14 @@ message StreamRequest {
     string name = 1; // stream name
     string requesterName = 2; //name of the service making the stream request
     bool   expectHello = 3; // expect hello message from server side
+    bool   disconnect_on_backpressure = 4; // disconnect consumer in case of backpressure
 }
 
 message GetAndWatchRequest {
     string name = 1; // stream name
     string requesterName = 2; //name of the service making the stream request
     bool   expectHello = 3; // expect hello message from server side
+    bool   disconnect_on_backpressure = 4; // disconnect consumer in case of backpressure
 }
 
 message StreamEvent {
