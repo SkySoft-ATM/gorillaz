@@ -9,15 +9,13 @@ import (
 
 const MetricsStream = "gorillazMetrics"
 
-func publishMetrics(g *Gaz) {
+func publishMetrics(g *Gaz, interval time.Duration) {
 	streamProvider, err := g.NewStreamProvider(MetricsStream, "io_prometheus_client.MetricFamily")
 	if err != nil {
 		Log.Error("could not start stream metrics publication", zap.Error(err))
 		return
 	}
-	interval := g.Viper.GetInt("metrics.publication.interval.ms")
-
-	ticker := time.NewTicker(time.Duration(interval) * time.Millisecond)
+	ticker := time.NewTicker(interval)
 	for range ticker.C {
 		metrics, err := g.prometheusRegistry.Gather()
 		if err != nil {

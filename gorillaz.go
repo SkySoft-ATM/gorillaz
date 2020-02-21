@@ -275,7 +275,12 @@ func (g *Gaz) Run() <-chan struct{} {
 	}
 	g.httpListener = httpListener
 
-	go publishMetrics(g)
+	{
+		interval := g.Viper.GetInt("metrics.publication.interval.ms")
+		if interval > 0 {
+			go publishMetrics(g, time.Duration(interval)*time.Millisecond)
+		}
+	}
 
 	go func() {
 		// register /info to return the build version
