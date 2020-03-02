@@ -45,7 +45,7 @@ func main() {
 			start = time.Now()
 		}
 		if i%1000 == 0 {
-			fmt.Println(fmt.Sprintf("consumed %d messages", i))
+			fmt.Printf("consumed %d messages\n", i)
 		}
 		evt := <-consumer.EvtChan()
 		sp, _ := opentracing.StartSpanFromContext(evt.Ctx, "computing latency")

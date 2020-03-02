@@ -7,11 +7,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v2
-      - name: Pre-checks
-        run: |
-          echo repo name: ${{ github.event.repository.name }}
-          echo repo owner: ${{ github.event.repository.owner.login }}
-          echo tag: ${{ github.ref }}
       - name: Build
         id: build
         uses: SkySoft-ATM/go-build-action@v1
