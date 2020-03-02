@@ -1,10 +1,8 @@
-# Manually triggers a github action.
-
-name: release action
+name: build action
 on:
   push:
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
