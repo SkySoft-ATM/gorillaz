@@ -62,9 +62,12 @@ func GetConfigPath(configPath string) string {
 		return configPath
 	}
 	args := os.Args[1:]
-	for _, a := range args {
+	for i, a := range args {
 		if strings.HasPrefix(a, "--conf=") {
 			return path.Clean(a[7:])
+		}
+		if strings.HasPrefix(a, "--conf") && len(args) > (i+1) {
+			return path.Clean(args[i+1])
 		}
 	}
 	return ""
