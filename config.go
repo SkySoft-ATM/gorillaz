@@ -4,6 +4,9 @@ import (
 	"flag"
 	"github.com/spf13/pflag"
 	"log"
+	"os"
+	"path"
+	"strings"
 )
 
 //Define flags supported by gorillaz
@@ -58,8 +61,11 @@ func GetConfigPath(configPath string) string {
 	if configPath != "" {
 		return configPath
 	}
-	if f := flag.Lookup("conf"); f != nil {
-		return f.Value.String()
+	args := os.Args[1:]
+	for _, a := range args {
+		if strings.HasPrefix(a, "--conf=") {
+			return path.Clean(a[7:])
+		}
 	}
 	return ""
 }
