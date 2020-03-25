@@ -9,10 +9,12 @@ import (
 	"strings"
 )
 
+const defaultConfigPath = "configs"
+
 //Define flags supported by gorillaz
 func init() {
 	flag.String("env", "dev", "Environment")
-	flag.String("conf", "configs", "config folder. default: configs")
+	flag.String("conf", defaultConfigPath, "config folder. default: configs")
 	flag.String("log.level", "", "Log level")
 	flag.String("service.name", "", "Service name")
 	flag.String("service.address", "", "Service address")
@@ -70,5 +72,5 @@ func GetConfigPath(configPath string) string {
 			return path.Clean(args[i+1])
 		}
 	}
-	return ""
+	return defaultConfigPath
 }
