@@ -48,13 +48,6 @@ type Gaz struct {
 	streamDefinitions     *GetAndWatchStreamProvider
 }
 
-type streamConsumerRegistry struct {
-	sync.Mutex
-	g                 *Gaz
-	endpointsByName   map[string]*streamEndpoint
-	endpointConsumers map[*streamEndpoint]map[StoppableStream]struct{}
-}
-
 type GazOption interface {
 	apply(*Gaz) error
 }
@@ -131,7 +124,7 @@ func New(options ...GazOption) *Gaz {
 	gaz.streamConsumers = &streamConsumerRegistry{
 		g:                 &gaz,
 		endpointsByName:   make(map[string]*streamEndpoint),
-		endpointConsumers: make(map[*streamEndpoint]map[StoppableStream]struct{}),
+		endpointConsumers: make(map[*streamEndpoint]map[*streamSource]struct{}),
 	}
 
 	// first apply only init options

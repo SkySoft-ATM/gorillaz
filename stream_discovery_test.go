@@ -31,7 +31,7 @@ func TestStreamDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	timer := time.NewTimer(1 * time.Second)
+	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
 
 	values := make([][]byte, 0)

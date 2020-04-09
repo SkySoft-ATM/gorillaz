@@ -129,7 +129,7 @@ type ProviderConfig struct {
 	InputBufferLen           int                     // InputBufferLen is the size of the input channel (default: 256)
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
-	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
+	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no streamSource
 }
 
 func defaultProviderConfig() *ProviderConfig {
@@ -200,7 +200,7 @@ func (p *StreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) err
 		return err
 	}
 	if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
-		Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", p.streamDef.Name), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+		Log.Info("streamSource disconnected", zap.Error(err), zap.String("stream", p.streamDef.Name), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 		return err
 	}
 	return nil
@@ -237,16 +237,16 @@ func (p *StreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, opts sendLo
 				if broadcaster.Closed() {
 					return nil
 				}
-				// otherwise, the consumer gets disconnected because it's not consuming fast enough
+				// otherwise, the streamSource gets disconnected because it's not consuming fast enough
 				return status.Error(codes.DataLoss, "not consuming fast enough")
 			}
 			evt := val.([]byte)
 			if err := strm.SendMsg(evt); err != nil {
-				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+				Log.Info("streamSource disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 				return err
 			}
 		case <-strm.Context().Done():
-			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+			Log.Info("streamSource disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 			return strm.Context().Err()
 		}
 	}

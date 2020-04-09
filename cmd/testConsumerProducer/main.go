@@ -35,7 +35,7 @@ func main() {
 		panic(err)
 	}
 
-	opt := func(config *gaz.ConsumerConfig) {
+	opt := func(config *gaz.StreamConsumerConfig) {
 		config.UseGzip = true
 	}
 

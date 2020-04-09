@@ -63,9 +63,6 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
 	metadata.EventTimestamp = eventTs
 	metadata.OriginStreamTimestamp = originStreamTs
 	metadata.StreamTimestamp = streamTs
-	for key := range metadata.KeyValue {
-		delete(metadata.KeyValue, key)
-	}
 
 	var sp opentracing.Span
 	if ctx == nil {

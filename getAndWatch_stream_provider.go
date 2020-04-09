@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"encoding/base64"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -11,6 +12,12 @@ import (
 	"google.golang.org/grpc/status"
 	"time"
 )
+
+const EventType = "EventType"
+const EventTypeUnknown = "UNKNOWN"
+const EventTypeDelete = "DELETE"
+const EventTypeUpdate = "UPDATE"
+const EventTypeInitialState = "INITIAL_STATE"
 
 type GetAndWatchStreamProvider struct {
 	streamDef   *StreamDefinition
@@ -70,6 +77,7 @@ func (g *Gaz) NewGetAndWatchStreamProvider(streamName, dataType string, opts ...
 
 // Submit pushes the event to all subscribers and stores it by its key for new subscribers appearing on the stream
 func (p *GetAndWatchStreamProvider) Submit(evt *stream.Event) {
+	fmt.Println(">>>>>>>>>>Submitted", string(evt.Key))
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 
@@ -81,7 +89,7 @@ func (p *GetAndWatchStreamProvider) Delete(key []byte) {
 }
 
 func (p *GetAndWatchStreamProvider) sendHelloMessage(strm grpc.ServerStream, peer Peer) error {
-	gwe := stream.GetAndWatchEvent{
+	gwe := stream.StreamEvent{
 		Metadata: &stream.Metadata{
 			KeyValue: make(map[string]string),
 		},
@@ -92,7 +100,7 @@ func (p *GetAndWatchStreamProvider) sendHelloMessage(strm grpc.ServerStream, pee
 		return err
 	}
 	if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
-		Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", p.streamDef.Name), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+		Log.Info("streamSource disconnected", zap.Error(err), zap.String("stream", p.streamDef.Name), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 		return err
 	}
 	return nil
@@ -124,10 +132,10 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, 
 				if broadcaster.Closed() {
 					return nil
 				}
-				// otherwise, it's just for this consumer, it's because the consumer is not consuming fast enough
+				// otherwise, it's just for this streamSource, it's because the streamSource is not consuming fast enough
 				return status.Error(codes.DataLoss, "not consuming fast enough")
 			}
-			gwe := stream.GetAndWatchEvent{
+			gwe := stream.StreamEvent{
 				Metadata: &stream.Metadata{
 					KeyValue: make(map[string]string),
 				},
@@ -141,13 +149,13 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, 
 					continue
 				}
 				gwe.Key = bytes
-				gwe.EventType = stream.EventType_DELETE
+				gwe.Metadata.KeyValue[EventType] = EventTypeDelete
 			} else {
 				se := su.Value.(*stream.Event)
 				if su.UpdateType == mux.Update {
-					gwe.EventType = stream.EventType_UPDATE
+					gwe.Metadata.KeyValue[EventType] = EventTypeUpdate
 				} else {
-					gwe.EventType = stream.EventType_INITIAL_STATE
+					gwe.Metadata.KeyValue[EventType] = EventTypeInitialState
 				}
 				gwe.Key = se.Key
 				gwe.Value = se.Value
@@ -162,11 +170,11 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, 
 				return err
 			}
 			if err := strm.(grpc.ServerStream).SendMsg(evt); err != nil {
-				Log.Info("consumer disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+				Log.Info("streamSource disconnected", zap.Error(err), zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 				return err
 			}
 		case <-strm.Context().Done():
-			Log.Info("consumer disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
+			Log.Info("streamSource disconnected", zap.String("stream", streamName), zap.String("peer", peer.address), zap.String("peer service", peer.serviceName))
 			return strm.Context().Err()
 
 		}

@@ -44,7 +44,7 @@ func TestStreamLazy(t *testing.T) {
 		return
 	}
 
-	// as this is a lazy provider, it should wait for a first consumer to send events
+	// as this is a lazy provider, it should wait for a first streamSource to send events
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 	provider.Submit(&stream.Event{Value: []byte("value2")})
 
@@ -147,7 +147,7 @@ func TestProducerReconnect(t *testing.T) {
 		return
 	}
 
-	// as this is a lazy provider, it should wait for a first consumer to send events
+	// as this is a lazy provider, it should wait for a first streamSource to send events
 	provider.Submit(&stream.Event{Value: []byte("value1")})
 
 	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName)
@@ -160,7 +160,7 @@ func TestProducerReconnect(t *testing.T) {
 	// disconnect the provider
 	g.Shutdown()
 
-	// wait a bit to be sure the consumer has seen it
+	// wait a bit to be sure the streamSource has seen it
 	time.Sleep(time.Second)
 
 	g = New(WithServiceName("test"))
@@ -173,7 +173,7 @@ func TestProducerReconnect(t *testing.T) {
 		return
 	}
 
-	// let some time for the consumer to figure out the connection is back
+	// let some time for the streamSource to figure out the connection is back
 	time.Sleep(time.Second * 6)
 	provider2.Submit(&stream.Event{Value: []byte("newValue")})
 
@@ -302,15 +302,15 @@ func findMetric(g *Gaz, metricName string, labelPairs map[string]string) (*prom_
 func createConsumer(t *testing.T, g *Gaz, streamName string) StreamConsumer {
 	connected := make(chan bool, 1)
 
-	opt := func(config *ConsumerConfig) {
-		config.OnConnected = func(string) {
+	opt := func(config *StreamConsumerConfig) {
+		config.SetOnConnected(func(string) {
 			select {
 			case connected <- true:
 				// ok
 			default:
 				// nobody is listening, OK too
 			}
-		}
+		})
 	}
 
 	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, opt)
@@ -322,7 +322,7 @@ func createConsumer(t *testing.T, g *Gaz, streamName string) StreamConsumer {
 	case <-connected:
 		return consumer
 	case <-time.After(time.Second * 3):
-		t.Errorf("consumer not created after 3 sec for stream %s", streamName)
+		t.Errorf("streamSource not created after 3 sec for stream %s", streamName)
 		t.FailNow()
 	}
 	return nil
@@ -331,15 +331,15 @@ func createConsumer(t *testing.T, g *Gaz, streamName string) StreamConsumer {
 func createConsumerWithAddr(t *testing.T, g *Gaz, endpoint, streamName string) StreamConsumer {
 	connected := make(chan bool, 1)
 
-	opt := func(config *ConsumerConfig) {
-		config.OnConnected = func(string) {
+	opt := func(config *StreamConsumerConfig) {
+		config.SetOnConnected(func(string) {
 			select {
 			case connected <- true:
 				// ok
 			default:
 				// nobody is listening, OK too
 			}
-		}
+		})
 	}
 
 	consumer, err := g.ConsumeStream([]string{endpoint}, streamName, opt)
@@ -351,7 +351,7 @@ func createConsumerWithAddr(t *testing.T, g *Gaz, endpoint, streamName string) S
 	case <-connected:
 		return consumer
 	case <-time.After(time.Second * 3):
-		t.Errorf("consumer not created after 3 sec for stream %s", streamName)
+		t.Errorf("streamSource not created after 3 sec for stream %s", streamName)
 		t.FailNow()
 	}
 	return nil
@@ -380,11 +380,11 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 
 	clientDisconnected := make(chan struct{}, 1)
 
-	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, func(cc *ConsumerConfig) {
-		cc.OnDisconnected = func(streamName string) {
+	consumer, err := g.DiscoverAndConsumeServiceStream("does not matter", streamName, func(cc *StreamConsumerConfig) {
+		cc.SetOnDisconnected(func(streamName string) {
 			clientDisconnected <- struct{}{}
-		}
-		cc.DisconnectOnBackpressure = true
+		})
+		cc.DisconnectOnBackpressure()
 	})
 	if err != nil {
 		t.Fatal(err)
