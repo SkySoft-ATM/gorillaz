@@ -58,11 +58,11 @@ type streamSubConf struct {
 	disconnectOnBackpressure bool
 }
 
-func (s streamSubConf) DisconnectOnBackpressure() bool {
+func (s *streamSubConf) DisconnectOnBackpressure() bool {
 	return s.disconnectOnBackpressure
 }
 
-func (s streamSubConf) SetDisconnectOnBackpressure() {
+func (s *streamSubConf) SetDisconnectOnBackpressure() {
 	s.disconnectOnBackpressure = true
 }
 
@@ -373,7 +373,19 @@ type StreamPublisher struct {
 	sr         *streamConsumerRegistry
 }
 
-func (g *Gaz) CreatePublisher(endpoints []string, streamName string, opts ...StreamSourceConfigOpt) StreamPublisher {
+func ValueSubscriber(onNext func(*stream.Event) error) stream.Subscriber {
+	return stream.CreateSubscriber(onNext, func(err error) {
+		Log.Debug("Error received", zap.Error(err))
+	}, func() {
+		Log.Debug("Stream completed")
+	})
+}
+
+func (g *Gaz) CreatePublisher(service, stream string, opts ...StreamSourceConfigOpt) StreamPublisher {
+	return g.CreatePublisherForEndpoints([]string{SdPrefix + service}, stream, opts...)
+}
+
+func (g *Gaz) CreatePublisherForEndpoints(endpoints []string, streamName string, opts ...StreamSourceConfigOpt) StreamPublisher {
 	config := defaultConsumerConfig()
 	for _, opt := range opts {
 		opt(config)
@@ -624,31 +636,6 @@ func waitTillConnReadyOrShutdown(ctx context.Context, c *streamSource) connectiv
 		Log.Debug("Stream endpoint is in shutdown state", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName))
 	}
 	return state
-}
-
-func waitTillConnReady(ctx context.Context, c *streamSource) {
-	metrics := c.metrics()
-	streamName := c.StreamName()
-	conn := c.streamEndpoint().conn
-
-	metrics.checkConnStatusCounter.Inc()
-	var state = conn.GetState()
-	metrics.connStatus.WithLabelValues(state.String()).Inc()
-
-	for state != connectivity.Ready {
-		// count the number of connection status checks to know if a service has difficulties to establish a connection with a remote endpoint
-		metrics.checkConnStatusCounter.Inc()
-
-		Log.Debug("Waiting for stream endpoint connection to be ready", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName), zap.String("state", state.String()))
-		conn.WaitForStateChange(ctx, state)
-
-		state = conn.GetState()
-		metrics.connStatus.WithLabelValues(state.String()).Inc()
-	}
-	if state == connectivity.Ready {
-		Log.Debug("Stream endpoint is ready", zap.Strings("endpoint", c.streamEndpoint().endpoints), zap.String("streamName", streamName))
-		return
-	}
 }
 
 type consumerMetrics struct {

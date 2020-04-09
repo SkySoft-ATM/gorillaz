@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"encoding/base64"
-	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -77,7 +76,6 @@ func (g *Gaz) NewGetAndWatchStreamProvider(streamName, dataType string, opts ...
 
 // Submit pushes the event to all subscribers and stores it by its key for new subscribers appearing on the stream
 func (p *GetAndWatchStreamProvider) Submit(evt *stream.Event) {
-	fmt.Println(">>>>>>>>>>Submitted", string(evt.Key))
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
 

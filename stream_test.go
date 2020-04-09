@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -95,6 +96,67 @@ func TestStreamEvents(t *testing.T) {
 
 	assertReceived(t, provider1Stream, consumer1.EvtChan(), evt1)
 	assertReceived(t, provider2Stream, consumer2.EvtChan(), evt2)
+}
+
+func TestStreamEventsWithPublisher(t *testing.T) {
+	g := New(WithServiceName("test"), WithMockedServiceDiscovery())
+	defer g.Shutdown()
+	<-g.Run()
+
+	provider1Stream := "testy"
+	provider2Stream := "testoo"
+
+	provider1, err := g.NewStreamProvider(provider1Stream, "dummy.type")
+	if err != nil {
+		t.Errorf("cannot register provider, %+v", err)
+		return
+	}
+
+	provider2, err := g.NewStreamProvider(provider2Stream, "dummy.type")
+	if err != nil {
+		t.Errorf("cannot register provider, %+v", err)
+		return
+	}
+
+	consumer1 := g.CreatePublisher("service", provider1Stream)
+	consumer2 := g.CreatePublisher("service", provider2Stream)
+
+	resChan1 := make(chan *stream.Event)
+	resChan2 := make(chan *stream.Event)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+
+	defer cancel()
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	consumer1.Subscribe(ctx, ValueSubscriber(func(event *stream.Event) error {
+		resChan1 <- event
+		return nil
+	}), stream.OnConnected(func(s string) {
+		wg.Done()
+	}))
+	consumer2.Subscribe(ctx, ValueSubscriber(func(event *stream.Event) error {
+		resChan2 <- event
+		return nil
+	}), stream.OnConnected(func(s string) {
+		wg.Done()
+	}))
+
+	evt1 := &stream.Event{
+		Key:   []byte("testyKey"),
+		Value: []byte("testyValue"),
+	}
+
+	evt2 := &stream.Event{
+		Key:   []byte("testooKey"),
+		Value: []byte("testooValue"),
+	}
+	wg.Wait() //wait for the subscribers' connections
+
+	provider1.Submit(evt1)
+	provider2.Submit(evt2)
+
+	assertReceived(t, provider1Stream, resChan1, evt1)
+	assertReceived(t, provider2Stream, resChan2, evt2)
 }
 
 func TestMultipleConsumers(t *testing.T) {
@@ -384,7 +446,7 @@ func TestDisconnectOnBackpressure(t *testing.T) {
 		cc.SetOnDisconnected(func(streamName string) {
 			clientDisconnected <- struct{}{}
 		})
-		cc.DisconnectOnBackpressure()
+		cc.SetDisconnectOnBackpressure()
 	})
 	if err != nil {
 		t.Fatal(err)

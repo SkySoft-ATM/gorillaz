@@ -23,6 +23,32 @@ type Subscriber interface {
 
 type SubscriptionOption func(options SubscriptionConfig)
 
+type subscriber struct {
+	onNext     func(*Event) error
+	onError    func(error)
+	onComplete func()
+}
+
+func (s subscriber) OnNext(event *Event) error {
+	return s.onNext(event)
+}
+
+func (s subscriber) OnError(err error) {
+	s.onError(err)
+}
+
+func (s subscriber) OnComplete() {
+	s.onComplete()
+}
+
+func CreateSubscriber(onNext func(*Event) error, onError func(error), onComplete func()) Subscriber {
+	return subscriber{
+		onNext:     onNext,
+		onError:    onError,
+		onComplete: onComplete,
+	}
+}
+
 // unfortunately we need this to be an interface so that we can extend it for transport specific configuration
 type SubscriptionConfig interface {
 	AutoAck() bool
