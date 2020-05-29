@@ -1,9 +1,9 @@
 package gorillaz
 
 import (
-	"github.com/golang/protobuf/proto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"time"
 )
 

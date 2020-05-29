@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"fmt"
-	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -10,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"strings"
 	"sync"
 )

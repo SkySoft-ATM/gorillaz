@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"context"
-	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -13,6 +12,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"math"
 	"strings"

@@ -1,9 +1,9 @@
 package gorillaz
 
 import (
-	"github.com/golang/protobuf/proto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 	"testing"
 	"time"
 )

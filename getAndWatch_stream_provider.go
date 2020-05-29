@@ -2,13 +2,13 @@ package gorillaz
 
 import (
 	"encoding/base64"
-	"github.com/golang/protobuf/proto"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"time"
 )
 
