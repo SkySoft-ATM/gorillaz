@@ -29,12 +29,19 @@ func ServeFileFunc(file string) func(w http.ResponseWriter, r *http.Request) {
 }
 
 type WebsocketConfig struct {
-	WriteWait  time.Duration // Time allowed to write a message to the peer.
-	PongWait   time.Duration // Time allowed to read the next pong message from the peer.
-	PingPeriod time.Duration // Send pings to peer with this period. Must be less than pongWait.
+	WriteWait   time.Duration // Time allowed to write a message to the peer.
+	PongWait    time.Duration // Time allowed to read the next pong message from the peer.
+	PingPeriod  time.Duration // Send pings to peer with this period. Must be less than pongWait.
+	CheckOrigin func(r *http.Request) bool
 }
 
 type WebsocketOption func(*WebsocketConfig)
+
+func CheckOrigin(f func(r *http.Request) bool) func(*WebsocketConfig) {
+	return func(c *WebsocketConfig) {
+		c.CheckOrigin = f
+	}
+}
 
 // Websocket message
 type WsMessage struct {
@@ -58,6 +65,9 @@ func UpgradeToWebsocketWithContext(rw http.ResponseWriter, req *http.Request, op
 	}
 	for _, o := range opts {
 		o(&c)
+	}
+	if c.CheckOrigin != nil {
+		upgrader.CheckOrigin = c.CheckOrigin
 	}
 	messageChan := make(chan *WsMessage, 1000)
 	conn, err := upgrader.Upgrade(rw, req, nil)
