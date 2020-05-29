@@ -70,18 +70,18 @@ func toStreamDefinitions(t *testing.T, values [][]byte) []*stream.StreamDefiniti
 	defs := make([]*stream.StreamDefinition, 0)
 	for _, v := range values {
 		sd := toStreamDefinition(t, v)
-		defs = append(defs, &sd)
+		defs = append(defs, sd)
 	}
 	return defs
 }
 
-func toStreamDefinition(t *testing.T, v []byte) stream.StreamDefinition {
+func toStreamDefinition(t *testing.T, v []byte) *stream.StreamDefinition {
 	sd := stream.StreamDefinition{}
 	err := proto.Unmarshal(v, &sd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return sd
+	return &sd
 }
 
 func containsStream(definitions []*stream.StreamDefinition, name string) bool {

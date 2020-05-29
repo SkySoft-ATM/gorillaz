@@ -23,7 +23,7 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 	return nil
 }
 
-func MetadataToContext(metadata Metadata) context.Context {
+func MetadataToContext(metadata *Metadata) context.Context {
 	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
 	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
 	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)

@@ -385,7 +385,7 @@ func (c *consumer) readStream() (retry bool) {
 				evt := &stream.Event{
 					Key:   streamEvt.Key,
 					Value: streamEvt.Value,
-					Ctx:   stream.MetadataToContext(*streamEvt.Metadata),
+					Ctx:   stream.MetadataToContext(streamEvt.Metadata),
 				}
 				c.evtChan <- evt
 			}
