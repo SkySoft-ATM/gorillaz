@@ -1,7 +1,7 @@
 package gorillaz
 
 import (
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/stretchr/testify/assert"
 	"testing"

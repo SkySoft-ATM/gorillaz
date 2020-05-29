@@ -2,7 +2,7 @@ package gorillaz
 
 import (
 	"context"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -237,7 +237,7 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 
 	target := strings.Join(endpoints, ",")
 	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.ForceCodec(&gogoCodec{})),
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(&protoCodec{})),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			MinConnectTimeout: 2 * time.Second,
 			Backoff: backoff.Config{
@@ -644,20 +644,20 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) *consumer
 	return m
 }
 
-type gogoCodec struct{}
+type protoCodec struct{}
 
 // Marshal returns the wire format of v.
-func (c *gogoCodec) Marshal(v interface{}) ([]byte, error) {
+func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var req = v.(proto.Message)
 	return proto.Marshal(req)
 }
 
 // Unmarshal parses the wire format into v.
-func (c *gogoCodec) Unmarshal(data []byte, v interface{}) error {
+func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
 	evt := v.(proto.Message)
 	return proto.Unmarshal(data, evt)
 }
 
-func (c *gogoCodec) Name() string {
-	return "gogoCodec"
+func (c *protoCodec) Name() string {
+	return "protoCodec"
 }
