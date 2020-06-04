@@ -4,6 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -16,11 +22,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/resolver"
-	"net"
-	"net/http"
-	"strconv"
-	"sync"
-	"time"
 )
 
 type Gaz struct {
@@ -101,6 +102,13 @@ func WithServiceName(sn string) InitOption {
 func WithTracingEnabled() InitOption {
 	return InitOption{func(g *Gaz) error {
 		g.Viper.Set("tracing.enabled", true)
+		return nil
+	}}
+}
+
+func WithTracingCollectorUrl(collectorUrl string) InitOption {
+	return InitOption{func(g *Gaz) error {
+		g.Viper.Set("tracing.collector.url", collectorUrl)
 		return nil
 	}}
 }
