@@ -212,13 +212,12 @@ func New(options ...GazOption) *Gaz {
 		PermitWithoutStream: true,             // Allow the client to send pings when no streams are created
 	})
 
-	serverOptions := make([]grpc.ServerOption, 3+len(gaz.grpcServerOptions))
-	serverOptions[0] = grpc.CustomCodec(&binaryCodec{})
-	serverOptions[1] = ka
-	serverOptions[2] = keepalivePolicy
+	serverOptions := make([]grpc.ServerOption, 2+len(gaz.grpcServerOptions))
+	serverOptions[0] = ka
+	serverOptions[1] = keepalivePolicy
 
 	for i, o := range gaz.grpcServerOptions {
-		serverOptions[3+i] = o
+		serverOptions[2+i] = o
 	}
 
 	if gaz.tracingEnabled() {

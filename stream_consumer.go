@@ -2,6 +2,13 @@ package gorillaz
 
 import (
 	"context"
+	"io"
+	"math"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/stream"
@@ -12,13 +19,6 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	"io"
-	"math"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 const (
@@ -237,7 +237,6 @@ func (g *Gaz) newStreamEndpoint(endpoints []string, opts ...StreamEndpointConfig
 
 	target := strings.Join(endpoints, ",")
 	conn, err := g.GrpcDial(target, grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.ForceCodec(&protoCodec{})),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			MinConnectTimeout: 2 * time.Second,
 			Backoff: backoff.Config{
@@ -319,6 +318,7 @@ func (c *consumer) readStream() (retry bool) {
 	if c.config.UseGzip {
 		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 	}
+	callOpts = append(callOpts, grpc.CallContentSubtype(StreamEncoding))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -642,22 +642,4 @@ func consumerMonitoring(g *Gaz, streamName string, endpoints []string) *consumer
 	g.prometheusRegistry.MustRegister(m.eventDelaySummary)
 	consumerMonitorings[streamName] = m
 	return m
-}
-
-type protoCodec struct{}
-
-// Marshal returns the wire format of v.
-func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
-	var req = v.(proto.Message)
-	return proto.Marshal(req)
-}
-
-// Unmarshal parses the wire format into v.
-func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
-	evt := v.(proto.Message)
-	return proto.Unmarshal(data, evt)
-}
-
-func (c *protoCodec) Name() string {
-	return "protoCodec"
 }

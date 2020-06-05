@@ -2,16 +2,19 @@ package gorillaz
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"strings"
-	"sync"
 )
 
 const (
@@ -273,9 +276,21 @@ func ParseStreamName(fullStreamName string) (string, string) {
 	return fullStreamName, ""
 }
 
+// registers the gorillaz stream encoding at startup
+func init() {
+	encoding.RegisterCodec(&binaryCodec{})
+}
+
 // binaryCodec takes the received binary data and directly returns it, without serializing it with proto.
 // the main reason to use this is in case of 100s of subscribers, encode the data only once and just forward it without re-encoding it for each subscriber
-type binaryCodec struct{}
+type binaryCodec struct {
+}
+
+const StreamEncoding = "bytes"
+
+func (c *binaryCodec) Name() string {
+	return StreamEncoding
+}
 
 // Marshal returns the wire format of v.
 func (c *binaryCodec) Marshal(v interface{}) ([]byte, error) {
@@ -283,7 +298,11 @@ func (c *binaryCodec) Marshal(v interface{}) ([]byte, error) {
 	if ok {
 		return encoded, nil
 	}
-	return proto.Marshal(v.(proto.Message))
+	msg, ok := v.(proto.Message)
+	if ok {
+		return proto.Marshal(msg)
+	}
+	return []byte{}, fmt.Errorf("invalid message type: %s", reflect.TypeOf(v))
 }
 
 // Unmarshal parses the wire format into v.
