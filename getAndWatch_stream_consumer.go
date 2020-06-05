@@ -2,6 +2,11 @@ package gorillaz
 
 import (
 	"context"
+	"io"
+	"strings"
+	"sync/atomic"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
@@ -10,10 +15,6 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
-	"io"
-	"strings"
-	"sync/atomic"
-	"time"
 )
 
 type GetAndWatchStreamConsumer interface {
@@ -153,6 +154,7 @@ func (c *getAndWatchConsumer) readGetAndWatchStream() (retry bool) {
 	if c.config.UseGzip {
 		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
 	}
+	callOpts = append(callOpts, grpc.CallContentSubtype(StreamEncoding))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
