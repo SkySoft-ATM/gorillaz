@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 
@@ -278,12 +277,13 @@ func ParseStreamName(fullStreamName string) (string, string) {
 
 // registers the gorillaz stream encoding at startup
 func init() {
-	encoding.RegisterCodec(&binaryCodec{})
+	encoding.RegisterCodec(&binaryCodec{fallback: encoding.GetCodec("proto")})
 }
 
 // binaryCodec takes the received binary data and directly returns it, without serializing it with proto.
 // the main reason to use this is in case of 100s of subscribers, encode the data only once and just forward it without re-encoding it for each subscriber
 type binaryCodec struct {
+	fallback encoding.Codec
 }
 
 const StreamEncoding = "bytes"
@@ -302,7 +302,7 @@ func (c *binaryCodec) Marshal(v interface{}) ([]byte, error) {
 	if ok {
 		return proto.Marshal(msg)
 	}
-	return []byte{}, fmt.Errorf("invalid message type: %s", reflect.TypeOf(v))
+	return c.fallback.Marshal(v)
 }
 
 // Unmarshal parses the wire format into v.
@@ -311,7 +311,11 @@ func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
 	if ok {
 		return proto.Unmarshal(data, evt)
 	}
-	return proto.Unmarshal(data, v.(proto.Message))
+	msg, ok := v.(proto.Message)
+	if ok {
+		return proto.Unmarshal(data, msg)
+	}
+	return c.fallback.Unmarshal(data, v)
 }
 
 // Name returns the name of the Codec implementation. The returned string
@@ -319,4 +323,11 @@ func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
 // static; the result cannot change between calls.
 func (c *binaryCodec) String() string {
 	return "binaryCodec"
+}
+
+// this is necessary until the deprecated grpc.Codec interface is removed from the grpc server options
+type binaryCodecInterface interface {
+	Marshal(v interface{}) ([]byte, error)
+	Unmarshal(data []byte, v interface{}) error
+	String() string
 }
