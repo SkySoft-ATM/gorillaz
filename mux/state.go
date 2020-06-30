@@ -15,7 +15,6 @@ the full state immediately, otherwise values will be dropped on backpressure.
 package mux
 
 import (
-	"sync/atomic"
 	"time"
 )
 
@@ -45,7 +44,7 @@ type StateBroadcaster struct {
 	outputs map[StateUpdateChan]ConsumerConfig
 	state   map[interface{}]ttlValue
 	update  chan update
-	closed  uint32
+	closed  chan interface{}
 	*BroadcasterConfig
 }
 
@@ -101,18 +100,27 @@ type stateConsumer struct {
 // Unregister a channel so that it no longer receives broadcasts.
 func (b *StateBroadcaster) Unregister(newch StateUpdateChan) {
 	done := make(chan struct{})
-	b.unreg <- stateUnregistration{newch, done}
-	<-done
+	select {
+	case b.unreg <- stateUnregistration{newch, done}:
+		<-done
+	case <-b.closed:
+		return
+	}
 }
 
 // Shut this StateBroadcaster down.
 func (b *StateBroadcaster) Close() {
-	atomic.StoreUint32(&b.closed, 1)
+	close(b.closed)
 	close(b.reg)
 }
 
 func (b *StateBroadcaster) Closed() bool {
-	return atomic.LoadUint32(&b.closed) > 0
+	select {
+	case <-b.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // Submit a new object to all subscribers
@@ -264,6 +272,7 @@ func NewNonBlockingStateBroadcaster(bufLen int, ttl time.Duration, options ...Br
 		outputs:           make(map[StateUpdateChan]ConsumerConfig),
 		state:             make(map[interface{}]ttlValue),
 		update:            make(chan update, bufLen),
+		closed:            make(chan interface{}),
 		BroadcasterConfig: &BroadcasterConfig{},
 	}
 	for _, option := range options {
