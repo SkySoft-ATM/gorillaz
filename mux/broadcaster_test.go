@@ -2,9 +2,10 @@ package mux
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func backpressureForConsumer(consumerName string, consumer chan string) func(value interface{}) {
@@ -208,5 +209,29 @@ func TestNoBackpressureOnProducerWithEagerBroadcast(t *testing.T) {
 		t.Log("Correct, no backpressure")
 	case <-timeout:
 		t.Error("Error, backpressure with eager broadcast")
+	}
+}
+
+func TestUnsubscribeAfterClose(t *testing.T) {
+	b := NewNonBlockingBroadcaster(0)
+	receiver := make(chan interface{})
+	b.Register(receiver)
+
+	b.Close()
+
+	timer := time.NewTimer(1 * time.Second)
+
+	done := make(chan interface{})
+
+	go func() {
+		b.Unregister(receiver)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-timer.C:
+		t.Fatalf("unable to unregister on time")
+	case <-done:
+		t.Log("Unregistered successfully")
 	}
 }

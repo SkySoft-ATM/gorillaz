@@ -200,7 +200,6 @@ func TestDelete(t *testing.T) {
 }
 
 func TestStateCleared(t *testing.T) {
-
 	b := NewNonBlockingStateBroadcaster(50, 0)
 
 	b.Submit("A", "A1")
@@ -215,5 +214,28 @@ func TestStateCleared(t *testing.T) {
 	result2 := b.GetCurrentState()
 
 	assert.Equal(t, 0, len(result2))
+}
 
+func TestUnsubscribeAfterCloseOnStateBroadcaster(t *testing.T) {
+	b := NewNonBlockingStateBroadcaster(50, 0)
+	receiver := make(chan *StateUpdate)
+	b.Register(receiver)
+
+	b.Close()
+
+	timer := time.NewTimer(1 * time.Second)
+
+	done := make(chan interface{})
+
+	go func() {
+		b.Unregister(receiver)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-timer.C:
+		t.Fatalf("unable to unregister on time")
+	case <-done:
+		t.Log("Unregistered successfully")
+	}
 }

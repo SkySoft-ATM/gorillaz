@@ -11,7 +11,6 @@ package mux
 
 import (
 	"fmt"
-	"sync/atomic"
 )
 
 type Broadcaster struct {
@@ -21,7 +20,7 @@ type Broadcaster struct {
 	unreg    chan unregistration
 	outputs  map[chan<- interface{}]ConsumerConfig
 	*BroadcasterConfig
-	closed uint32
+	closed chan interface{}
 }
 
 // Register a new channel to receive broadcasts
@@ -40,20 +39,28 @@ func (b *Broadcaster) Register(newch chan<- interface{}, options ...ConsumerOpti
 // Unregister a channel so that it no longer receives broadcasts.
 func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 	done := make(chan struct{})
-	b.unreg <- unregistration{newch, done}
-	<-done
+	select {
+	case b.unreg <- unregistration{newch, done}:
+		<-done
+	case <-b.closed:
+		return
+	}
 }
 
 // Shut this StateBroadcaster down.
 func (b *Broadcaster) Close() {
-	atomic.StoreUint32(&b.closed, 1)
 	closed := make(chan struct{})
 	b.closeReq <- closed
 	<-closed
 }
 
 func (b *Broadcaster) Closed() bool {
-	return atomic.LoadUint32(&b.closed) > 0
+	select {
+	case <-b.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // Submit a new object to all subscribers, this call can block if the input channel is full
@@ -104,12 +111,14 @@ func (b *Broadcaster) run() {
 			case r := <-b.reg:
 				b.addSubscriber(r)
 			case closed := <-b.closeReq:
+				close(b.closed)
 				closed <- struct{}{}
 				return
 			}
 		} else {
 			select {
 			case closed := <-b.closeReq:
+				close(b.closed)
 				close(b.input)
 				if len(b.outputs) == 0 {
 					closed <- struct{}{}
@@ -164,6 +173,7 @@ func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) *Br
 		unreg:             make(chan unregistration),
 		outputs:           make(map[chan<- interface{}]ConsumerConfig),
 		BroadcasterConfig: &BroadcasterConfig{eagerBroadcast: true},
+		closed:            make(chan interface{}),
 	}
 
 	for _, option := range options {
