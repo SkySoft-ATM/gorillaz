@@ -121,6 +121,13 @@ func WithGrpcServerOptions(o ...grpc.ServerOption) Option {
 	}}
 }
 
+func WithGrpcServerOptionsSupplier(s func(*Gaz) []grpc.ServerOption) Option {
+	return Option{func(g *Gaz) error {
+		g.grpcServerOptions = s(g)
+		return nil
+	}}
+}
+
 func (g *Gaz) tracingEnabled() bool {
 	return g.Viper.GetBool("tracing.enabled")
 }
@@ -229,7 +236,9 @@ func New(options ...GazOption) *Gaz {
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
 	gaz.streamRegistry = newStreamRegistry(&gaz)
-	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
+	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition", func(p *GetAndWatchConfig) {
+		p.TracingEnabled = false
+	})
 	gaz.streamDefinitions = sdProvider
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
 

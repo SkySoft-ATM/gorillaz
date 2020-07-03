@@ -2,9 +2,10 @@ package stream
 
 import (
 	"context"
+	"testing"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/mocktracer"
-	"testing"
 )
 
 func TestTimestamp(t *testing.T) {
@@ -35,7 +36,7 @@ func TestTracingSerialization(t *testing.T) {
 		KeyValue: make(map[string]string),
 	}
 
-	err := ContextToMetadata(ctx, &metadata)
+	err := ContextToMetadata(ctx, &metadata, "", false)
 	if err != nil {
 		t.Errorf("unexpected error: %+v", err)
 	}

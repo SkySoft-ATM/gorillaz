@@ -3,8 +3,9 @@ package stream
 import (
 	"context"
 	"fmt"
-	"github.com/opentracing/opentracing-go"
 	"time"
+
+	"github.com/opentracing/opentracing-go"
 )
 
 // OpenTracing TextMapWriter
@@ -44,7 +45,7 @@ func MetadataToContext(metadata *Metadata) context.Context {
 }
 
 // contextToMetadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
-func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
+func ContextToMetadata(ctx context.Context, metadata *Metadata, streamName string, tracingEnabled bool) error {
 	streamTs := time.Now().UnixNano()
 	var eventTs int64
 	var originStreamTs int64
@@ -74,13 +75,17 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata) error {
 	sp = opentracing.SpanFromContext(ctx)
 
 	// create and close a span just to have a trace that a message was sent, it can always be useful
-	if sp == nil {
+	if sp == nil && tracingEnabled {
 		sp, _ = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
+		sp.SetBaggageItem("streamName", streamName)
 		sp.Finish()
 	}
-	err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
-	if err != nil {
-		err = fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)
+	if sp != nil {
+		err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
+		if err != nil {
+			err = fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)
+			return err
+		}
 	}
-	return err
+	return nil
 }

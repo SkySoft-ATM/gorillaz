@@ -2,6 +2,8 @@ package gorillaz
 
 import (
 	"encoding/base64"
+	"time"
+
 	"github.com/skysoft-atm/gorillaz/mux"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
@@ -9,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 type GetAndWatchStreamProvider struct {
@@ -32,6 +33,7 @@ type GetAndWatchConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	Ttl                      time.Duration
+	TracingEnabled           bool
 }
 
 func defaultGetAndWatchConfig() *GetAndWatchConfig {
@@ -41,7 +43,8 @@ func defaultGetAndWatchConfig() *GetAndWatchConfig {
 		OnBackPressure: func(streamName string) {
 			Log.Warn("backpressure applied, an event won't be delivered because it can't consume fast enough", zap.String("stream", streamName))
 		},
-		Ttl: 0,
+		Ttl:            0,
+		TracingEnabled: true,
 	}
 }
 
@@ -151,7 +154,7 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, 
 				}
 				gwe.Key = se.Key
 				gwe.Value = se.Value
-				err := stream.ContextToMetadata(se.Ctx, gwe.Metadata)
+				err := stream.ContextToMetadata(se.Ctx, gwe.Metadata, p.streamDef.Name, p.config.TracingEnabled)
 				if err != nil {
 					Log.Error("failed to inject context data into metadata", zap.Error(err))
 				}

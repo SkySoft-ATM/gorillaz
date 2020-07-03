@@ -132,6 +132,7 @@ type ProviderConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	LazyBroadcast            bool                    // if lazy broadcaster, then the provider doesn't consume messages as long as there is no consumer
+	TracingEnabled           bool
 }
 
 func defaultProviderConfig() *ProviderConfig {
@@ -141,7 +142,8 @@ func defaultProviderConfig() *ProviderConfig {
 		OnBackPressure: func(streamName string) {
 			Log.Warn("backpressure applied, an event won't be delivered because it can't consume fast enough", zap.String("stream", streamName))
 		},
-		LazyBroadcast: false,
+		LazyBroadcast:  false,
+		TracingEnabled: true,
 	}
 }
 
@@ -150,6 +152,10 @@ type ProviderConfigOpt func(p *ProviderConfig)
 
 var LazyBroadcast = func(p *ProviderConfig) {
 	p.LazyBroadcast = true
+}
+
+var TracingDisabled = func(p *ProviderConfig) {
+	p.TracingEnabled = false
 }
 
 // Submit pushes the event to all subscribers
@@ -177,7 +183,7 @@ func (p *StreamProvider) marshal(evt *stream.Event) ([]byte, error) {
 			KeyValue: make(map[string]string),
 		},
 	}
-	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata)
+	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata, p.streamDef.Name, p.config.TracingEnabled)
 	if err != nil {
 		Log.Error("error while creating Metadata from event.Context", zap.String("key", string(evt.Key)), zap.Error(err))
 	}

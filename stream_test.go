@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
+	"testing"
+	"time"
+
 	prom_client "github.com/prometheus/client_model/go"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"math"
-	"testing"
-	"time"
 )
 
 func TestFullStreamName(t *testing.T) {
@@ -36,9 +37,7 @@ func TestStreamLazy(t *testing.T) {
 	defer g.Shutdown()
 	<-g.Run()
 
-	provider, err := g.NewStreamProvider("stream", "dummy.type", func(conf *ProviderConfig) {
-		conf.LazyBroadcast = true
-	})
+	provider, err := g.NewStreamProvider("stream", "dummy.type", LazyBroadcast)
 	if err != nil {
 		t.Errorf("cannot start provider, %+v", err)
 		return
