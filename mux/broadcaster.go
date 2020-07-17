@@ -6,15 +6,19 @@ which subscribers Register to pick up those messages.
 If one of the subscribers is not able to consume the message, then messages will be dropped for this consumer.
 It is possible to pass a function to handle dropped messages.
 
+Once a broadcaster is closed, SubmitBlocking will panic and SubmitNonBlocking returns an error
+
 */
 package mux
 
 import (
 	"fmt"
+	"sync/atomic"
 )
 
 type Broadcaster struct {
-	closeReq chan chan struct{}
+	closing  uint32
+	closeReq chan struct{}
 	input    chan interface{}
 	reg      chan registration
 	unreg    chan unregistration
@@ -49,9 +53,15 @@ func (b *Broadcaster) Unregister(newch chan<- interface{}) {
 
 // Shut this StateBroadcaster down.
 func (b *Broadcaster) Close() {
-	closed := make(chan struct{})
-	b.closeReq <- closed
-	<-closed
+	// mark the broadcaster as closing, so we don't attempt to close it twice
+	alreadyClosing := !atomic.CompareAndSwapUint32(&b.closing, 0, 1)
+	if alreadyClosing {
+		// already closing
+		<-b.closed
+		return
+	}
+	b.closeReq <- struct{}{}
+	<-b.closed
 }
 
 func (b *Broadcaster) Closed() bool {
@@ -65,12 +75,19 @@ func (b *Broadcaster) Closed() bool {
 
 // Submit a new object to all subscribers, this call can block if the input channel is full
 func (b *Broadcaster) SubmitBlocking(i interface{}) {
+	if closing := atomic.LoadUint32(&b.closing); closing > 0 {
+		panic("writing to a closing broadcaster")
+	}
 	b.input <- i
 }
 
 // Submit a new object to all subscribers, this call will drop the message if the input channel is full
 func (b *Broadcaster) SubmitNonBlocking(i interface{}) error {
+	if closing := atomic.LoadUint32(&b.closing); closing > 0 {
+		return fmt.Errorf("writing to a closing broadcaster")
+	}
 	select {
+	// try to insert the message into the broadcaster.
 	case b.input <- i:
 		return nil
 	default:
@@ -110,33 +127,32 @@ func (b *Broadcaster) run() {
 				u.done <- struct{}{}
 			case r := <-b.reg:
 				b.addSubscriber(r)
-			case closed := <-b.closeReq:
+			case <-b.closeReq:
+				// notify all listeners that the broadcaster is now closed
 				close(b.closed)
-				closed <- struct{}{}
 				return
 			}
 		} else {
 			select {
-			case closed := <-b.closeReq:
+			case <-b.closeReq:
+				// notify all listeners that the broadcaster is now closed
 				close(b.closed)
-				close(b.input)
-				if len(b.outputs) == 0 {
-					closed <- struct{}{}
-					return
+
+				// finish delivering messages to subscribers before terminating
+				if len(b.outputs) > 0 {
+					// if there are still messages to broadcast, do it
+					for m := range b.input {
+						b.broadcast(m)
+					}
+					// close all subscribers
+					for sub := range b.outputs {
+						close(sub)
+					}
+					// cleanup b.outputs
+					for sub := range b.outputs {
+						delete(b.outputs, sub)
+					}
 				}
-				// if there are still messages to broadcast, do it
-				for m := range b.input {
-					b.broadcast(m)
-				}
-				// close all subscribers
-				for sub := range b.outputs {
-					close(sub)
-				}
-				// cleanup b.outputs
-				for sub := range b.outputs {
-					delete(b.outputs, sub)
-				}
-				closed <- struct{}{}
 				return
 			case r := <-b.reg:
 				b.addSubscriber(r)
@@ -167,7 +183,8 @@ func (b *Broadcaster) addSubscriber(r registration) {
 // onBackPressureState is an action to execute when messages are dropped on back pressure (typically logging), it can be nil
 func NewNonBlockingBroadcaster(bufLen int, options ...BroadcasterOptionFunc) *Broadcaster {
 	b := &Broadcaster{
-		closeReq:          make(chan chan struct{}),
+		closing:           0,
+		closeReq:          make(chan struct{}),
 		input:             make(chan interface{}, bufLen),
 		reg:               make(chan registration),
 		unreg:             make(chan unregistration),
