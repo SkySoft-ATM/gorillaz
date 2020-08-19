@@ -8,6 +8,14 @@ import (
 type Event struct {
 	Ctx        context.Context
 	Key, Value []byte
+	AckFunc func() error
+}
+
+func (e *Event) Ack() error {
+	if e.AckFunc == nil {
+		return nil
+	}
+	return e.AckFunc()
 }
 
 // The key type is unexported to prevent collisions with context keys defined in

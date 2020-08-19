@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
 	"net"
 	"net/http"
 	"strconv"
@@ -31,6 +32,7 @@ type Gaz struct {
 	registrationHandle RegistrationHandle
 	GrpcServer         *grpc.Server
 	ServiceName        string
+	NatsConn           *nats.Conn
 	ViperRemoteConfig  func(g *Gaz) error
 	Env                string
 	Viper              *viper.Viper
