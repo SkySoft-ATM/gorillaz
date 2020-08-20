@@ -10,144 +10,138 @@ import (
 	"time"
 )
 
-type MsgHandler func(event stream.Event) error
+// PullNatsStream returns the next subject and event for the given stream and consumer
+// If the event is processed successfully, it must be acknowledge to get a new message. If the message is not acknowledge, then PullNatsStream will return the same event multiple times
+// If no message is available after the ctx timeout, then an error nats.ErrTimeout is returned with an empty subject and an event nil
+func (g *Gaz) PullNatsStream(ctx context.Context, stream string, consumer string) (subject string, event *stream.Event, err error) {
+	subj := "$JS.API.CONSUMER.MSG.NEXT." + stream + "." + consumer
+	msg, err := g.NatsConn.RequestWithContext(ctx, subj, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	e := msgToEvent(msg)
+	e.AckFunc = func() error {
+		return msg.Respond(nil)
+	}
+	return msg.Subject, &e, nil
+}
+
+// MsgHandler handles received events from Nats
+// If NatsConsumerOpts.AutoAck is set, if MsgHandler returns no error, the message will be acknowledged. If an error is returned, the event won't be acknowledged.
+type MsgHandler func(subject string, event stream.Event) error
 
 type NatsConsumerOpts struct {
-	ManualAck bool
-	Pull bool
-	Consumer string
+	AutoAck bool
+	Queue   string
 }
 
 type NatsConsumerOpt func(n *NatsConsumerOpts)
 
-// WithManuelAck disable automatic message acknowledgement
-func WithManualAck() NatsConsumerOpt {
-	return func(o *NatsConsumerOpts){
-		o.ManualAck = true
+// WithAutoAck automatic acknowledge message received if MsgHandle returns no error
+func WithAutoAck() NatsConsumerOpt {
+	return func(o *NatsConsumerOpts) {
+		o.AutoAck = true
 	}
 }
 
-// WithPull switches to NATS pull consumption instead of push consumption
-func WithPull(consumer string) NatsConsumerOpt {
-	return func(o *NatsConsumerOpts){
-		o.Pull = true
-		o.Consumer = consumer
+// WithQueue configures Nats Queue consumer
+func WithQueue(queue string) NatsConsumerOpt {
+	return func(o *NatsConsumerOpts) {
+		o.Queue = queue
 	}
 }
 
-func (g *Gaz) ConsumeNatsSubject(subject string, handler MsgHandler, opts ...NatsConsumerOpt) (*NatsSubscription, error) {
+// SubscribeNatsSubject subscribes to a Nats stream, and forward received messages to handler
+// An error is returned if the subscription fails, but not when the connection with Nats is interrupted
+func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...NatsConsumerOpt) (*NatsSubscription, error) {
 	c := &NatsConsumerOpts{
-		ManualAck: false,
+		AutoAck: false,
 	}
-	for _,o := range opts {
+	for _, o := range opts {
 		o(c)
 	}
 	if g.NatsConn == nil {
 		return nil, fmt.Errorf("gorillaz nats connection is nil, cannot consume stream")
 	}
 
+	do := func(m *nats.Msg) {
+		e := msgToEvent(m)
 
-	if c.Pull {
-		// if pull mode, the mechanism is very different
-		subj := "$JS.API.CONSUMER.MSG.NEXT."+subject+"." + c.Consumer
-		ack := make(chan struct{}, 1)
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			for {
-				if ctx.Err() != nil {
-					return
-				}
-				msg, err := g.NatsConn.Request(subj, nil, time.Second)
-				if err == nats.ErrTimeout {
-					continue
-				}
-				if err != nil {
-					Log.Error("failed to pull next message", zap.String("stream", subject), zap.String("ocnsumer", c.Consumer), zap.Error(err))
-					continue
-				}
-				var evt stream.StreamEvent
-				var e stream.Event
-				// try to deserialize object
-				err = proto.Unmarshal(msg.Data, &evt)
-				if err != nil {
-					// that may not be a StreamEvent
-					// take the raw payload as it comes
-					e = stream.Event{Ctx: context.Background(), Value: msg.Data}
-				} else {
-					e = stream.Event{Ctx: stream.MetadataToContext(evt.Metadata), Key: evt.Key, Value: evt.Value}
-				}
-
-				if c.ManualAck {
-					e.AckFunc = func() error {
-						ack <- struct{}{}
-						return msg.Respond(nil)
-					}
-				}
-				err = handler(e)
-				if err == nil && !c.ManualAck {
-					if err := msg.Respond(nil); err != nil {
-						Log.Error("failed to ack msg", zap.Error(err))
-					}
-				}
-
-				// wait for msg ack
-				if c.ManualAck {
-					<- ack
-				}
-			}
-		}()
-		return &NatsSubscription{pullCancel: cancel, subject: subject}, nil
-	}
-
-	sub,err := g.NatsConn.Subscribe(subject, func(m *nats.Msg){
-		var evt stream.StreamEvent
-		var e stream.Event
-		// try to deserialize object
-		err := proto.Unmarshal(m.Data, &evt)
-		if err != nil {
-			// that may not be a StreamEvent
-			// take the raw payload as it comes
-			e = stream.Event{Ctx: context.Background(), Value: m.Data}
-		} else {
-			e = stream.Event{Ctx: stream.MetadataToContext(evt.Metadata), Key: evt.Key, Value: evt.Value}
-		}
-
-		if c.ManualAck && m.Reply != "" {
-			e.AckFunc = func() error{
+		if !c.AutoAck && m.Reply != "" {
+			e.AckFunc = func() error {
 				return m.Respond(nil)
 			}
 		}
 
-		err = handler(e)
+		err := handler(m.Subject, e)
 		if err == nil {
-			if m.Reply != "" && !c.ManualAck {
-				// TODO: not great for the consumer, he may receive the same event multiple times and really be aware
+			if m.Reply != "" && c.AutoAck {
+				// TODO: not great for consumer, he may receive the same event multiple times and really be aware
+				Log.Debug("ack message", zap.String("subject", subject))
 				if err := m.Respond(nil); err != nil {
 					Log.Error("failed to ack event", zap.Error(err))
 				}
 			}
 		}
-	})
+	}
+
+	var err error
+	var sub *nats.Subscription
+
+	if c.Queue == "" {
+		sub, err = g.NatsConn.Subscribe(subject, func(m *nats.Msg) {
+			do(m)
+		})
+	} else {
+		sub, err = g.NatsConn.QueueSubscribe(subject, c.Queue, func(m *nats.Msg) {
+			do(m)
+		})
+	}
+
 	if err == nil {
-		return &NatsSubscription{n: sub, subject: sub.Subject}, nil
+		return &NatsSubscription{n: sub}, nil
 	}
 	return nil, err
 }
 
+func msgToEvent(msg *nats.Msg) stream.Event {
+	var evt stream.StreamEvent
+	var e stream.Event
+	// try to deserialize object
+	err := proto.Unmarshal(msg.Data, &evt)
+	if err != nil {
+		// that may not be a StreamEvent
+		// take the raw payload as it comes
+		e = stream.Event{Ctx: context.Background(), Value: msg.Data}
+	} else {
+		e = stream.Event{Ctx: stream.MetadataToContext(evt.Metadata), Key: evt.Key, Value: evt.Value}
+	}
+	return e
+}
+
 type NatsSubscription struct {
-	subject string
 	n *nats.Subscription
-	pullCancel context.CancelFunc
 }
 
 func (n *NatsSubscription) Unsubscribe() error {
-	if n.pullCancel != nil {
-		n.pullCancel()
-		return nil
-	}
 	return n.n.Unsubscribe()
 }
 
 func (n *NatsSubscription) Subject() string {
-	return n.subject
+	return n.n.Subject
+}
+
+func (n *NatsSubscription) Queue() string {
+	return n.n.Queue
+}
+
+// mustInitNats connects to nats broker with address addr, or panic
+// if successful, g.NatsConn is set
+func (g *Gaz) mustInitNats(addr string) {
+	timeout := time.Duration(g.Viper.GetUint64("nats.connect_timeout_ms")) * time.Millisecond
+	var err error
+	g.NatsConn, err = nats.Connect(addr, nats.Timeout(timeout))
+	if err != nil {
+		Log.Panic("failed to initialize nats connection", zap.Error(err))
+	}
 }

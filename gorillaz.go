@@ -284,6 +284,10 @@ func (g *Gaz) Run() <-chan struct{} {
 		g.InitPprof(g.Viper.GetInt("pprof.port"))
 	}
 
+	if addr := g.Viper.GetString("nats.addr"); addr != "" {
+		g.mustInitNats(addr)
+	}
+
 	var waitgroup sync.WaitGroup
 	waitgroup.Add(2) // wait for gRPC + http
 	go g.serveGrpc(&waitgroup)

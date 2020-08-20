@@ -8,7 +8,7 @@ import (
 type Event struct {
 	Ctx        context.Context
 	Key, Value []byte
-	AckFunc func() error
+	AckFunc    func() error
 }
 
 func (e *Event) Ack() error {
