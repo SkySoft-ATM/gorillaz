@@ -24,12 +24,12 @@ func (g *Gaz) PullNatsStream(ctx context.Context, stream string, consumer string
 	e.AckFunc = func() error {
 		return msg.Respond(nil)
 	}
-	return msg.Subject, &e, nil
+	return msg.Subject, e, nil
 }
 
 // MsgHandler handles received events from Nats
 // If NatsConsumerOpts.AutoAck is set, if MsgHandler returns no error, the message will be acknowledged. If an error is returned, the event won't be acknowledged.
-type MsgHandler func(subject string, event stream.Event) (reply *stream.Event, err error)
+type MsgHandler func(subject string, event *stream.Event) (reply *stream.Event, err error)
 
 type NatsConsumerOpts struct {
 	AutoAck bool
@@ -202,7 +202,7 @@ func (g *Gaz) NatsRequest(ctx context.Context, subject string, e *stream.Event, 
 	return &stream.Event{Ctx: eCtx, Key: e.Key, Value: e.Value}, nil
 }
 
-func msgToEvent(msg *nats.Msg) stream.Event {
+func msgToEvent(msg *nats.Msg) *stream.Event {
 	var evt stream.StreamEvent
 	var e stream.Event
 	// try to deserialize object
@@ -214,7 +214,7 @@ func msgToEvent(msg *nats.Msg) stream.Event {
 	} else {
 		e = stream.Event{Ctx: stream.MetadataToContext(evt.Metadata), Key: evt.Key, Value: evt.Value}
 	}
-	return e
+	return &e
 }
 
 type NatsSubscription struct {
