@@ -2,6 +2,8 @@ syntax = "proto3";
 
 import "metrics.proto";
 
+option go_package="github.com/skysoft-atm/gorillaz/stream";
+
 package stream;
 
 
@@ -36,7 +38,9 @@ message Metadata {
     int64               EventTimestamp = 1; // timestamp in ns of when the event was recorded/created
     int64               OriginStreamTimestamp = 2;  // timestamp in ns of when the event was streamed by the first producer of the chain of streams
     int64               StreamTimestamp = 3; // timestamp in ns of when the event was streamed by the producer
-    map<string, string> keyValue = 4;
+    map<string, string> keyValue = 4; // custom key values
+    string              EventType = 5; // EventType is the type of event Value, may be empty
+    string              EventTypeVersion = 6; // EventTypeVersion is the version of the event type
 }
 
 message GetAndWatchEvent {
