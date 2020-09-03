@@ -28,6 +28,8 @@ func MetadataToContext(metadata *Metadata) context.Context {
 	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
 	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
 	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
+	ctx = context.WithValue(ctx, eventTypeKey, metadata.EventType)
+	ctx = context.WithValue(ctx, eventTypeVersionKey, metadata.EventTypeVersion)
 	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, &metadata)
 	op := "gorillaz.stream.received"
 	var span opentracing.Span
@@ -49,12 +51,20 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata, streamName strin
 	streamTs := time.Now().UnixNano()
 	var eventTs int64
 	var originStreamTs int64
+	var eventType string
+	var eventTypeVersion string
 	if ctx != nil {
 		if ts := ctx.Value(eventTimeNs); ts != nil {
 			eventTs = ts.(int64)
 		}
 		if ts := ctx.Value(originStreamTimestampNs); ts != nil {
 			originStreamTs = ts.(int64)
+		}
+		if v := ctx.Value(eventTypeKey); v != nil {
+			eventType = v.(string)
+		}
+		if v := ctx.Value(eventTypeVersionKey); v != nil {
+			eventTypeVersion = v.(string)
 		}
 	}
 
@@ -64,6 +74,9 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata, streamName strin
 	metadata.EventTimestamp = eventTs
 	metadata.OriginStreamTimestamp = originStreamTs
 	metadata.StreamTimestamp = streamTs
+	metadata.EventType = eventType
+	metadata.EventTypeVersion = eventTypeVersion
+
 	for key := range metadata.KeyValue {
 		delete(metadata.KeyValue, key)
 	}

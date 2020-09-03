@@ -22,6 +22,8 @@ func (e *Event) Ack() error {
 // other packages.
 type key string
 
+const eventTypeKey = key("event_type")
+const eventTypeVersionKey = key("event_type_version")
 const eventTimeNs = key("event_time_ns")
 const streamTimestampNs = key("stream_timestamp_ns")
 const originStreamTimestampNs = key("origin_stream_timestamp_ns")
@@ -75,4 +77,46 @@ func EventTimestamp(e *Event) int64 {
 		}
 	}
 	return 0
+}
+
+func SetEventTypeStr(evt *Event, eventType string) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, eventTypeKey, eventType)
+}
+
+func EventTypeStr(evt *Event) string {
+	if evt.Ctx == nil {
+		return ""
+	}
+	v := evt.Ctx.Value(eventTypeKey)
+	if v == nil {
+		return ""
+	}
+	if eType, ok := v.(string); ok {
+		return eType
+	}
+	return ""
+}
+
+func SetEventTypeVersionStr(evt *Event, version string) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, eventTypeVersionKey, version)
+}
+
+func EventTypeVersionStr(evt *Event) string {
+	if evt.Ctx == nil {
+		return ""
+	}
+	v := evt.Ctx.Value(eventTypeVersionKey)
+	if v == nil {
+		return ""
+	}
+	if eType, ok := v.(string); ok {
+		return eType
+	}
+	return ""
 }
