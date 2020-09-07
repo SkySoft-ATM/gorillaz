@@ -18,7 +18,7 @@ require (
 	golang.org/x/tools v0.0.0-20200820180210-c8f393745106 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/grpc v1.29.1
-	google.golang.org/protobuf v1.22.0
+	google.golang.org/protobuf v1.25.0
 )
 
 go 1.14

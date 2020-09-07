@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/nats-io/nats.go"
-	"github.com/opentracing/opentracing-go"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -32,8 +31,9 @@ func (g *Gaz) PullNatsStream(ctx context.Context, stream string, consumer string
 type MsgHandler func(subject string, event *stream.Event) (reply *stream.Event, err error)
 
 type NatsConsumerOpts struct {
-	AutoAck bool
-	Queue   string
+	autoAck        bool
+	tracingEnabled bool
+	queue          string
 }
 
 type NatsConsumerOpt func(n *NatsConsumerOpts)
@@ -41,14 +41,20 @@ type NatsConsumerOpt func(n *NatsConsumerOpts)
 // WithAutoAck automatic acknowledge message received if MsgHandle returns no error
 func WithAutoAck() NatsConsumerOpt {
 	return func(o *NatsConsumerOpts) {
-		o.AutoAck = true
+		o.autoAck = true
+	}
+}
+
+func WithTracing() NatsPublishOpt {
+	return func(o *NatsPublishOpts) {
+		o.tracingEnabled = true
 	}
 }
 
 // WithQueue configures Nats Queue consumer
 func WithQueue(queue string) NatsConsumerOpt {
 	return func(o *NatsConsumerOpts) {
-		o.Queue = queue
+		o.queue = queue
 	}
 }
 
@@ -56,7 +62,8 @@ func WithQueue(queue string) NatsConsumerOpt {
 // An error is returned if the subscription fails, but not when the connection with Nats is interrupted
 func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...NatsConsumerOpt) (*NatsSubscription, error) {
 	c := &NatsConsumerOpts{
-		AutoAck: false,
+		autoAck:        false,
+		tracingEnabled: false,
 	}
 	for _, o := range opts {
 		o(c)
@@ -68,15 +75,16 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 	do := func(m *nats.Msg) {
 		e := msgToEvent(m)
 
-		if !c.AutoAck && m.Reply != "" {
+		// if there is no auto ack, then the user is responsible for calling event.Ack
+		if !c.autoAck && m.Reply != "" {
 			e.AckFunc = func() error {
 				return m.Respond(nil)
 			}
 		}
 
-		reply, err := handler(m.Subject, e)
+		response, err := handler(m.Subject, e)
 		if err == nil {
-			if m.Reply != "" && c.AutoAck {
+			if m.Reply != "" && c.autoAck {
 				Log.Debug("ack", zap.String("subject", subject), zap.String("reply", m.Reply))
 				if err := m.Respond(nil); err != nil {
 					// TODO: not great for consumer, he may receive the same event multiple times and really be aware
@@ -86,26 +94,15 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 			}
 		}
 
-		if reply != nil && m.Reply != "" {
-			// serialize the reply
-			if reply.Ctx == nil {
-				reply.Ctx = context.Background()
-			}
-			if opentracing.SpanFromContext(reply.Ctx) == nil {
-				// check if there is no span in the original msg
-				originalSpan := opentracing.SpanFromContext(e.Ctx)
-				if originalSpan != nil {
-					reply.Ctx = opentracing.ContextWithSpan(reply.Ctx, originalSpan)
-				}
-			}
+		if response != nil && m.Reply != "" {
+			stream.FillTracingSpan(response, e)
 
-			metadata := &stream.Metadata{}
-			err := stream.ContextToMetadata(reply.Ctx, metadata, subject, false)
+			metadata, err := stream.EventMetadata(response)
 			if err != nil {
-				Log.Error("failed to create metadata from context", zap.Error(err))
+				Log.Error("failed to create metadata from event", zap.Error(err))
 			}
 
-			r := &stream.StreamEvent{Metadata: metadata, Key: reply.Key, Value: reply.Value}
+			r := &stream.StreamEvent{Metadata: metadata, Key: response.Key, Value: response.Value}
 			b, err := proto.Marshal(r)
 			if err != nil {
 				Log.Error("failed to marshal response", zap.Error(err))
@@ -122,12 +119,12 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 	var err error
 	var sub *nats.Subscription
 
-	if c.Queue == "" {
+	if c.queue == "" {
 		sub, err = g.NatsConn.Subscribe(subject, func(m *nats.Msg) {
 			do(m)
 		})
 	} else {
-		sub, err = g.NatsConn.QueueSubscribe(subject, c.Queue, func(m *nats.Msg) {
+		sub, err = g.NatsConn.QueueSubscribe(subject, c.queue, func(m *nats.Msg) {
 			do(m)
 		})
 	}
@@ -151,17 +148,16 @@ func WithNatsTracingEnabled() NatsPublishOpt {
 }
 
 func (g *Gaz) NatsPublish(subject string, e *stream.Event, opts ...NatsPublishOpt) error {
-	var metadata stream.Metadata
 	conf := &NatsPublishOpts{}
 
 	for _, opt := range opts {
 		opt(conf)
 	}
-	err := stream.ContextToMetadata(e.Ctx, &metadata, subject, conf.tracingEnabled)
+	metadata, err := stream.EventMetadata(e)
 	if err != nil {
 		return err
 	}
-	evt := stream.StreamEvent{Key: e.Key, Value: e.Value, Metadata: &metadata}
+	evt := stream.StreamEvent{Key: e.Key, Value: e.Value, Metadata: metadata}
 	b, err := proto.Marshal(&evt)
 	if err != nil {
 		return err
@@ -170,17 +166,16 @@ func (g *Gaz) NatsPublish(subject string, e *stream.Event, opts ...NatsPublishOp
 }
 
 func (g *Gaz) NatsRequest(ctx context.Context, subject string, e *stream.Event, opts ...NatsPublishOpt) (*stream.Event, error) {
-	var metadata stream.Metadata
 	conf := &NatsPublishOpts{}
 
 	for _, opt := range opts {
 		opt(conf)
 	}
-	err := stream.ContextToMetadata(e.Ctx, &metadata, subject, conf.tracingEnabled)
+	metadata, err := stream.EventMetadata(e)
 	if err != nil {
 		return nil, err
 	}
-	evt := stream.StreamEvent{Key: e.Key, Value: e.Value, Metadata: &metadata}
+	evt := stream.StreamEvent{Key: e.Key, Value: e.Value, Metadata: metadata}
 	b, err := proto.Marshal(&evt)
 	if err != nil {
 		return nil, err
@@ -189,32 +184,23 @@ func (g *Gaz) NatsRequest(ctx context.Context, subject string, e *stream.Event, 
 	if err != nil {
 		return nil, err
 	}
-
-	// try to unmarshal msg into stream.Event
-	event := &stream.StreamEvent{}
-	err = proto.Unmarshal(msg.Data, event)
-	if err != nil {
-		// if may not really be a StreamEvent, fallback
-		return &stream.Event{Value: msg.Data}, nil
-	}
-
-	eCtx := stream.MetadataToContext(event.Metadata)
-	return &stream.Event{Ctx: eCtx, Key: e.Key, Value: e.Value}, nil
+	return msgToEvent(msg), nil
 }
 
 func msgToEvent(msg *nats.Msg) *stream.Event {
 	var evt stream.StreamEvent
-	var e stream.Event
+	value := msg.Data
+	var key []byte
+	ctx := context.Background()
+
 	// try to deserialize object
 	err := proto.Unmarshal(msg.Data, &evt)
-	if err != nil {
-		// that may not be a StreamEvent
-		// take the raw payload as it comes
-		e = stream.Event{Ctx: context.Background(), Value: msg.Data}
-	} else {
-		e = stream.Event{Ctx: stream.MetadataToContext(evt.Metadata), Key: evt.Key, Value: evt.Value}
+	if err == nil {
+		key = evt.Key
+		value = evt.Value
+		ctx = stream.Ctx(evt.Metadata)
 	}
-	return &e
+	return stream.NewEvent(ctx, key, value)
 }
 
 type NatsSubscription struct {

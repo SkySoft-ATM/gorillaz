@@ -178,17 +178,15 @@ func (p *StreamProvider) SubmitNonBlocking(evt *stream.Event) error {
 }
 
 func (p *StreamProvider) marshal(evt *stream.Event) ([]byte, error) {
-	streamEvent := &stream.StreamEvent{
-		Metadata: &stream.Metadata{
-			KeyValue: make(map[string]string),
-		},
-	}
-	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata, p.streamDef.Name, p.config.TracingEnabled)
+	metadata, err := stream.EventMetadata(evt)
 	if err != nil {
-		Log.Error("error while creating Metadata from event.Context", zap.String("key", string(evt.Key)), zap.Error(err))
+		Log.Error("error while creating Metadata from event", zap.String("key", string(evt.Key)), zap.Error(err))
 	}
-	streamEvent.Key = evt.Key
-	streamEvent.Value = evt.Value
+	streamEvent := &stream.StreamEvent{
+		Metadata: metadata,
+		Key:      evt.Key,
+		Value:    evt.Value,
+	}
 
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()

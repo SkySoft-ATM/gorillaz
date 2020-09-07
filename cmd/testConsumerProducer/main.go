@@ -48,7 +48,8 @@ func main() {
 
 	for {
 		evt := <-consumer.EvtChan()
-		sp, _ := opentracing.StartSpanFromContext(evt.Ctx, "computing latency")
+		ctx, cancel := stream.EventCtx(evt)
+		sp, _ := opentracing.StartSpanFromContext(ctx, "computing latency")
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
 		if latency > worstLatency {
 			worstLatency = latency
@@ -56,5 +57,6 @@ func main() {
 		totalLatency += latency
 		sp.Finish()
 		p.Submit(evt)
+		cancel()
 	}
 }

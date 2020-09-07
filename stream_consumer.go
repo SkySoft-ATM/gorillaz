@@ -382,11 +382,8 @@ func (c *consumer) readStream() (retry bool) {
 				Log.Debug("event received", zap.String("stream", c.streamName), zap.String("target", c.endpoint.target))
 				monitorDelays(c, streamEvt)
 
-				evt := &stream.Event{
-					Key:   streamEvt.Key,
-					Value: streamEvt.Value,
-					Ctx:   stream.MetadataToContext(streamEvt.Metadata),
-				}
+				ctx := stream.Ctx(streamEvt.Metadata)
+				evt := stream.NewEvent(ctx, streamEvt.Key, streamEvt.Value)
 				c.evtChan <- evt
 			}
 		}
