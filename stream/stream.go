@@ -72,6 +72,21 @@ func OriginStreamTimestamp(e *Event) int64 {
 	return 0
 }
 
+// EventDeadline returns the event deadline and true if the event has a known deadline, otherwise returns false
+func EventDeadline(evt *Event) (time.Time, bool) {
+	v := evt.ctx.Value(deadlineKey)
+	if v == nil {
+		return time.Time{}, false
+	}
+	ts := v.(int64)
+	if ts == 0 {
+		return time.Time{}, false
+	}
+	sec := ts / 1000000000
+	ns := ts - sec*1000000000
+	return time.Unix(sec, ns), true
+}
+
 // SetEventTimestamp stores in the event the timestamp of when the event happened (as opposite as when it was streamed).
 // use this function to store values such as when an observation was recorded
 func SetEventTimestamp(evt *Event, t time.Time) {
