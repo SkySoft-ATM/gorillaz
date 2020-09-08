@@ -328,10 +328,3 @@ func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
 func (c *binaryCodec) String() string {
 	return "binaryCodec"
 }
-
-// this is necessary until the deprecated grpc.Codec interface is removed from the grpc server options
-type binaryCodecInterface interface {
-	Marshal(v interface{}) ([]byte, error)
-	Unmarshal(data []byte, v interface{}) error
-	String() string
-}

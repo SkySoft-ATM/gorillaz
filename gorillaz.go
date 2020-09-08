@@ -18,7 +18,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -222,14 +221,11 @@ func New(options ...GazOption) *Gaz {
 		PermitWithoutStream: true,             // Allow the client to send pings when no streams are created
 	})
 
-	serverOptions := make([]grpc.ServerOption, 3+len(gaz.grpcServerOptions))
-	serverOptions[0] = grpc.CustomCodec(encoding.GetCodec(StreamEncoding).(binaryCodecInterface))
-	serverOptions[1] = ka
-	serverOptions[2] = keepalivePolicy
+	serverOptions := make([]grpc.ServerOption, 0)
+	serverOptions = append(serverOptions, ka)
+	serverOptions = append(serverOptions, keepalivePolicy)
 
-	for i, o := range gaz.grpcServerOptions {
-		serverOptions[3+i] = o
-	}
+	serverOptions = append(serverOptions, gaz.grpcServerOptions...)
 
 	if gaz.tracingEnabled() {
 		serverOptions = append(serverOptions, grpc.UnaryInterceptor(TracingServerInterceptor()))

@@ -17,7 +17,8 @@ require (
 	go.uber.org/zap v1.10.0
 	golang.org/x/tools v0.0.0-20200820180210-c8f393745106 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
-	google.golang.org/grpc v1.29.1
+	google.golang.org/grpc v1.31.1
+	google.golang.org/grpc/cmd/protoc-gen-go-grpc v0.0.0-20200902210233-8630cac324bf // indirect
 	google.golang.org/protobuf v1.25.0
 )
 

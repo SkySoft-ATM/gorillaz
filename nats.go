@@ -83,6 +83,7 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 		}
 
 		response, err := handler(m.Subject, e)
+
 		if err == nil {
 			if m.Reply != "" && c.autoAck {
 				Log.Debug("ack", zap.String("subject", subject), zap.String("reply", m.Reply))
