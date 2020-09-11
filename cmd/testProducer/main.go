@@ -37,7 +37,7 @@ func main() {
 
 		ctx := opentracing.ContextWithSpan(context.Background(), sp)
 
-		event := stream.NewEvent(ctx, nil, v)
+		event := &stream.Event{Ctx: ctx, Key: nil, Value: v}
 
 		p.Submit(event)
 		sp.Finish()

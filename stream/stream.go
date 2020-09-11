@@ -6,7 +6,7 @@ import (
 )
 
 type Event struct {
-	ctx        context.Context
+	Ctx        context.Context
 	Key, Value []byte
 	AckFunc    func() error
 }
@@ -31,10 +31,10 @@ const deadlineKey = key("deadline")
 
 // StreamTimestamp returns the time when the event was sent from the producer in Epoch in nanoseconds
 func StreamTimestamp(e *Event) int64 {
-	if e.ctx == nil {
+	if e.Ctx == nil {
 		return 0
 	}
-	ts := e.ctx.Value(streamTimestampNs)
+	ts := e.Ctx.Value(streamTimestampNs)
 	if ts != nil {
 		if res, ok := ts.(int64); ok {
 			return res
@@ -43,27 +43,27 @@ func StreamTimestamp(e *Event) int64 {
 	return 0
 }
 
-// EventCtx returns the context with cancel function for a given event
-func EventCtx(e *Event) (context.Context, context.CancelFunc) {
+// CtxWithDeadline returns the event context with deadline applied
+func CtxWithDeadline(e *Event) (context.Context, context.CancelFunc) {
 	var cancel context.CancelFunc
-	v := e.ctx.Value(deadlineKey)
+	v := e.Ctx.Value(deadlineKey)
 	if v == nil {
-		return e.ctx, cancel
+		return e.Ctx, cancel
 	}
 	deadline := v.(int64)
 	sec := deadline / 1000000000
 	ns := deadline - sec*1000000000
 
 	t := time.Unix(sec, ns)
-	return context.WithDeadline(e.ctx, t)
+	return context.WithDeadline(e.Ctx, t)
 }
 
 // OriginStreamTimestamp returns the time when the event was sent from the first producer in Epoch in nanoseconds
 func OriginStreamTimestamp(e *Event) int64 {
-	if e.ctx == nil {
+	if e.Ctx == nil {
 		return 0
 	}
-	ts := e.ctx.Value(originStreamTimestampNs)
+	ts := e.Ctx.Value(originStreamTimestampNs)
 	if ts != nil {
 		if res, ok := ts.(int64); ok {
 			return res
@@ -74,7 +74,7 @@ func OriginStreamTimestamp(e *Event) int64 {
 
 // EventDeadline returns the event deadline as a unix timestamp in ns if available
 func EventDeadline(evt *Event) (int64, bool) {
-	v := evt.ctx.Value(deadlineKey)
+	v := evt.Ctx.Value(deadlineKey)
 	if v == nil {
 		return 0, false
 	}
@@ -88,18 +88,18 @@ func EventDeadline(evt *Event) (int64, bool) {
 // SetEventTimestamp stores in the event the timestamp of when the event happened (as opposite as when it was streamed).
 // use this function to store values such as when an observation was recorded
 func SetEventTimestamp(evt *Event, t time.Time) {
-	if evt.ctx == nil {
-		evt.ctx = context.Background()
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
 	}
-	evt.ctx = context.WithValue(evt.ctx, eventTimeNs, t.UnixNano())
+	evt.Ctx = context.WithValue(evt.Ctx, eventTimeNs, t.UnixNano())
 }
 
 // EventTimestamp returns the event creation time Epoch in nanoseconds
 func EventTimestamp(e *Event) int64 {
-	if e.ctx == nil {
+	if e.Ctx == nil {
 		return 0
 	}
-	ts := e.ctx.Value(eventTimeNs)
+	ts := e.Ctx.Value(eventTimeNs)
 	if ts != nil {
 		if res, ok := ts.(int64); ok {
 			return res
@@ -109,17 +109,17 @@ func EventTimestamp(e *Event) int64 {
 }
 
 func SetEventTypeStr(evt *Event, eventType string) {
-	if evt.ctx == nil {
-		evt.ctx = context.Background()
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
 	}
-	evt.ctx = context.WithValue(evt.ctx, eventTypeKey, eventType)
+	evt.Ctx = context.WithValue(evt.Ctx, eventTypeKey, eventType)
 }
 
 func EventTypeStr(evt *Event) string {
-	if evt.ctx == nil {
+	if evt.Ctx == nil {
 		return ""
 	}
-	v := evt.ctx.Value(eventTypeKey)
+	v := evt.Ctx.Value(eventTypeKey)
 	if v == nil {
 		return ""
 	}
@@ -130,17 +130,17 @@ func EventTypeStr(evt *Event) string {
 }
 
 func SetEventTypeVersionStr(evt *Event, version string) {
-	if evt.ctx == nil {
-		evt.ctx = context.Background()
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
 	}
-	evt.ctx = context.WithValue(evt.ctx, eventTypeVersionKey, version)
+	evt.Ctx = context.WithValue(evt.Ctx, eventTypeVersionKey, version)
 }
 
 func EventTypeVersionStr(evt *Event) string {
-	if evt.ctx == nil {
+	if evt.Ctx == nil {
 		return ""
 	}
-	v := evt.ctx.Value(eventTypeVersionKey)
+	v := evt.Ctx.Value(eventTypeVersionKey)
 	if v == nil {
 		return ""
 	}

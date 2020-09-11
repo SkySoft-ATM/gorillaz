@@ -383,7 +383,7 @@ func (c *consumer) readStream() (retry bool) {
 				monitorDelays(c, streamEvt)
 
 				ctx := stream.Ctx(streamEvt.Metadata)
-				evt := stream.NewEvent(ctx, streamEvt.Key, streamEvt.Value)
+				evt := &stream.Event{Ctx: ctx, Key: streamEvt.Key, Value: streamEvt.Value}
 				c.evtChan <- evt
 			}
 		}

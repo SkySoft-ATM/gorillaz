@@ -201,7 +201,7 @@ func msgToEvent(msg *nats.Msg) *stream.Event {
 		value = evt.Value
 		ctx = stream.Ctx(evt.Metadata)
 	}
-	return stream.NewEvent(ctx, key, value)
+	return &stream.Event{Ctx: ctx, Key: key, Value: value, AckFunc: func() error { return nil }}
 }
 
 type NatsSubscription struct {

@@ -16,7 +16,7 @@ func TestTimestamp(t *testing.T) {
 	}
 	ctx := Ctx(metadata)
 
-	evt := NewEvent(ctx, nil, nil)
+	evt := &Event{Ctx: ctx, Key: nil, Value: nil}
 
 	if StreamTimestamp(evt) != ts {
 		t.Errorf("expected evt timestamp to be %d but is %d", ts, StreamTimestamp(evt))
@@ -31,16 +31,16 @@ func TestTracingSerialization(t *testing.T) {
 	ctx := opentracing.ContextWithSpan(context.Background(), span)
 	span.Finish()
 
-	evt := &Event{ctx: ctx}
+	evt := &Event{Ctx: ctx}
 	metadata, err := EventMetadata(evt)
 	if err != nil {
 		t.Errorf("failed to create event metadata from event, %+v", err)
 		t.FailNow()
 	}
 	ctx2 := Ctx(metadata)
-	evt = NewEvent(ctx2, nil, nil)
+	evt = &Event{Ctx: ctx2}
 
-	span2 := opentracing.SpanFromContext(evt.ctx)
+	span2 := opentracing.SpanFromContext(evt.Ctx)
 	if span2 == nil {
 		t.Errorf("span2 should not be nil")
 		t.FailNow()

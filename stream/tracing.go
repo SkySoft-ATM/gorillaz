@@ -25,19 +25,19 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 }
 
 func FillTracingSpan(e *Event, parent *Event) {
-	if opentracing.SpanFromContext(e.ctx) == nil {
+	if opentracing.SpanFromContext(e.Ctx) == nil {
 		// check if there is no span in the original msg
 		if parent != nil {
-			originalSpan := opentracing.SpanFromContext(parent.ctx)
+			originalSpan := opentracing.SpanFromContext(parent.Ctx)
 			if originalSpan != nil {
-				e.ctx = opentracing.ContextWithSpan(e.ctx, originalSpan)
+				e.Ctx = opentracing.ContextWithSpan(e.Ctx, originalSpan)
 			}
 		}
 	}
 }
 
 func EventMetadata(e *Event) (*Metadata, error) {
-	ctx := e.ctx
+	ctx := e.Ctx
 
 	streamTs := time.Now().UnixNano()
 	var eventTs int64
@@ -115,16 +115,4 @@ func Ctx(metadata *Metadata) context.Context {
 	}
 	ctx = opentracing.ContextWithSpan(ctx, span)
 	return ctx
-}
-
-func NewEvent(ctx context.Context, key []byte, value []byte) *Event {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return &Event{
-		ctx:     ctx,
-		Key:     key,
-		Value:   value,
-		AckFunc: func() error { return nil },
-	}
 }
