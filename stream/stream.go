@@ -43,21 +43,6 @@ func StreamTimestamp(e *Event) int64 {
 	return 0
 }
 
-// CtxWithDeadline returns the event context with deadline applied
-func CtxWithDeadline(e *Event) (context.Context, context.CancelFunc) {
-	var cancel context.CancelFunc
-	v := e.Ctx.Value(deadlineKey)
-	if v == nil {
-		return e.Ctx, cancel
-	}
-	deadline := v.(int64)
-	sec := deadline / 1000000000
-	ns := deadline - sec*1000000000
-
-	t := time.Unix(sec, ns)
-	return context.WithDeadline(e.Ctx, t)
-}
-
 // OriginStreamTimestamp returns the time when the event was sent from the first producer in Epoch in nanoseconds
 func OriginStreamTimestamp(e *Event) int64 {
 	if e.Ctx == nil {
@@ -72,8 +57,22 @@ func OriginStreamTimestamp(e *Event) int64 {
 	return 0
 }
 
-// EventDeadline returns the event deadline as a unix timestamp in ns if available
-func EventDeadline(evt *Event) (int64, bool) {
+// CtxWithDeadline returns the event context with deadline applied
+func (evt *Event) CtxWithDeadline() (context.Context, context.CancelFunc) {
+	v := evt.Ctx.Value(deadlineKey)
+	if v == nil {
+		return evt.Ctx, func() {}
+	}
+	deadline := v.(int64)
+	sec := deadline / 1000000000
+	ns := deadline - sec*1000000000
+
+	t := time.Unix(sec, ns)
+	return context.WithDeadline(evt.Ctx, t)
+}
+
+// Deadline returns the event deadline as a unix timestamp in ns if available
+func (evt *Event) Deadline() (int64, bool) {
 	v := evt.Ctx.Value(deadlineKey)
 	if v == nil {
 		return 0, false
@@ -108,14 +107,14 @@ func EventTimestamp(e *Event) int64 {
 	return 0
 }
 
-func SetEventTypeStr(evt *Event, eventType string) {
+func (evt *Event) SetEventTypeStr(eventType string) {
 	if evt.Ctx == nil {
 		evt.Ctx = context.Background()
 	}
 	evt.Ctx = context.WithValue(evt.Ctx, eventTypeKey, eventType)
 }
 
-func EventTypeStr(evt *Event) string {
+func (evt *Event) EventTypeStr() string {
 	if evt.Ctx == nil {
 		return ""
 	}
@@ -129,14 +128,14 @@ func EventTypeStr(evt *Event) string {
 	return ""
 }
 
-func SetEventTypeVersionStr(evt *Event, version string) {
+func (evt *Event) SetEventTypeVersionStr(version string) {
 	if evt.Ctx == nil {
 		evt.Ctx = context.Background()
 	}
 	evt.Ctx = context.WithValue(evt.Ctx, eventTypeVersionKey, version)
 }
 
-func EventTypeVersionStr(evt *Event) string {
+func (evt *Event) EventTypeVersionStr() string {
 	if evt.Ctx == nil {
 		return ""
 	}

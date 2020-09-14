@@ -48,7 +48,7 @@ func main() {
 			fmt.Printf("consumed %d messages\n", i)
 		}
 		evt := <-consumer.EvtChan()
-		ctx, cancel := stream.CtxWithDeadline(evt)
+		ctx, cancel := evt.CtxWithDeadline()
 
 		sp, _ := opentracing.StartSpanFromContext(ctx, "computing latency")
 		latency := time.Now().UnixNano() - stream.StreamTimestamp(evt)
