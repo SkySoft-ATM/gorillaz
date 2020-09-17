@@ -35,10 +35,10 @@ func main() {
 
 		v := []byte("something wonderful")
 
-		event := &stream.Event{
-			Value: v,
-			Ctx:   opentracing.ContextWithSpan(context.Background(), sp),
-		}
+		ctx := opentracing.ContextWithSpan(context.Background(), sp)
+
+		event := &stream.Event{Ctx: ctx, Key: nil, Value: v}
+
 		p.Submit(event)
 		sp.Finish()
 		message++

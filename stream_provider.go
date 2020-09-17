@@ -178,17 +178,15 @@ func (p *StreamProvider) SubmitNonBlocking(evt *stream.Event) error {
 }
 
 func (p *StreamProvider) marshal(evt *stream.Event) ([]byte, error) {
-	streamEvent := &stream.StreamEvent{
-		Metadata: &stream.Metadata{
-			KeyValue: make(map[string]string),
-		},
-	}
-	err := stream.ContextToMetadata(evt.Ctx, streamEvent.Metadata, p.streamDef.Name, p.config.TracingEnabled)
+	metadata, err := stream.EventMetadata(evt)
 	if err != nil {
-		Log.Error("error while creating Metadata from event.Context", zap.String("key", string(evt.Key)), zap.Error(err))
+		Log.Error("error while creating Metadata from event", zap.String("key", string(evt.Key)), zap.Error(err))
 	}
-	streamEvent.Key = evt.Key
-	streamEvent.Value = evt.Value
+	streamEvent := &stream.StreamEvent{
+		Metadata: metadata,
+		Key:      evt.Key,
+		Value:    evt.Value,
+	}
 
 	p.metrics.sentCounter.Inc()
 	p.metrics.lastEventTimestamp.SetToCurrentTime()
@@ -329,11 +327,4 @@ func (c *binaryCodec) Unmarshal(data []byte, v interface{}) error {
 // static; the result cannot change between calls.
 func (c *binaryCodec) String() string {
 	return "binaryCodec"
-}
-
-// this is necessary until the deprecated grpc.Codec interface is removed from the grpc server options
-type binaryCodecInterface interface {
-	Marshal(v interface{}) ([]byte, error)
-	Unmarshal(data []byte, v interface{}) error
-	String() string
 }

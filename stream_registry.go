@@ -87,10 +87,10 @@ func (sr *streamRegistry) register(p provider) {
 	if err != nil {
 		panic(err)
 	}
-	se := stream.Event{Ctx: nil, Key: []byte(streamName), Value: bytes}
+	se := &stream.Event{Ctx: context.Background(), Key: []byte(streamName), Value: bytes}
 
 	if sr.g.streamDefinitions != nil {
-		sr.g.streamDefinitions.Submit(&se)
+		sr.g.streamDefinitions.Submit(se)
 	}
 }
 

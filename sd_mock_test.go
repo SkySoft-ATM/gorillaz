@@ -58,7 +58,7 @@ func startExternalService(t *testing.T) net.Listener {
 	grpcListener, err := net.Listen("tcp", ":0")
 	failIf(t, err)
 	server := grpc.NewServer(grpc.UnaryInterceptor(TracingServerInterceptor())) // this is done automatically for the gorillaz gRPC server
-	test.RegisterTestServiceServer(server, testService{t: t})
+	test.RegisterTestServiceServer(server, &testService{t: t})
 	go server.Serve(grpcListener)
 	return grpcListener
 }

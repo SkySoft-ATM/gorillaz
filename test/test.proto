@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+option go_package = "github.com/skysoft-atm/gorillaz/test";
+
 package test;
 
 service TestService {

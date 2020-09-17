@@ -24,31 +24,27 @@ func (m *Metadata) ForeachKey(handler func(key, val string) error) error {
 	return nil
 }
 
-func MetadataToContext(metadata *Metadata) context.Context {
-	ctx := context.WithValue(context.Background(), streamTimestampNs, metadata.StreamTimestamp)
-	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
-	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
-	wireContext, err := opentracing.GlobalTracer().Extract(opentracing.TextMap, &metadata)
-	op := "gorillaz.stream.received"
-	var span opentracing.Span
-
-	// if no span is available, create a brand new one
-	// otherwise, create a span with received span as parent
-	if err != nil || wireContext == nil {
-		span = opentracing.StartSpan(op)
-	} else {
-		span = opentracing.StartSpan(op, opentracing.ChildOf(wireContext))
+func FillTracingSpan(e *Event, parent *Event) {
+	if opentracing.SpanFromContext(e.Ctx) == nil {
+		// check if there is no span in the original msg
+		if parent != nil {
+			originalSpan := opentracing.SpanFromContext(parent.Ctx)
+			if originalSpan != nil {
+				e.Ctx = opentracing.ContextWithSpan(e.Ctx, originalSpan)
+			}
+		}
 	}
-	span.Finish()
-	ctx = opentracing.ContextWithSpan(ctx, span)
-	return ctx
 }
 
-// contextToMetadata serialize evt.Context into a stream.Metadata with the tracing serialized as Text
-func ContextToMetadata(ctx context.Context, metadata *Metadata, streamName string, tracingEnabled bool) error {
+func EventMetadata(e *Event) (*Metadata, error) {
+	ctx := e.Ctx
+
 	streamTs := time.Now().UnixNano()
 	var eventTs int64
 	var originStreamTs int64
+	var eventType string
+	var eventTypeVersion string
+	var ts int64
 	if ctx != nil {
 		if ts := ctx.Value(eventTimeNs); ts != nil {
 			eventTs = ts.(int64)
@@ -56,36 +52,67 @@ func ContextToMetadata(ctx context.Context, metadata *Metadata, streamName strin
 		if ts := ctx.Value(originStreamTimestampNs); ts != nil {
 			originStreamTs = ts.(int64)
 		}
+		if v := ctx.Value(eventTypeKey); v != nil {
+			eventType = v.(string)
+		}
+		if v := ctx.Value(eventTypeVersionKey); v != nil {
+			eventTypeVersion = v.(string)
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			ts = deadline.UnixNano()
+		}
 	}
 
 	if originStreamTs == 0 {
 		originStreamTs = streamTs
 	}
+
+	metadata := &Metadata{
+		KeyValue: make(map[string]string),
+	}
+
 	metadata.EventTimestamp = eventTs
 	metadata.OriginStreamTimestamp = originStreamTs
 	metadata.StreamTimestamp = streamTs
-	for key := range metadata.KeyValue {
-		delete(metadata.KeyValue, key)
-	}
+	metadata.EventType = eventType
+	metadata.EventTypeVersion = eventTypeVersion
+	metadata.Deadline = ts
 
-	var sp opentracing.Span
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	sp = opentracing.SpanFromContext(ctx)
 
-	// create and close a span just to have a trace that a message was sent, it can always be useful
-	if sp == nil && tracingEnabled {
-		sp, _ = opentracing.StartSpanFromContext(ctx, "gorillaz.stream.sending")
-		sp.SetBaggageItem("streamName", streamName)
-		sp.Finish()
-	}
+	sp := opentracing.SpanFromContext(ctx)
 	if sp != nil {
 		err := opentracing.GlobalTracer().Inject(sp.Context(), opentracing.TextMap, metadata)
 		if err != nil {
-			err = fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)
-			return err
+			return nil, fmt.Errorf("cannot inject tracing headers in Metadata, %+v", err)
 		}
 	}
-	return nil
+	return metadata, nil
+}
+
+func Ctx(metadata *Metadata) context.Context {
+	ctx := context.Background()
+	if metadata == nil {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, eventTimeNs, metadata.EventTimestamp)
+	ctx = context.WithValue(ctx, originStreamTimestampNs, metadata.OriginStreamTimestamp)
+	ctx = context.WithValue(ctx, streamTimestampNs, metadata.StreamTimestamp)
+	ctx = context.WithValue(ctx, eventTypeKey, metadata.EventType)
+	ctx = context.WithValue(ctx, eventTypeVersionKey, metadata.EventTypeVersion)
+	ctx = context.WithValue(ctx, deadlineKey, metadata.Deadline)
+
+	spCtx, _ := opentracing.GlobalTracer().Extract(opentracing.TextMap, metadata)
+
+	op := "gorillaz.stream.event.created"
+	var span opentracing.Span
+	if spCtx == nil {
+		span = opentracing.StartSpan(op)
+	} else {
+		span = opentracing.StartSpan(op, opentracing.ChildOf(spCtx))
+	}
+	ctx = opentracing.ContextWithSpan(ctx, span)
+	return ctx
 }

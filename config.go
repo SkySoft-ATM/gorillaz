@@ -28,6 +28,8 @@ func init() {
 	flag.Int("http.port", 0, "http port")
 	flag.Int("grpc.port", 0, "grpc port")
 	flag.Int("metrics.publication.interval.ms", 400, "interval of prometheus metrics publication over gRPC stream")
+	flag.String("nats.addr", "", "nats broker address")
+	flag.Uint64("nats.connect_timeout_ms", 5000, "nats connection timeout")
 }
 
 func parseConfiguration(g *Gaz, configPath string) {

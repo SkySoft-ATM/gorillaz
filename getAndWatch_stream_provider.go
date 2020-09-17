@@ -154,7 +154,8 @@ func (p *GetAndWatchStreamProvider) sendLoop(strm grpc.ServerStream, peer Peer, 
 				}
 				gwe.Key = se.Key
 				gwe.Value = se.Value
-				err := stream.ContextToMetadata(se.Ctx, gwe.Metadata, p.streamDef.Name, p.config.TracingEnabled)
+				var err error
+				gwe.Metadata, err = stream.EventMetadata(se)
 				if err != nil {
 					Log.Error("failed to inject context data into metadata", zap.Error(err))
 				}
