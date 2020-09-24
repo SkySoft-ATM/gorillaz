@@ -93,6 +93,31 @@ func SetEventTimestamp(evt *Event, t time.Time) {
 	evt.Ctx = context.WithValue(evt.Ctx, eventTimeNs, t.UnixNano())
 }
 
+// SetEventTime stores in the event the timestamp of when the event happened (as opposite as when it was streamed).
+// use this function to store values such as when an observation was recorded
+func (evt *Event) SetEventTime(t time.Time) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, eventTimeNs, t.UnixNano())
+}
+
+// SetOriginStreamTime sets the time when the event was sent from the first producer
+func (evt *Event) SetOriginStreamTime(t time.Time) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, originStreamTimestampNs, t.UnixNano())
+}
+
+// SetStreamTime sets the time when the event was sent from the producer
+func (evt *Event) SetStreamTime(t time.Time) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, streamTimestampNs, t.UnixNano())
+}
+
 // EventTimestamp returns the event creation time Epoch in nanoseconds
 func EventTimestamp(e *Event) int64 {
 	if e.Ctx == nil {
