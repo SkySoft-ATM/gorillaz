@@ -2,11 +2,12 @@ package gorillaz
 
 import (
 	"flag"
-	"github.com/spf13/pflag"
 	"log"
 	"os"
 	"path"
 	"strings"
+
+	"github.com/spf13/pflag"
 )
 
 const defaultConfigPath = "configs"
@@ -29,6 +30,7 @@ func init() {
 	flag.Int("grpc.port", 0, "grpc port")
 	flag.Int("metrics.publication.interval.ms", 400, "interval of prometheus metrics publication over gRPC stream")
 	flag.String("nats.addr", "", "nats broker address")
+	flag.Bool("nats.add.env.prefix", false, "configure whether or not the nats subjects should be prefixed by the gorillaz env")
 	flag.Uint64("nats.connect_timeout_ms", 5000, "nats connection timeout")
 }
 

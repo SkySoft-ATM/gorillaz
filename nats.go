@@ -3,11 +3,12 @@ package gorillaz
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/nats-io/nats.go"
 	"github.com/skysoft-atm/gorillaz/stream"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 // PullNatsStream returns the next subject and event for the given stream and consumer
@@ -61,6 +62,9 @@ func WithQueue(queue string) NatsConsumerOpt {
 // SubscribeNatsSubject subscribes to a Nats stream, and forward received messages to handler
 // An error is returned if the subscription fails, but not when the connection with Nats is interrupted
 func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...NatsConsumerOpt) (*NatsSubscription, error) {
+	if g.addEnvPrefixToNats {
+		subject = g.Env + "." + subject
+	}
 	c := &NatsConsumerOpts{
 		autoAck:        false,
 		tracingEnabled: false,
@@ -149,6 +153,9 @@ func WithNatsTracingEnabled() NatsPublishOpt {
 }
 
 func (g *Gaz) NatsPublish(subject string, e *stream.Event, opts ...NatsPublishOpt) error {
+	if g.addEnvPrefixToNats {
+		subject = g.Env + "." + subject
+	}
 	conf := &NatsPublishOpts{}
 
 	for _, opt := range opts {
@@ -167,6 +174,9 @@ func (g *Gaz) NatsPublish(subject string, e *stream.Event, opts ...NatsPublishOp
 }
 
 func (g *Gaz) NatsRequest(ctx context.Context, subject string, e *stream.Event, opts ...NatsPublishOpt) (*stream.Event, error) {
+	if g.addEnvPrefixToNats {
+		subject = g.Env + "." + subject
+	}
 	conf := &NatsPublishOpts{}
 
 	for _, opt := range opts {

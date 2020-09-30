@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go"
 	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,6 +50,7 @@ type Gaz struct {
 	prometheusRegistry    *prometheus.Registry
 	bindConfigKeysAsFlag  bool
 	streamDefinitions     *GetAndWatchStreamProvider
+	addEnvPrefixToNats    bool
 }
 
 type streamConsumerRegistry struct {
@@ -282,6 +284,7 @@ func (g *Gaz) Run() <-chan struct{} {
 
 	if addr := g.Viper.GetString("nats.addr"); addr != "" {
 		g.mustInitNats(addr)
+		g.addEnvPrefixToNats = g.Viper.GetBool("nats.add.env.prefix")
 	}
 
 	var waitgroup sync.WaitGroup
