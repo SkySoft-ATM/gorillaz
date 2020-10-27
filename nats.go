@@ -88,11 +88,6 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 
 		response, err := handler(m.Subject, e)
 
-		// make sure the response always have a non nil ctx
-		if response.Ctx == nil {
-			response.Ctx = context.Background()
-		}
-
 		if err == nil {
 			if m.Reply != "" && c.autoAck {
 				Log.Debug("ack", zap.String("subject", subject), zap.String("reply", m.Reply))
@@ -105,6 +100,9 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 		}
 
 		if response != nil && m.Reply != "" {
+			if response.Ctx == nil {
+				response.Ctx = context.Background()
+			}
 			stream.FillTracingSpan(response, e)
 
 			metadata, err := stream.EventMetadata(response)
