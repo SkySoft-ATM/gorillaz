@@ -76,6 +76,15 @@ func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consum
 		return eventChan, errChan
 	}
 
+	nextReq := JSApiConsumerGetNextRequest{
+		Batch: o.batchSize / 2,
+	}
+	jNextReq, err := json.Marshal(nextReq)
+	if err != nil {
+		errChan <- err
+		return eventChan, errChan
+	}
+
 	go func() {
 		sub, err := g.NatsConn.SubscribeSync(nats.NewInbox())
 		if err != nil {
@@ -104,8 +113,8 @@ func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consum
 				return
 			}
 			received++
-			if received > o.batchSize/2 { // request before we reach the end of the batch
-				err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
+			if received >= o.batchSize/2 { // request before we reach the end of the batch
+				err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jNextReq})
 				if err != nil {
 					errChan <- err
 					return
