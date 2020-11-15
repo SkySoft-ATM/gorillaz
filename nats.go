@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -25,6 +26,107 @@ func (g *Gaz) PullNatsStream(ctx context.Context, stream string, consumer string
 		return msg.Respond(nil)
 	}
 	return msg.Subject, e, nil
+}
+
+type JSApiConsumerGetNextRequest struct {
+	Expires time.Time `json:"expires,omitempty"`
+	Batch   int       `json:"batch,omitempty"`
+	NoWait  bool      `json:"no_wait,omitempty"`
+}
+
+type pullOptions struct {
+	batchSize                 int
+	closeOnEndOfStreamReached bool
+}
+
+type PullOption func(*pullOptions)
+
+var CloseOnEndOfStream = func(o *pullOptions) {
+	o.closeOnEndOfStreamReached = true
+}
+
+func BatchSize(s int) func(o *pullOptions) {
+	return func(o *pullOptions) {
+		o.batchSize = s
+	}
+}
+
+// Pulls messages from a stream by batch, the batch size is configurable and requests for new messages are dispatched when half of the batch size has been received to improve latency
+// A consumer with the given name must exists before calling this method.
+// Messages are automatically acked to jetstream, so if any processing error is encountered, the client should start over with a new consumer.
+func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
+	o := pullOptions{
+		batchSize:                 100,
+		closeOnEndOfStreamReached: false,
+	}
+	for _, opt := range options {
+		opt(&o)
+	}
+	eventChan := make(chan *stream.Event, o.batchSize)
+	errChan := make(chan error, 1)
+
+	subj := "$JS.API.CONSUMER.MSG.NEXT." + streamName + "." + consumer
+
+	req := JSApiConsumerGetNextRequest{
+		Batch: o.batchSize,
+	}
+	jreq, err := json.Marshal(req)
+	if err != nil {
+		errChan <- err
+		return eventChan, errChan
+	}
+
+	go func() {
+		sub, err := g.NatsConn.SubscribeSync(nats.NewInbox())
+		if err != nil {
+			Log.Warn("subscribe failed", zap.Error(err))
+			errChan <- err
+		}
+		defer func() {
+			err := sub.Unsubscribe()
+			if err != nil {
+				Log.Warn("Could not unsubscribe", zap.Error(err))
+			}
+			close(eventChan)
+			close(errChan)
+		}()
+		err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
+		if err != nil {
+			errChan <- err
+			return
+		}
+		received := 0
+
+		for {
+			msg, err := sub.NextMsgWithContext(ctx)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			received++
+			if received > o.batchSize/2 { // request before we reach the end of the batch
+				err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
+				if err != nil {
+					errChan <- err
+					return
+				}
+				received = 0
+			}
+			event := msgToEvent(msg)
+			eventChan <- event
+
+			if event.Pending() == 0 && o.closeOnEndOfStreamReached {
+				return
+			}
+
+			err = msg.Ack()
+			if err != nil {
+				errChan <- fmt.Errorf("could not ack message: %w", err)
+				return
+			}
+		}
+	}()
+	return eventChan, errChan
 }
 
 // MsgHandler handles received events from Nats
@@ -214,7 +316,15 @@ func msgToEvent(msg *nats.Msg) *stream.Event {
 		value = evt.Value
 		ctx = stream.Ctx(evt.Metadata)
 	}
-	return &stream.Event{Ctx: ctx, Key: key, Value: value, AckFunc: func() error { return nil }}
+	e := &stream.Event{Ctx: ctx, Key: key, Value: value, AckFunc: func() error { return nil }}
+	meta, err := msg.JetStreamMetaData()
+	if err == nil && meta != nil {
+		e.SetPending(meta.Pending)
+		e.SetConsumerSeq(meta.ConsumerSeq)
+		e.SetStreamSeq(meta.StreamSeq)
+		e.SetSubject(msg.Subject)
+	}
+	return e
 }
 
 type NatsSubscription struct {

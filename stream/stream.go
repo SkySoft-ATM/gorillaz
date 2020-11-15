@@ -28,6 +28,10 @@ const eventTimeNs = key("event_time_ns")
 const streamTimestampNs = key("stream_timestamp_ns")
 const originStreamTimestampNs = key("origin_stream_timestamp_ns")
 const deadlineKey = key("deadline")
+const pendingKey = key("pending")
+const subjectKey = key("subject")
+const consumerSeqKey = key("consumerSeq")
+const streamSeqKey = key("streamSeq")
 
 // StreamTimestamp returns the time when the event was sent from the producer in Epoch in nanoseconds
 func StreamTimestamp(e *Event) int64 {
@@ -67,10 +71,10 @@ func (evt *Event) CtxWithDeadline() (context.Context, context.CancelFunc) {
 
 	// if the deadline is set to 0, consider it as no deadline
 	if !ok || deadline == 0 {
-		return evt.Ctx, func(){}
+		return evt.Ctx, func() {}
 	}
 	sec := deadline / 1000000000
-	ns := (deadline - sec)*1000000000
+	ns := (deadline - sec) * 1000000000
 
 	t := time.Unix(sec, ns)
 	return context.WithDeadline(evt.Ctx, t)
@@ -175,6 +179,90 @@ func (evt *Event) EventTypeVersionStr() string {
 	}
 	if eType, ok := v.(string); ok {
 		return eType
+	}
+	return ""
+}
+
+func (evt *Event) SetPending(pending int) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, pendingKey, pending)
+}
+
+func (evt *Event) Pending() int {
+	if evt.Ctx == nil {
+		return 0
+	}
+	v := evt.Ctx.Value(pendingKey)
+	if v == nil {
+		return 0
+	}
+	if resultType, ok := v.(int); ok {
+		return resultType
+	}
+	return 0
+}
+
+func (evt *Event) SetConsumerSeq(consumerSeq int) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, consumerSeqKey, consumerSeq)
+}
+
+func (evt *Event) ConsumerSeq() int {
+	if evt.Ctx == nil {
+		return 0
+	}
+	v := evt.Ctx.Value(consumerSeqKey)
+	if v == nil {
+		return 0
+	}
+	if resultType, ok := v.(int); ok {
+		return resultType
+	}
+	return 0
+}
+
+func (evt *Event) SetStreamSeq(consumerSeq int) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, streamSeqKey, consumerSeq)
+}
+
+func (evt *Event) StreamSeq() int {
+	if evt.Ctx == nil {
+		return 0
+	}
+	v := evt.Ctx.Value(streamSeqKey)
+	if v == nil {
+		return 0
+	}
+	if resultType, ok := v.(int); ok {
+		return resultType
+	}
+	return 0
+}
+
+func (evt *Event) SetSubject(version string) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, subjectKey, version)
+}
+
+func (evt *Event) Subject() string {
+	if evt.Ctx == nil {
+		return ""
+	}
+	v := evt.Ctx.Value(subjectKey)
+	if v == nil {
+		return ""
+	}
+	if resultType, ok := v.(string); ok {
+		return resultType
 	}
 	return ""
 }
