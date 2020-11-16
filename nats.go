@@ -348,6 +348,7 @@ func msgToEvent(msg *nats.Msg) *stream.Event {
 		e.SetConsumerSeq(meta.ConsumerSeq)
 		e.SetStreamSeq(meta.StreamSeq)
 		e.SetSubject(msg.Subject)
+		e.SetStream(meta.Stream)
 	}
 	return e
 }

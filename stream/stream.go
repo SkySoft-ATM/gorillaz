@@ -30,6 +30,7 @@ const originStreamTimestampNs = key("origin_stream_timestamp_ns")
 const deadlineKey = key("deadline")
 const pendingKey = key("pending")
 const subjectKey = key("subject")
+const streamKey = key("stream")
 const consumerSeqKey = key("consumerSeq")
 const streamSeqKey = key("streamSeq")
 
@@ -258,6 +259,27 @@ func (evt *Event) Subject() string {
 		return ""
 	}
 	v := evt.Ctx.Value(subjectKey)
+	if v == nil {
+		return ""
+	}
+	if resultType, ok := v.(string); ok {
+		return resultType
+	}
+	return ""
+}
+
+func (evt *Event) SetStream(version string) {
+	if evt.Ctx == nil {
+		evt.Ctx = context.Background()
+	}
+	evt.Ctx = context.WithValue(evt.Ctx, streamKey, version)
+}
+
+func (evt *Event) Stream() string {
+	if evt.Ctx == nil {
+		return ""
+	}
+	v := evt.Ctx.Value(streamKey)
 	if v == nil {
 		return ""
 	}
