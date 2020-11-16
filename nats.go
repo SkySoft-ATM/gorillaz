@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -12,11 +13,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// PullNatsStream returns the next subject and event for the given stream and consumer
-// If the event is processed successfully, it must be acknowledge to get a new message. If the message is not acknowledge, then PullNatsStream will return the same event multiple times
+// PullJetstream returns the next subject and event for the given stream and consumer
+// If the event is processed successfully, it must be acknowledge to get a new message. If the message is not acknowledge, then PullJetstream will return the same event multiple times
 // If no message is available after the ctx timeout, then an error nats.ErrTimeout is returned with an empty subject and an event nil
-func (g *Gaz) PullNatsStream(ctx context.Context, stream string, consumer string) (subject string, event *stream.Event, err error) {
-	subj := "$JS.API.CONSUMER.MSG.NEXT." + stream + "." + consumer
+func (g *Gaz) PullJetstream(ctx context.Context, stream string, consumer string) (subject string, event *stream.Event, err error) {
+	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.addEnvIfMissing(stream) + "." + consumer
 	msg, err := g.NatsConn.RequestWithContext(ctx, subj, nil)
 	if err != nil {
 		return "", nil, err
@@ -51,10 +52,17 @@ func BatchSize(s int) func(o *pullOptions) {
 	}
 }
 
+func (g *Gaz) addEnvIfMissing(streamName string) string {
+	if !strings.HasPrefix(streamName, g.Env) {
+		return g.Env + "-" + streamName
+	}
+	return streamName
+}
+
 // Pulls messages from a stream by batch, the batch size is configurable and requests for new messages are dispatched when half of the batch size has been received to improve latency
 // A consumer with the given name must exists before calling this method.
 // Messages are automatically acked to jetstream, so if any processing error is encountered, the client should start over with a new consumer.
-func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
+func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
 	o := pullOptions{
 		batchSize:                 100,
 		closeOnEndOfStreamReached: false,
@@ -65,7 +73,7 @@ func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consum
 	eventChan := make(chan *stream.Event, o.batchSize)
 	errChan := make(chan error, 1)
 
-	subj := "$JS.API.CONSUMER.MSG.NEXT." + streamName + "." + consumer
+	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.addEnvIfMissing(streamName) + "." + consumer
 
 	req := JSApiConsumerGetNextRequest{
 		Batch: o.batchSize,
@@ -90,13 +98,14 @@ func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consum
 		if err != nil {
 			Log.Warn("subscribe failed", zap.Error(err))
 			errChan <- err
+			return
 		}
 		defer func() {
 			err := sub.Unsubscribe()
 			if err != nil {
 				Log.Warn("Could not unsubscribe", zap.Error(err))
 			}
-			close(eventChan)
+
 			close(errChan)
 		}()
 		err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
@@ -121,18 +130,25 @@ func (g *Gaz) PullNatsStreamBatch(ctx context.Context, streamName string, consum
 				}
 				received = 0
 			}
-			event := msgToEvent(msg)
-			eventChan <- event
-
-			if event.Pending() == 0 && o.closeOnEndOfStreamReached {
+			if len(msg.Data) == 0 && msg.Header != nil && msg.Header.Get("Status") != "" {
+				errChan <- fmt.Errorf("status %s received from Jetstream", msg.Header.Get("Status"))
+				_ = msg.Ack()
 				return
 			}
+			event := msgToEvent(msg)
+			eventChan <- event
 
 			err = msg.Ack()
 			if err != nil {
 				errChan <- fmt.Errorf("could not ack message: %w", err)
 				return
 			}
+
+			if event.Pending() == 0 && o.closeOnEndOfStreamReached {
+				close(eventChan)
+				return
+			}
+
 		}
 	}()
 	return eventChan, errChan
