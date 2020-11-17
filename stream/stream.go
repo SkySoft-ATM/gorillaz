@@ -75,7 +75,7 @@ func (evt *Event) CtxWithDeadline() (context.Context, context.CancelFunc) {
 		return evt.Ctx, func() {}
 	}
 	sec := deadline / 1000000000
-	ns := (deadline - sec) * 1000000000
+	ns := deadline - (sec * 1000000000)
 
 	t := time.Unix(sec, ns)
 	return context.WithDeadline(evt.Ctx, t)
