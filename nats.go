@@ -46,6 +46,12 @@ var CloseOnEndOfStream = func(o *pullOptions) {
 	o.closeOnEndOfStreamReached = true
 }
 
+func WithCloseOnEndOfStream(c bool) func(o *pullOptions) {
+	return func(o *pullOptions) {
+		o.closeOnEndOfStreamReached = c
+	}
+}
+
 func BatchSize(s int) func(o *pullOptions) {
 	return func(o *pullOptions) {
 		o.batchSize = s
