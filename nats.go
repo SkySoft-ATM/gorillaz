@@ -80,7 +80,7 @@ func (g *Gaz) AddConsumerEnvIfMissing(consumerName string) string {
 // Messages are automatically acked to jetstream, so if any processing error is encountered, the client should start over with a new consumer.
 func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
 	o := pullOptions{
-		batchSize:                 10,
+		batchSize:                 100,
 		closeOnEndOfStreamReached: false,
 		ackImmediately:            false,
 	}
