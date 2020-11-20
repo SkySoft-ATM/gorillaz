@@ -17,7 +17,7 @@ import (
 // If the event is processed successfully, it must be acknowledge to get a new message. If the message is not acknowledge, then PullJetstream will return the same event multiple times
 // If no message is available after the ctx timeout, then an error nats.ErrTimeout is returned with an empty subject and an event nil
 func (g *Gaz) PullJetstream(ctx context.Context, stream string, consumer string) (subject string, event *stream.Event, err error) {
-	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.addEnvIfMissing(stream) + "." + consumer
+	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.AddStreamEnvIfMissing(stream) + "." + consumer
 	msg, err := g.NatsConn.RequestWithContext(ctx, subj, nil)
 	if err != nil {
 		return "", nil, err
@@ -38,17 +38,20 @@ type JSApiConsumerGetNextRequest struct {
 type pullOptions struct {
 	batchSize                 int
 	closeOnEndOfStreamReached bool
+	ackImmediately            bool
 }
 
 type PullOption func(*pullOptions)
 
-var CloseOnEndOfStream = func(o *pullOptions) {
-	o.closeOnEndOfStreamReached = true
-}
-
-func WithCloseOnEndOfStream(c bool) func(o *pullOptions) {
+func CloseOnEndOfStream(c bool) func(o *pullOptions) {
 	return func(o *pullOptions) {
 		o.closeOnEndOfStreamReached = c
+	}
+}
+
+func AckImmediately(c bool) func(o *pullOptions) {
+	return func(o *pullOptions) {
+		o.ackImmediately = c
 	}
 }
 
@@ -58,11 +61,18 @@ func BatchSize(s int) func(o *pullOptions) {
 	}
 }
 
-func (g *Gaz) addEnvIfMissing(streamName string) string {
+func (g *Gaz) AddStreamEnvIfMissing(streamName string) string {
 	if !strings.HasPrefix(streamName, g.Env) {
 		return g.Env + "-" + streamName
 	}
 	return streamName
+}
+
+func (g *Gaz) AddConsumerEnvIfMissing(consumerName string) string {
+	if !strings.HasPrefix(consumerName, g.Env) {
+		return g.Env + consumerName
+	}
+	return consumerName
 }
 
 // Pulls messages from a stream by batch, the batch size is configurable and requests for new messages are dispatched when half of the batch size has been received to improve latency
@@ -70,8 +80,9 @@ func (g *Gaz) addEnvIfMissing(streamName string) string {
 // Messages are automatically acked to jetstream, so if any processing error is encountered, the client should start over with a new consumer.
 func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
 	o := pullOptions{
-		batchSize:                 100,
+		batchSize:                 10,
 		closeOnEndOfStreamReached: false,
+		ackImmediately:            false,
 	}
 	for _, opt := range options {
 		opt(&o)
@@ -79,7 +90,7 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 	eventChan := make(chan *stream.Event, o.batchSize)
 	errChan := make(chan error, 1)
 
-	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.addEnvIfMissing(streamName) + "." + consumer
+	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.AddStreamEnvIfMissing(streamName) + "." + g.AddConsumerEnvIfMissing(consumer)
 
 	req := JSApiConsumerGetNextRequest{
 		Batch: o.batchSize,
@@ -90,8 +101,12 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 		return eventChan, errChan
 	}
 
+	nextBatchSize := o.batchSize / 2
+	if nextBatchSize <= 0 {
+		nextBatchSize = 1
+	}
 	nextReq := JSApiConsumerGetNextRequest{
-		Batch: o.batchSize / 2,
+		Batch: nextBatchSize,
 	}
 	jNextReq, err := json.Marshal(nextReq)
 	if err != nil {
@@ -142,13 +157,19 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 				return
 			}
 			event := msgToEvent(msg)
-			eventChan <- event
 
-			err = msg.Ack()
-			if err != nil {
-				errChan <- fmt.Errorf("could not ack message: %w", err)
-				return
+			if o.ackImmediately {
+				err = msg.Ack()
+				if err != nil {
+					errChan <- fmt.Errorf("could not ack message: %w", err)
+					return
+				}
+			} else {
+				event.AckFunc = func() error {
+					return msg.Ack()
+				}
 			}
+			eventChan <- event
 
 			if event.Pending() == 0 && o.closeOnEndOfStreamReached {
 				close(eventChan)
