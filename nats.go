@@ -75,9 +75,8 @@ func (g *Gaz) AddConsumerEnvIfMissing(consumerName string) string {
 	return consumerName
 }
 
-// Pulls messages from a stream by batch, the batch size is configurable and requests for new messages are dispatched when half of the batch size has been received to improve latency
+// Pulls messages from a stream by batch, the batch size is configurable
 // A consumer with the given name must exists before calling this method.
-// Messages are automatically acked to jetstream, so if any processing error is encountered, the client should start over with a new consumer.
 func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
 	o := pullOptions{
 		batchSize:                 100,
@@ -101,19 +100,6 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 		return eventChan, errChan
 	}
 
-	nextBatchSize := o.batchSize / 2
-	if nextBatchSize <= 0 {
-		nextBatchSize = 1
-	}
-	nextReq := JSApiConsumerGetNextRequest{
-		Batch: nextBatchSize,
-	}
-	jNextReq, err := json.Marshal(nextReq)
-	if err != nil {
-		errChan <- err
-		return eventChan, errChan
-	}
-
 	go func() {
 		sub, err := g.NatsConn.SubscribeSync(nats.NewInbox())
 		if err != nil {
@@ -126,7 +112,6 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 			if err != nil {
 				Log.Warn("Could not unsubscribe", zap.Error(err))
 			}
-
 			close(errChan)
 		}()
 		err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
@@ -143,14 +128,6 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 				return
 			}
 			received++
-			if received >= o.batchSize/2 { // request before we reach the end of the batch
-				err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jNextReq})
-				if err != nil {
-					errChan <- err
-					return
-				}
-				received = 0
-			}
 			if len(msg.Data) == 0 && msg.Header != nil && msg.Header.Get("Status") != "" {
 				errChan <- fmt.Errorf("status %s received from Jetstream", msg.Header.Get("Status"))
 				_ = msg.Ack()
@@ -176,6 +153,15 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 				return
 			}
 
+			// for now, don't be too clever by pulling too much in advance
+			if received == o.batchSize {
+				err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
+				if err != nil {
+					errChan <- err
+					return
+				}
+				received = 0
+			}
 		}
 	}()
 	return eventChan, errChan
