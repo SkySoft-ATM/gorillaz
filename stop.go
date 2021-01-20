@@ -1,14 +1,14 @@
 package gorillaz
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
 )
 
-func GracefulStop() {
+func GracefulStop(g *Gaz) {
 	var gracefulStop = make(chan os.Signal)
 	signal.Notify(gracefulStop, syscall.SIGTERM)
 	signal.Notify(gracefulStop, syscall.SIGINT)
@@ -16,7 +16,12 @@ func GracefulStop() {
 		sig := <-gracefulStop
 		Sugar.Infof("Caught OS signal: %v", sig)
 		buf := make([]byte, 1<<20)
+		log.Printf("=== received SIGQUIT ===\n")
+		for _,callback := range g.cleanupCallbacks {
+			callback()
+		}
 		stacklen := runtime.Stack(buf, true)
-		panic(fmt.Sprintf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen]))
+		log.Printf("*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		os.Exit(1)
 	}()
 }

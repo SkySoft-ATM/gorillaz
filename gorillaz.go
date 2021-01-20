@@ -51,6 +51,7 @@ type Gaz struct {
 	bindConfigKeysAsFlag  bool
 	streamDefinitions     *GetAndWatchStreamProvider
 	addEnvPrefixToNats    bool
+	cleanupCallbacks      []func()
 }
 
 type streamConsumerRegistry struct {
@@ -131,6 +132,13 @@ func WithGrpcServerOptionsSupplier(s func(*Gaz) []grpc.ServerOption) Option {
 	}}
 }
 
+func WithCleanupCallback(callback func()) Option {
+	return Option{func(g *Gaz) error {
+		g.cleanupCallbacks = append(g.cleanupCallbacks, callback)
+		return nil
+	}}
+}
+
 func (g *Gaz) tracingEnabled() bool {
 	return g.Viper.GetBool("tracing.enabled")
 }
@@ -138,8 +146,8 @@ func (g *Gaz) tracingEnabled() bool {
 // New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
-	GracefulStop()
 	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), Viper: viper.New(), prometheusRegistry: prometheus.NewRegistry()}
+	GracefulStop(&gaz)
 
 	// expose Go metrics and process metrics as Prometheus DefaultRegistry would
 	// https://github.com/prometheus/client_golang/blob/v1.1.0/prometheus/registry.go#L60
