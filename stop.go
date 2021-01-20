@@ -1,7 +1,7 @@
 package gorillaz
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
@@ -17,7 +17,6 @@ func GracefulStop() {
 		Sugar.Infof("Caught OS signal: %v", sig)
 		buf := make([]byte, 1<<20)
 		stacklen := runtime.Stack(buf, true)
-		log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
-		os.Exit(0)
+		panic(fmt.Sprintf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen]))
 	}()
 }
