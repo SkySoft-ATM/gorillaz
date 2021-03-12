@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -52,6 +53,7 @@ type Gaz struct {
 	streamDefinitions     *GetAndWatchStreamProvider
 	addEnvPrefixToNats    bool
 	cleanupCallbacks      []func()
+	httpsTlsConfig        *tls.Config
 }
 
 type streamConsumerRegistry struct {
@@ -135,6 +137,41 @@ func WithGrpcServerOptionsSupplier(s func(*Gaz) []grpc.ServerOption) Option {
 func WithCleanupCallback(callback func()) Option {
 	return Option{func(g *Gaz) error {
 		g.cleanupCallbacks = append(g.cleanupCallbacks, callback)
+		return nil
+	}}
+}
+
+func WithHttpsTlsConfig(c *tls.Config) Option {
+	return Option{func(g *Gaz) error {
+		if c == nil {
+			return nil
+		}
+		g.httpsTlsConfig = &tls.Config{
+			Rand:                        c.Rand,
+			Time:                        c.Time,
+			Certificates:                c.Certificates,
+			GetCertificate:              c.GetCertificate,
+			GetClientCertificate:        c.GetClientCertificate,
+			GetConfigForClient:          c.GetConfigForClient,
+			VerifyPeerCertificate:       c.VerifyPeerCertificate,
+			VerifyConnection:            c.VerifyConnection,
+			RootCAs:                     c.RootCAs,
+			NextProtos:                  c.NextProtos,
+			ServerName:                  c.ServerName,
+			ClientAuth:                  c.ClientAuth,
+			ClientCAs:                   c.ClientCAs,
+			InsecureSkipVerify:          c.InsecureSkipVerify,
+			CipherSuites:                c.CipherSuites,
+			PreferServerCipherSuites:    c.PreferServerCipherSuites,
+			SessionTicketsDisabled:      c.SessionTicketsDisabled,
+			ClientSessionCache:          c.ClientSessionCache,
+			MinVersion:                  c.MinVersion,
+			MaxVersion:                  c.MaxVersion,
+			CurvePreferences:            c.CurvePreferences,
+			DynamicRecordSizingDisabled: c.DynamicRecordSizingDisabled,
+			Renegotiation:               c.Renegotiation,
+			KeyLogWriter:                c.KeyLogWriter,
+		}
 		return nil
 	}}
 }
@@ -300,11 +337,38 @@ func (g *Gaz) Run() <-chan struct{} {
 	go g.serveGrpc(&waitgroup)
 
 	port := g.Viper.GetInt("http.port")
-	httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		Log.Panic("HTTP Listen failed", zap.Error(err))
+
+	tlsCert := g.Viper.GetString("https.crt")
+	tlsKey := g.Viper.GetString("https.key")
+	if g.httpsTlsConfig != nil {
+		httpListener, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), g.httpsTlsConfig)
+		if err != nil {
+			Log.Panic("HTTP TLS listen failed", zap.Error(err))
+		}
+		g.httpListener = httpListener
+	} else if tlsKey != "" || tlsCert != "" {
+		if g.httpsTlsConfig == nil {
+			g.httpsTlsConfig = &tls.Config{}
+		}
+		var err error
+		g.httpsTlsConfig.Certificates = make([]tls.Certificate, 1)
+		g.httpsTlsConfig.Certificates[0], err = tls.LoadX509KeyPair(tlsCert, tlsKey)
+		if err != nil {
+			Log.Panic("failed to load tls certificate", zap.Error(err))
+		}
+		httpListener, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), g.httpsTlsConfig)
+		if err != nil {
+			Log.Panic("HTTP TLS listen failed", zap.Error(err))
+		}
+		g.httpListener = httpListener
+
+	} else {
+		httpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			Log.Panic("HTTP Listen failed", zap.Error(err))
+		}
+		g.httpListener = httpListener
 	}
-	g.httpListener = httpListener
 
 	{
 		interval := g.Viper.GetInt("metrics.publication.interval.ms")
@@ -320,7 +384,7 @@ func (g *Gaz) Run() <-chan struct{} {
 		Sugar.Infof("Starting HTTP server on :%d", httpPort)
 		waitgroup.Done()
 
-		err = g.httpSrv.Serve(httpListener)
+		err := g.httpSrv.Serve(g.httpListener)
 		if err != nil {
 			if err != http.ErrServerClosed {
 				Log.Panic("HTTP serve stopped unexpectedly", zap.Error(err))

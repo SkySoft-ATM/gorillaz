@@ -5,11 +5,11 @@ import (
 )
 
 func main() {
-	gaz := gorillaz.New()
-	gaz.Run()
+	g := gorillaz.New()
+	<-g.Run()
 
+	g.SetReady(true)
 	// write your application code here
 
-	gaz.SetReady(true)
 	select {}
 }

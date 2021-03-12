@@ -27,6 +27,8 @@ func init() {
 	flag.String("prometheus.endpoint", "/metrics", "Prometheus endpoint")
 	flag.Bool("prometheus.enabled", true, "Prometheus enabled")
 	flag.Int("http.port", 0, "http port")
+	flag.String("https.crt", "", "path to http tls server certificate")
+	flag.String("https.key", "", "path to http tls server private key")
 	flag.Int("grpc.port", 0, "grpc port")
 	flag.Int("metrics.publication.interval.ms", 400, "interval of prometheus metrics publication over gRPC stream")
 	flag.String("nats.addr", "", "nats broker address")
