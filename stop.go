@@ -17,7 +17,7 @@ func GracefulStop(g *Gaz) {
 		Sugar.Infof("Caught OS signal: %v", sig)
 		buf := make([]byte, 1<<20)
 		log.Printf("=== received SIGQUIT ===\n")
-		for _,callback := range g.cleanupCallbacks {
+		for _, callback := range g.cleanupCallbacks {
 			callback()
 		}
 		stacklen := runtime.Stack(buf, true)

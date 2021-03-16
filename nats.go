@@ -387,7 +387,24 @@ func (n *NatsSubscription) Queue() string {
 func (g *Gaz) mustInitNats(addr string) {
 	timeout := time.Duration(g.Viper.GetUint64("nats.connect_timeout_ms")) * time.Millisecond
 	var err error
-	g.NatsConn, err = nats.Connect(addr, nats.Timeout(timeout))
+
+	var opts []nats.Option
+	opts = append(opts, nats.Timeout(timeout))
+
+	rootCAs := g.Viper.GetString("nats.ca")
+	if len(rootCAs) > 0 {
+		cas := strings.Split(rootCAs, ",")
+		opts = append(opts, nats.RootCAs(cas...))
+	}
+
+	crt := g.Viper.GetString("nats.crt")
+	key := g.Viper.GetString("nats.key")
+
+	if len(crt) > 0 || len(key) > 0 {
+		opts = append(opts, nats.ClientCert(crt, key))
+	}
+
+	g.NatsConn, err = nats.Connect(addr, opts...)
 	if err != nil {
 		Log.Panic("failed to initialize nats connection", zap.Error(err))
 	}

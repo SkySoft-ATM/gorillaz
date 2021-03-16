@@ -34,6 +34,9 @@ func init() {
 	flag.String("nats.addr", "", "nats broker address")
 	flag.Bool("nats.add.env.prefix", true, "configure whether or not the nats subjects should be prefixed by the gorillaz env")
 	flag.Uint64("nats.connect_timeout_ms", 5000, "nats connection timeout")
+	flag.String("nats.ca", "", "nats root ca file list")
+	flag.String("nats.crt", "", "nats client TLS certificate")
+	flag.String("nats.key", "", "nats client TLS certificate")
 }
 
 func parseConfiguration(g *Gaz, configPath string) {
