@@ -102,7 +102,7 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 		opts = append(opts, nats.BindStream(g.AddStreamEnvIfMissing(streamName)))
 		opts = append(opts, nats.AckExplicit())
 
-		consumerInfo, err := js.ConsumerInfo(streamName, consumer)
+		consumerInfo, err := js.ConsumerInfo(g.AddConsumerEnvIfMissing(streamName), g.AddConsumerEnvIfMissing(consumer))
 		if err != nil {
 			errChan <- fmt.Errorf("failed to load consumer information, %+v", err)
 			return
