@@ -102,9 +102,15 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 		opts = append(opts, nats.BindStream(g.AddStreamEnvIfMissing(streamName)))
 		opts = append(opts, nats.AckExplicit())
 
-		sub, err := js.PullSubscribe("", g.AddConsumerEnvIfMissing(consumer), opts...)
+		consumerInfo, err := js.ConsumerInfo(streamName, consumer)
 		if err != nil {
-			errChan <- fmt.Errorf("failed to create jetstream context, %+v", err)
+			errChan <- fmt.Errorf("failed to load consumer information, %+v", err)
+			return
+		}
+
+		sub, err := js.PullSubscribe(consumerInfo.Config.FilterSubject, g.AddConsumerEnvIfMissing(consumer), opts...)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to subscriber, %+v", err)
 			return
 		}
 
