@@ -4,8 +4,11 @@ require (
 	github.com/golang/protobuf v1.4.2
 	github.com/gorilla/mux v1.7.0
 	github.com/gorilla/websocket v1.4.0
+	github.com/minio/highwayhash v1.0.0 // indirect
+	github.com/nats-io/jwt v0.3.3-0.20200519195258-f2bf5ce574c7 // indirect
+	github.com/nats-io/jwt/v2 v2.0.0-20201015190852-e11ce317263c // indirect
 	github.com/nats-io/nats-server/v2 v2.1.8 // indirect
-	github.com/nats-io/nats.go v1.10.1-0.20201111151633-9e1f4a0d80d8
+	github.com/nats-io/nats.go v1.11.0
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.1.0
@@ -15,7 +18,7 @@ require (
 	github.com/spf13/viper v1.6.3
 	github.com/stretchr/testify v1.3.0
 	go.uber.org/zap v1.10.0
-	golang.org/x/net v0.0.0-20200625001655-4c5254603344 // indirect
+	golang.org/x/time v0.0.0-20200416051211-89c76fbcd5d1 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/grpc v1.31.1
 	google.golang.org/protobuf v1.25.0
