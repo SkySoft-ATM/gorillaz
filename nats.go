@@ -355,11 +355,11 @@ func msgToEvent(msg *nats.Msg) *stream.Event {
 		ctx = stream.Ctx(evt.Metadata)
 	}
 	e := &stream.Event{Ctx: ctx, Key: key, Value: value, AckFunc: func() error { return nil }}
-	meta, err := msg.JetStreamMetaData()
+	meta, err := msg.Metadata()
 	if err == nil && meta != nil {
-		e.SetPending(meta.Pending)
-		e.SetConsumerSeq(meta.ConsumerSeq)
-		e.SetStreamSeq(meta.StreamSeq)
+		e.SetPending(int(meta.NumPending))
+		e.SetConsumerSeq(int(meta.Sequence.Consumer))
+		e.SetStreamSeq(int(meta.Sequence.Stream))
 		e.SetSubject(msg.Subject)
 		e.SetStream(meta.Stream)
 	}
