@@ -2,7 +2,6 @@ package gorillaz
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -18,16 +17,13 @@ import (
 // If the event is processed successfully, it must be acknowledge to get a new message. If the message is not acknowledge, then PullJetstream will return the same event multiple times
 // If no message is available after the ctx timeout, then an error nats.ErrTimeout is returned with an empty subject and an event nil
 func (g *Gaz) PullJetstream(ctx context.Context, stream string, consumer string) (subject string, event *stream.Event, err error) {
-	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.AddStreamEnvIfMissing(stream) + "." + consumer
-	msg, err := g.NatsConn.RequestWithContext(ctx, subj, nil)
-	if err != nil {
+	evtC, errC := g.PullJetstreamBatch(ctx, stream, consumer, CloseOnEndOfStream(true))
+	select {
+	case err := <-errC:
 		return "", nil, err
+	case evt := <-evtC:
+		return evt.Subject(), evt, nil
 	}
-	e := NatsMsgToEvent(msg)
-	e.AckFunc = func() error {
-		return msg.Respond(nil)
-	}
-	return msg.Subject, e, nil
 }
 
 type JSApiConsumerGetNextRequest struct {
@@ -86,87 +82,64 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 		closeOnEndOfStreamReached: false,
 		ackImmediately:            false,
 	}
-	for _, opt := range options {
-		opt(&o)
-	}
+
 	eventChan := make(chan *stream.Event, o.batchSize)
 	errChan := make(chan error, 1)
 
-	subj := "$JS.API.CONSUMER.MSG.NEXT." + g.AddStreamEnvIfMissing(streamName) + "." + g.AddConsumerEnvIfMissing(consumer)
-
-	req := JSApiConsumerGetNextRequest{
-		Batch: o.batchSize,
-	}
-	jreq, err := json.Marshal(req)
-	if err != nil {
-		errChan <- err
-		return eventChan, errChan
-	}
-
 	go func() {
-		sub, err := g.NatsConn.SubscribeSync(nats.NewInbox())
-		if err != nil {
-			Log.Warn("subscribe failed", zap.Error(err))
-			errChan <- err
-			return
-		}
 		defer func() {
-			err := sub.Unsubscribe()
-			if err != nil {
-				Log.Warn("Could not unsubscribe", zap.Error(err))
-			}
+			close(eventChan)
 			close(errChan)
 		}()
-		err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
+
+		js, err := g.NatsConn.JetStream()
 		if err != nil {
-			errChan <- err
+			errChan <- fmt.Errorf("failed to create jetstream context, %+v", err)
 			return
 		}
-		received := 0
+
+		var opts []nats.SubOpt
+		opts = append(opts, nats.BindStream(g.AddStreamEnvIfMissing(streamName)))
+		opts = append(opts, nats.AckExplicit())
+
+		sub, err := js.PullSubscribe("", g.AddConsumerEnvIfMissing(consumer), opts...)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to create jetstream context, %+v", err)
+			return
+		}
 
 		for {
+			if ctx.Err() != nil {
+				errChan <- ctx.Err()
+				return
+			}
 			msg, err := sub.NextMsgWithContext(ctx)
 			if err != nil {
 				errChan <- err
 				return
 			}
-			received++
-			if len(msg.Data) == 0 && msg.Header != nil && msg.Header.Get("Status") != "" {
-				errChan <- fmt.Errorf("status %s received from Jetstream", msg.Header.Get("Status"))
-				_ = msg.Ack()
+
+			meta, err := msg.Metadata()
+			if err != nil {
+				errChan <- fmt.Errorf("no metadata found in received msg, %+v", err)
 				return
 			}
-			event := NatsMsgToEvent(msg)
 
 			if o.ackImmediately {
-				err = msg.Ack()
-				if err != nil {
-					errChan <- fmt.Errorf("could not ack message: %w", err)
+				if err := msg.Ack(); err != nil {
+					errChan <- fmt.Errorf("failed to ack received msg, %+v", err)
 					return
 				}
-			} else {
-				event.AckFunc = func() error {
-					return msg.Ack()
-				}
 			}
-			eventChan <- event
-
-			if event.Pending() == 0 && o.closeOnEndOfStreamReached {
-				close(eventChan)
+			evt := NatsMsgToEvent(msg)
+			eventChan <- evt
+			if meta.NumPending == 0 && o.closeOnEndOfStreamReached {
 				return
 			}
-
-			// for now, don't be too clever by pulling too much in advance
-			if received == o.batchSize {
-				err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subj, Reply: sub.Subject, Data: jreq})
-				if err != nil {
-					errChan <- err
-					return
-				}
-				received = 0
-			}
 		}
+
 	}()
+
 	return eventChan, errChan
 }
 
