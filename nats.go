@@ -117,33 +117,37 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 			return
 		}
 
+		subCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
 		for {
-			if ctx.Err() != nil {
+			if subCtx.Err() != nil {
 				errChan <- ctx.Err()
 				return
 			}
-			msg, err := sub.NextMsgWithContext(ctx)
+			msgs, err := sub.Fetch(o.batchSize, nats.Context(subCtx))
 			if err != nil {
-				errChan <- err
+				errChan <- ctx.Err()
 				return
 			}
-
-			meta, err := msg.Metadata()
-			if err != nil {
-				errChan <- fmt.Errorf("no metadata found in received msg, %+v", err)
-				return
-			}
-
-			if o.ackImmediately {
-				if err := msg.Ack(); err != nil {
-					errChan <- fmt.Errorf("failed to ack received msg, %+v", err)
+			for _, msg := range msgs {
+				meta, err := msg.Metadata()
+				if err != nil {
+					errChan <- fmt.Errorf("no metadata found in received msg, %+v", err)
 					return
 				}
-			}
-			evt := NatsMsgToEvent(msg)
-			eventChan <- evt
-			if meta.NumPending == 0 && o.closeOnEndOfStreamReached {
-				return
+
+				if o.ackImmediately {
+					if err := msg.Ack(); err != nil {
+						errChan <- fmt.Errorf("failed to ack received msg, %+v", err)
+						return
+					}
+				}
+				evt := NatsMsgToEvent(msg)
+				eventChan <- evt
+				if meta.NumPending == 0 && o.closeOnEndOfStreamReached {
+					return
+				}
 			}
 		}
 
