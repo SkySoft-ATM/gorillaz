@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Deprecated: use github.com/nats.io/nats.go/Jetstream instead with NatsMsgToEvent
 // PullJetstream returns the next subject and event for the given stream and consumer
 // If the event is processed successfully, it must be acknowledge to get a new message. If the message is not acknowledge, then PullJetstream will return the same event multiple times
 // If no message is available after the ctx timeout, then an error nats.ErrTimeout is returned with an empty subject and an event nil
@@ -22,7 +23,7 @@ func (g *Gaz) PullJetstream(ctx context.Context, stream string, consumer string)
 	if err != nil {
 		return "", nil, err
 	}
-	e := msgToEvent(msg)
+	e := NatsMsgToEvent(msg)
 	e.AckFunc = func() error {
 		return msg.Respond(nil)
 	}
@@ -75,9 +76,11 @@ func (g *Gaz) AddConsumerEnvIfMissing(consumerName string) string {
 	return consumerName
 }
 
+// Deprecated: use github.com/nats.io/nats.go/Jetstream instead with NatsMsgToEvent
 // Pulls messages from a stream by batch, the batch size is configurable
 // A consumer with the given name must exists before calling this method.
 func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consumer string, options ...PullOption) (<-chan *stream.Event, <-chan error) {
+
 	o := pullOptions{
 		batchSize:                 100,
 		closeOnEndOfStreamReached: false,
@@ -133,7 +136,7 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 				_ = msg.Ack()
 				return
 			}
-			event := msgToEvent(msg)
+			event := NatsMsgToEvent(msg)
 
 			if o.ackImmediately {
 				err = msg.Ack()
@@ -217,7 +220,7 @@ func (g *Gaz) SubscribeNatsSubject(subject string, handler MsgHandler, opts ...N
 	}
 
 	do := func(m *nats.Msg) {
-		e := msgToEvent(m)
+		e := NatsMsgToEvent(m)
 
 		// if there is no auto ack, then the user is responsible for calling event.Ack
 		if !c.autoAck && m.Reply != "" {
@@ -338,10 +341,10 @@ func (g *Gaz) NatsRequest(ctx context.Context, subject string, e *stream.Event, 
 	if err != nil {
 		return nil, err
 	}
-	return msgToEvent(msg), nil
+	return NatsMsgToEvent(msg), nil
 }
 
-func msgToEvent(msg *nats.Msg) *stream.Event {
+func NatsMsgToEvent(msg *nats.Msg) *stream.Event {
 	var evt stream.StreamEvent
 	value := msg.Data
 	var key []byte
