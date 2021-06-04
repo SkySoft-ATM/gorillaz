@@ -2,10 +2,11 @@ module github.com/skysoft-atm/gorillaz
 
 require (
 	github.com/golang/protobuf v1.4.2
+	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/gorilla/mux v1.7.0
 	github.com/gorilla/websocket v1.4.0
-	github.com/nats-io/jwt v0.3.3-0.20200519195258-f2bf5ce574c7 // indirect
-	github.com/nats-io/nats-server/v2 v2.1.8 // indirect
+	github.com/klauspost/compress v1.12.1 // indirect
+	github.com/nats-io/nats-server/v2 v2.2.6 // indirect
 	github.com/nats-io/nats.go v1.11.0
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pkg/errors v0.8.1

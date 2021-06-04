@@ -2,6 +2,7 @@ package gorillaz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,9 +28,9 @@ func (g *Gaz) PullJetstream(ctx context.Context, stream string, consumer string)
 }
 
 type JSApiConsumerGetNextRequest struct {
-	Expires time.Time `json:"expires,omitempty"`
-	Batch   int       `json:"batch,omitempty"`
-	NoWait  bool      `json:"no_wait,omitempty"`
+	Expires time.Duration `json:"expires,omitempty"`
+	Batch   int           `json:"batch,omitempty"`
+	NoWait  bool          `json:"no_wait,omitempty"`
 }
 
 type pullOptions struct {
@@ -72,6 +73,10 @@ func (g *Gaz) AddConsumerEnvIfMissing(consumerName string) string {
 	return consumerName
 }
 
+func nextMsgSubject(stream, consumer string) string {
+	return "$JS.API.CONSUMER.MSG.NEXT." + stream + "." + consumer
+}
+
 // Deprecated: use github.com/nats.io/nats.go/Jetstream instead with NatsMsgToEvent
 // Pulls messages from a stream by batch, the batch size is configurable
 // A consumer with the given name must exists before calling this method.
@@ -86,8 +91,21 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 		ackImmediately:            false,
 	}
 
+	for _, opt := range options {
+		opt(&o)
+	}
+
 	eventChan := make(chan *stream.Event, o.batchSize)
 	errChan := make(chan error, 1)
+
+	req := JSApiConsumerGetNextRequest{Batch: o.batchSize, Expires: 3 * time.Second}
+	reqB, err := json.Marshal(req)
+	if err != nil {
+		errChan <- fmt.Errorf("failed to marshal batch request, %+v", err)
+		close(errChan)
+		close(eventChan)
+		return eventChan, errChan
+	}
 
 	go func() {
 		defer func() {
@@ -95,58 +113,57 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 			close(errChan)
 		}()
 
-		js, err := g.NatsConn.JetStream()
+		sub, err := g.NatsConn.SubscribeSync(nats.NewInbox())
 		if err != nil {
-			errChan <- fmt.Errorf("failed to create jetstream context, %+v", err)
+			errChan <- fmt.Errorf("failed to subscribe to inbox, %+v", err)
 			return
 		}
+		subject := nextMsgSubject(streamName, consumer)
 
-		var opts []nats.SubOpt
-		opts = append(opts, nats.BindStream(streamName))
-		opts = append(opts, nats.AckExplicit())
-
-		consumerInfo, err := js.ConsumerInfo(streamName, consumer)
-		if err != nil {
-			errChan <- fmt.Errorf("failed to load consumer information, %+v", err)
-			return
-		}
-
-		sub, err := js.PullSubscribe(consumerInfo.Config.FilterSubject, consumer, opts...)
-		if err != nil {
-			errChan <- fmt.Errorf("failed to subscriber, %+v", err)
-			return
-		}
+		defer func() {
+			if err := sub.Unsubscribe(); err != nil {
+				Log.Warn("failed to unsubscribe subscriber", zap.Error(err))
+			}
+		}()
 
 		for {
 			if ctx.Err() != nil {
 				errChan <- ctx.Err()
 				return
 			}
-			msg, err := sub.NextMsgWithContext(ctx)
+			err = g.NatsConn.PublishMsg(&nats.Msg{Subject: subject, Reply: sub.Subject, Data: reqB})
 			if err != nil {
-				errChan <- err
+				errChan <- fmt.Errorf("failed to create jetstream context, %+v", err)
 				return
 			}
+			for i := 0; i < o.batchSize; i++ {
+				msg, err := sub.NextMsgWithContext(ctx)
+				if err != nil {
+					errChan <- fmt.Errorf("failed to load next message, %+v", err)
+					return
+				}
 
-			meta, err := msg.Metadata()
-			if err != nil {
-				errChan <- fmt.Errorf("no metadata found in received msg, %+v", err)
-				return
-			}
+				// when we requested more messages than available, we receive a 408 status code without a reply
+				if msg.Reply == "" {
+					// that's not a jetstream message, probably a status message
+					continue
+				}
 
-			if o.ackImmediately {
-				if err := msg.Ack(); err != nil {
-					errChan <- fmt.Errorf("failed to ack received msg, %+v", err)
+				if o.ackImmediately {
+					if err := msg.Ack(); err != nil {
+						errChan <- fmt.Errorf("failed to ack received msg, %+v", err)
+						return
+					}
+				}
+
+				evt := NatsMsgToEvent(msg)
+				eventChan <- evt
+
+				if evt.Pending() == 0 && o.closeOnEndOfStreamReached {
 					return
 				}
 			}
-			evt := NatsMsgToEvent(msg)
-			eventChan <- evt
-			if meta.NumPending == 0 && o.closeOnEndOfStreamReached {
-				return
-			}
 		}
-
 	}()
 
 	return eventChan, errChan
@@ -341,6 +358,7 @@ func NatsMsgToEvent(msg *nats.Msg) *stream.Event {
 	}
 	e := &stream.Event{Ctx: ctx, Key: key, Value: value, AckFunc: func() error { return nil }}
 	meta, err := msg.Metadata()
+
 	if err == nil && meta != nil {
 		e.SetPending(int(meta.NumPending))
 		e.SetConsumerSeq(int(meta.Sequence.Consumer))
