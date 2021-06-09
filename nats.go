@@ -157,6 +157,7 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 				}
 
 				evt := NatsMsgToEvent(msg)
+				evt.AckFunc = func() error { return msg.Ack() }
 				eventChan <- evt
 
 				if evt.Pending() == 0 && o.closeOnEndOfStreamReached {
