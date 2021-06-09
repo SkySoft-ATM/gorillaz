@@ -149,15 +149,15 @@ func (g *Gaz) PullJetstreamBatch(ctx context.Context, streamName string, consume
 					continue
 				}
 
+				evt := NatsMsgToEvent(msg)
 				if o.ackImmediately {
 					if err := msg.Ack(); err != nil {
 						errChan <- fmt.Errorf("failed to ack received msg, %+v", err)
 						return
 					}
+				} else {
+					evt.AckFunc = func() error { return msg.Ack() }
 				}
-
-				evt := NatsMsgToEvent(msg)
-				evt.AckFunc = func() error { return msg.Ack() }
 				eventChan <- evt
 
 				if evt.Pending() == 0 && o.closeOnEndOfStreamReached {
