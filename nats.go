@@ -347,14 +347,18 @@ func (g *Gaz) NatsRequest(ctx context.Context, subject string, e *stream.Event, 
 func NatsMsgToEvent(msg *nats.Msg) *stream.Event {
 	var evt stream.StreamEvent
 	value := msg.Data
-	var key []byte
+	key := []byte(msg.Subject)
 	ctx := context.Background()
 
 	// try to deserialize object
 	err := proto.Unmarshal(msg.Data, &evt)
 	if err == nil {
-		key = evt.Key
-		value = evt.Value
+		if len(evt.Key) > 0 {
+			key = evt.Key
+		}
+		if len(evt.Value) > 0 {
+			value = evt.Value
+		}
 		ctx = stream.Ctx(evt.Metadata)
 	}
 	e := &stream.Event{Ctx: ctx, Key: key, Value: value, AckFunc: func() error { return nil }}
