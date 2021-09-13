@@ -412,6 +412,12 @@ func (g *Gaz) mustInitNats(addr string) {
 		opts = append(opts, nats.ClientCert(crt, key))
 	}
 
+	pingInterval := time.Duration(g.Viper.GetUint64("nats.ping_interval_ms")) * time.Millisecond
+	opts = append(opts, nats.PingInterval(pingInterval))
+
+	maxOutPings := g.Viper.GetInt("nats.max_ping_outstanding")
+	opts = append(opts, nats.MaxPingsOutstanding(maxOutPings))
+
 	g.NatsConn, err = nats.Connect(addr, opts...)
 	if err != nil {
 		Log.Panic("failed to initialize nats connection", zap.Error(err))

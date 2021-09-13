@@ -2,13 +2,14 @@ package gorillaz
 
 import (
 	"context"
-	"github.com/gorilla/websocket"
-	"github.com/skysoft-atm/gorillaz/mux"
-	"go.uber.org/zap"
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/skysoft-atm/gorillaz/mux"
+	"go.uber.org/zap"
 )
 
 // serves a file as an http response
