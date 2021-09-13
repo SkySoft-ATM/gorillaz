@@ -418,6 +418,37 @@ func (g *Gaz) mustInitNats(addr string) {
 	maxOutPings := g.Viper.GetInt("nats.max_ping_outstanding")
 	opts = append(opts, nats.MaxPingsOutstanding(maxOutPings))
 
+	opts = append(opts, nats.DisconnectErrHandler(func(conn *nats.Conn, err error) {
+		var addr string
+		if conn != nil {
+			addr = conn.ConnectedAddr()
+		}
+		Log.Warn("nats disconnect error", zap.String("connected_to", addr), zap.Error(err))
+	}))
+
+	opts = append(opts, nats.ErrorHandler(func(conn *nats.Conn, sub *nats.Subscription, err error) {
+		var addr string
+		if conn != nil {
+			addr = conn.ConnectedAddr()
+		}
+		var subStr string
+		var queueStr string
+
+		if sub != nil {
+			subStr = sub.Subject
+			queueStr = sub.Queue
+		}
+		Log.Warn("nats error", zap.String("subject", subStr), zap.String("queue", queueStr), zap.String("connected_to", addr), zap.Error(err))
+	}))
+
+	opts = append(opts, nats.ReconnectHandler(func(conn *nats.Conn) {
+		var addr string
+		if conn != nil {
+			addr = conn.ConnectedAddr()
+		}
+		Log.Warn("nats reconnected", zap.String("connected_to", addr))
+	}))
+
 	g.NatsConn, err = nats.Connect(addr, opts...)
 	if err != nil {
 		Log.Panic("failed to initialize nats connection", zap.Error(err))
