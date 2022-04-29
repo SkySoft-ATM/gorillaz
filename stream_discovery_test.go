@@ -1,11 +1,12 @@
 package gorillaz
 
 import (
+	"testing"
+	"time"
+
 	"github.com/skysoft-atm/gorillaz/stream"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
-	"testing"
-	"time"
 )
 
 func TestStreamDiscovery(t *testing.T) {
