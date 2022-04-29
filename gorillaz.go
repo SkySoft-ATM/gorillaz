@@ -176,11 +176,7 @@ func WithHttpsTlsConfig(c *tls.Config) Option {
 	}}
 }
 
-func (g *Gaz) tracingEnabled() bool {
-	return g.Viper.GetBool("tracing.enabled")
-}
-
-// New initializes the different modules (Logger, Tracing, Metrics, ready and live Probes and Properties)
+// New initializes the different modules (Logger, Metrics, ready and live Probes and Properties)
 // It takes root at the current folder for properties file and a map of properties
 func New(options ...GazOption) *Gaz {
 	gaz := Gaz{Router: mux.NewRouter(), isReady: new(int32), Viper: viper.New(), prometheusRegistry: prometheus.NewRegistry()}
@@ -250,10 +246,6 @@ func New(options ...GazOption) *Gaz {
 		panic(err)
 	}
 
-	if gaz.tracingEnabled() {
-		gaz.InitTracingFromConfig()
-	}
-
 	// necessary to avoid weird 'transport closing' errors
 	// see https://github.com/grpc/grpc-go/issues/2443
 	// see https://github.com/grpc/grpc-go/issues/2160
@@ -274,16 +266,10 @@ func New(options ...GazOption) *Gaz {
 
 	serverOptions = append(serverOptions, gaz.grpcServerOptions...)
 
-	if gaz.tracingEnabled() {
-		serverOptions = append(serverOptions, grpc.UnaryInterceptor(TracingServerInterceptor()))
-	}
-
 	gaz.GrpcServer = grpc.NewServer(serverOptions...)
 	reflection.Register(gaz.GrpcServer)
 	gaz.streamRegistry = newStreamRegistry(&gaz)
-	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition", func(p *GetAndWatchConfig) {
-		p.TracingEnabled = false
-	})
+	sdProvider := gaz.NewGetAndWatchStreamProvider(streamDefinitions, "stream.StreamDefinition")
 	gaz.streamDefinitions = sdProvider
 	stream.RegisterStreamServer(gaz.GrpcServer, gaz.streamRegistry)
 
@@ -460,9 +446,6 @@ func (g *Gaz) GrpcDial(target string, opts ...grpc.DialOption) (*grpc.ClientConn
 	})
 	for i, o := range opts {
 		options[3+i] = o
-	}
-	if g.tracingEnabled() {
-		options = append(options, grpc.WithUnaryInterceptor(TracingClientInterceptor()))
 	}
 
 	return grpc.Dial("gorillaz:///"+target, options...)

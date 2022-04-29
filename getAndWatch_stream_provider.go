@@ -33,7 +33,6 @@ type GetAndWatchConfig struct {
 	SubscriberInputBufferLen int                     // SubscriberInputBufferLen is the size of the channel used to forward events to each client. (default: 256)
 	OnBackPressure           func(streamName string) // OnBackPressure is the function called when a customer cannot consume fast enough and event are dropped. (default: log)
 	Ttl                      time.Duration
-	TracingEnabled           bool
 }
 
 func defaultGetAndWatchConfig() *GetAndWatchConfig {
@@ -43,8 +42,7 @@ func defaultGetAndWatchConfig() *GetAndWatchConfig {
 		OnBackPressure: func(streamName string) {
 			Log.Warn("backpressure applied, an event won't be delivered because it can't consume fast enough", zap.String("stream", streamName))
 		},
-		Ttl:            0,
-		TracingEnabled: true,
+		Ttl: 0,
 	}
 }
 

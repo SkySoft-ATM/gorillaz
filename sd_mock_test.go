@@ -2,12 +2,13 @@ package gorillaz
 
 import (
 	"context"
+	"net"
+	"testing"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/skysoft-atm/gorillaz/test"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
-	"net"
-	"testing"
 )
 
 const serviceName = "MyServiceName"
@@ -19,7 +20,7 @@ type testService struct {
 func (t testService) Send(ctx context.Context, ping *test.Ping) (*test.Pong, error) {
 	span := opentracing.SpanFromContext(ctx)
 	assert.NotNil(t.t, span)
-	return &test.Pong{Name: ping.Name, TraceId: GetTraceId(span)}, nil
+	return &test.Pong{Name: ping.Name}, nil
 }
 
 func TestMockedServiceDiscoveryOfExternalService(t *testing.T) {
@@ -46,18 +47,17 @@ func TestMockedServiceDiscoveryOfExternalService(t *testing.T) {
 	failIf(t, err)
 
 	cli := test.NewTestServiceClient(conn)
-	span, ctx := StartChildSpan(context.Background(), "ping")
+	ctx := context.Background()
 	name := "piiing"
 	pong, err := cli.Send(ctx, &test.Ping{Name: name})
 	failIf(t, err)
-	assert.Equal(t, GetTraceId(span), pong.GetTraceId())
 	assert.Equal(t, name, pong.GetName())
 }
 
 func startExternalService(t *testing.T) net.Listener {
 	grpcListener, err := net.Listen("tcp", ":0")
 	failIf(t, err)
-	server := grpc.NewServer(grpc.UnaryInterceptor(TracingServerInterceptor())) // this is done automatically for the gorillaz gRPC server
+	server := grpc.NewServer() // this is done automatically for the gorillaz gRPC server
 	test.RegisterTestServiceServer(server, &testService{t: t})
 	go server.Serve(grpcListener)
 	return grpcListener
