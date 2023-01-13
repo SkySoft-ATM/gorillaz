@@ -1,5 +1,7 @@
 # DEPRECATED
 
+Gorillaz brings too many dependencies, messes with application flags. It serves Skysoft well, now it's time to go
+
 # gorillaz: a Go common library
 
 ## Gorillaz offers:
