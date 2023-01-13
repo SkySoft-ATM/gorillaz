@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/SkySoft-ATM/gorillaz.svg?branch=master)](https://travis-ci.com/SkySoft-ATM/gorillaz)
+# DEPRECATED
 
 # gorillaz: a Go common library
 
